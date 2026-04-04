@@ -336,13 +336,10 @@ def _render_module_section(
     lines: list[str],
 ) -> None:
     """Render a single module section for README.md."""
-    lines.extend(["", f"## {name}", ""])
+    lines.extend(["", f"## [{name}]({name}.md)", ""])
     desc = module_descriptions.get(name, "")
     if desc:
         lines.append(desc)
-        lines.append("")
-    lines.append(f"Read [Full guide]({name}.md) for detailed informations how to use it")
-    lines.append("")
 
     if data.values:
         lines.append("### Types & Constants")

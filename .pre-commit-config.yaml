@@ -95,15 +95,12 @@ repos:
         pass_filenames: false
         stages:
           - pre-commit
-      - id: check-ai-docs
-        name: check .ai-docs/ freshness
+      - id: update-ai-docs
+        name: regenerate and stage .ai-docs/
         entry: >-
           bash -c 'ai-docs generate > /dev/null 2>&1 || true;
           ruff format .ai-docs/ --quiet 2>/dev/null || true;
-          if ! git diff --quiet -- .ai-docs/; then
-          echo "ERROR: .ai-docs/ is stale after regeneration.";
-          echo "Run: ai-docs generate && ruff format .ai-docs/ && git add .ai-docs/";
-          exit 1; fi'
+          git add .ai-docs/'
         language: system
         pass_filenames: false
         files: \.py$

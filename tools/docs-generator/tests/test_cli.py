@@ -276,7 +276,7 @@ def test_render_readme_module_sections():
     generated = [("llm", 3000)]
     guide_data_map = {"llm": data}
     content = _render_readme(generated, guide_data_map, {}, "")
-    assert "## llm" in content
+    assert "## [llm](llm.md)" in content
     # Functions rendered as Python code snippets
     assert "async def generate(model: str) -> str:" in content
     assert '"""Generate LLM output."""' in content

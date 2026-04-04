@@ -63,8 +63,8 @@ class ExternalProvider:
     on first request. Thread-safe initialization via ``threading.Lock``
     (safe across event loops in test runners).
 
-    Subclasses define domain-specific methods that call ``_post_json()``
-    and ``_get_json()``. Do not store business data on the instance.
+    Subclasses define domain-specific methods that call ``post_json()``
+    and ``get_json()``. Do not store business data on the instance.
 
     Infrastructure singleton rules (CLAUDE.md §1.2 category 2):
         - Assign once at module scope, never reassign.
@@ -94,6 +94,23 @@ class ExternalProvider:
             await self._client.aclose()
             self._client = None
 
+    async def get_json(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        request_timeout: float | None = None,
+        retries: int | None = None,
+    ) -> dict[str, Any]:
+        """GET, return parsed JSON response dict. Transport retries included."""
+        return await self._request_json(
+            "GET",
+            path,
+            params=params,
+            request_timeout=request_timeout,
+            retries=retries,
+        )
+
     @contextmanager
     def override(self, backend: Any) -> Generator[None]:
         """Replace this provider's backend for testing.
@@ -114,13 +131,30 @@ class ExternalProvider:
         finally:
             self._override_var.reset(token)
 
+    async def post_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        request_timeout: float | None = None,
+        retries: int | None = None,
+    ) -> dict[str, Any]:
+        """POST JSON, return parsed response dict. Transport retries included."""
+        return await self._request_json(
+            "POST",
+            path,
+            json_body=payload,
+            request_timeout=request_timeout,
+            retries=retries,
+        )
+
 
 class StatelessPollingProvider(ExternalProvider):
     """Base for providers using submit-then-poll with content-key correlation.
 
     Subclasses implement:
-        ``_submit(request)`` → key: submit work, return the polling key.
-        ``_poll_once(key)`` → ``ProviderOutcome[ResultT] | None``: check status once.
+        ``submit(request)`` → key: submit work, return the polling key.
+        ``poll_once(key)`` → ``ProviderOutcome[ResultT] | None``: check status once.
 
     The ``call()`` method wires these together with timeout handling.
 
@@ -132,7 +166,7 @@ class StatelessPollingProvider(ExternalProvider):
     terminal_statuses: ClassVar[frozenset[str]] = frozenset({"completed", "failed", "unknown"})
 
     # [Inherited from ExternalProvider]
-    # __init__, close, override
+    # __init__, close, get_json, override, post_json
 
     async def call(
         self,
@@ -149,10 +183,31 @@ class StatelessPollingProvider(ExternalProvider):
         Does not raise on timeout — the caller decides whether
         timeout is an error for their use case.
         """
-        key = await self._submit(request)
+        key = await self.submit(request)
         if wait <= 0:
             return None
         return await self._poll_until(key, request=request, max_wait=wait)
+
+    @abstractmethod
+    async def poll_once(self, key: str) -> ProviderOutcome[ResultT] | None:
+        """Check status once for a previously submitted key.
+
+        Returns ``ProviderOutcome`` when the key has reached a terminal
+        status. Returns ``None`` when still running. The implementation
+        should call ``self._track_cost()`` on the outcome when ``cost_usd``
+        is present.
+        """
+        ...
+
+    @abstractmethod
+    async def submit(self, request: RequestT) -> str:
+        """Submit work to the external service.
+
+        Returns the deterministic key used for later polling.
+        The key is derived from request content (URL, query, etc.),
+        not from a server-assigned handle.
+        """
+        ...
 ```
 
 ## Examples
@@ -184,6 +239,19 @@ def test_all_fields(self):
 def test_base_url_trailing_slash_stripped(self):
     provider = ExternalProvider(base_url="http://test.local/api/")
     assert provider._base_url == "http://test.local/api"
+```
+
+**Client created on first request** (`tests/test_providers.py:128`)
+
+```python
+@pytest.mark.asyncio
+async def test_client_created_on_first_request(self):
+    transport = _transport_sequence([_json_response({"ok": True})])
+    provider = ExternalProvider(base_url="http://test.local")
+    assert provider._client is None
+    provider._client = httpx.AsyncClient(transport=transport, base_url="http://test.local")
+    result = await provider.post_json("/test", {})
+    assert result == {"ok": True}
 ```
 
 **Defaults** (`tests/test_providers.py:101`)
@@ -245,13 +313,6 @@ def test_provider_auth_error_carries_status_code(self):
     assert err.status_code == 401
 ```
 
-**Provider auth error is non retriable** (`tests/test_providers.py:75`)
-
-```python
-def test_provider_auth_error_is_non_retriable(self):
-    assert issubclass(ProviderAuthError, NonRetriableError)
-```
-
 
 ## Error Examples
 
@@ -280,7 +341,7 @@ async def test_401_raises_immediately(self):
     provider = _make_provider(transport)
 
     with pytest.raises(ProviderAuthError) as exc_info:
-        await provider._post_json("/test", {})
+        await provider.post_json("/test", {})
 
     assert exc_info.value.status_code == 401
     assert request_count == 1
@@ -302,7 +363,7 @@ async def test_403_raises_immediately(self):
     provider = _make_provider(transport)
 
     with pytest.raises(ProviderAuthError) as exc_info:
-        await provider._post_json("/test", {})
+        await provider.post_json("/test", {})
 
     assert exc_info.value.status_code == 403
     assert request_count == 1
@@ -324,7 +385,7 @@ async def test_404_raises_provider_error_no_retry(self):
     provider = _make_provider(transport)
 
     with pytest.raises(ProviderError) as exc_info:
-        await provider._post_json("/test", {})
+        await provider.post_json("/test", {})
 
     assert not isinstance(exc_info.value, ProviderAuthError)
     assert exc_info.value.status_code == 404
@@ -345,7 +406,7 @@ async def test_timeout_retries_then_raises(self):
     provider.__class__.default_retries = 3
     try:
         with pytest.raises(ProviderError, match="All 3 attempts failed"):
-            await provider._post_json("/test", {})
+            await provider.post_json("/test", {})
     finally:
         provider.__class__.default_retries = 2
 ```

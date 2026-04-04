@@ -26,6 +26,8 @@
 
 11. **Sequential phases, not if/elif branches** — When logic is "try A, then fall back to B if A is insufficient," write it as two sequential blocks with a condition between them — not `if A: ... elif B: ...` which duplicates the B logic and obscures the relationship.
 
+12. **Poka-Yoke (Mistake-Proofing)** — The framework follows the Poka-Yoke methodology: make mistakes impossible rather than relying on vigilance to avoid them. Prevention over detection, detection over correction. Every class validates its own constraints at definition/import time via `__init_subclass__`. Construction paths enforce correct provenance (four factory methods, no raw constructors). Frozen models eliminate mutation bugs structurally. Layered static analysis (ruff, basedpyright, semgrep, vulture, interrogate) catches what types alone cannot. When a bug is found, the response is to close the entire category — add a structural guard, not just a point fix (§3.2 Bug Response Protocol). Actionable error messages (§4.13) complete the loop: every failure tells the caller exactly how to fix it, enabling AI agents to self-correct without external documentation.
+
 ---
 
 ## 1. Architecture Rules
@@ -438,17 +440,7 @@ logger.warning(
 
 ---
 
-## 7. Not Yet Implemented
-
-| Feature | Description |
-|---------|-------------|
-| Anomaly Detection | Detect model hangs, malformed responses, incorrect outputs. (Output degeneration / response loops ARE implemented via `_degeneration.py`.) |
-| Checkpoint Granularity | Module-level, task-level, or call-level recovery |
-| Three-Tier Parameter System | Context Documents (schema at def, content at runtime), Static Parameters (compile time), Dynamic Parameters (runtime) |
-
----
-
-## 8. Out of Scope
+## 7. Out of Scope
 
 - Compliance/regulatory features (GDPR, SOC2)
 - Multi-tenant isolation
@@ -457,7 +449,7 @@ logger.warning(
 
 ---
 
-## 9. Dev CLI — Test, Lint, and Check Workflows
+## 8. Dev CLI — Test, Lint, and Check Workflows
 
 **Use the `dev` CLI for all test, lint, and type-check operations.** Do not run `pytest`, `ruff`, or `basedpyright` directly — a Claude Code hook will block these commands with an actionable message pointing to the correct `dev` command.
 
@@ -529,7 +521,7 @@ dev info                # Usage guide + auto-detected config + infrastructure st
 
 ---
 
-## 10. Bash Guidelines
+## 9. Bash Guidelines
 
 ### Avoid commands that cause output buffering issues
 - DO NOT pipe output through `head`, `tail`, `less`, `more`, or `grep` when monitoring or checking command output

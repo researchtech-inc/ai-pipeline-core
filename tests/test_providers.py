@@ -130,7 +130,7 @@ class TestExternalProviderInit:
         provider = ExternalProvider(base_url="http://test.local")
         assert provider._client is None
         provider._client = httpx.AsyncClient(transport=transport, base_url="http://test.local")
-        result = await provider._post_json("/test", {})
+        result = await provider.post_json("/test", {})
         assert result == {"ok": True}
 
     def test_thread_safe_initialization(self):
@@ -176,7 +176,7 @@ class TestExternalProviderRetries:
             _json_response({"ok": True}),
         ])
         provider = _make_provider(transport)
-        result = await provider._post_json("/test", {})
+        result = await provider.post_json("/test", {})
         assert result == {"ok": True}
 
     @pytest.mark.asyncio
@@ -186,7 +186,7 @@ class TestExternalProviderRetries:
             _json_response({"ok": True}),
         ])
         provider = _make_provider(transport)
-        result = await provider._post_json("/test", {})
+        result = await provider.post_json("/test", {})
         assert result == {"ok": True}
 
     @pytest.mark.asyncio
@@ -200,7 +200,7 @@ class TestExternalProviderRetries:
         provider.__class__.default_retries = 3
         try:
             with pytest.raises(ProviderError, match="All 3 attempts failed"):
-                await provider._post_json("/test", {})
+                await provider.post_json("/test", {})
         finally:
             provider.__class__.default_retries = 2
 
@@ -217,7 +217,7 @@ class TestExternalProviderRetries:
 
         provider = ThreeRetryProvider(base_url="http://test.local")
         provider._client = httpx.AsyncClient(transport=transport, base_url="http://test.local")
-        result = await provider._post_json("/test", {})
+        result = await provider.post_json("/test", {})
         assert result == {"ok": True}
 
     @pytest.mark.asyncio
@@ -243,7 +243,7 @@ class TestExternalProviderRetries:
             await original_sleep(min(duration, 0.01))
 
         with patch("ai_pipeline_core.providers.asyncio.sleep", side_effect=recording_sleep):
-            await provider._post_json("/test", {})
+            await provider.post_json("/test", {})
 
         assert len(sleep_durations) == 2
         assert abs(sleep_durations[0] - 0.1) < 0.05
@@ -264,7 +264,7 @@ class TestExternalProviderAuthErrors:
         provider = _make_provider(transport)
 
         with pytest.raises(ProviderAuthError) as exc_info:
-            await provider._post_json("/test", {})
+            await provider.post_json("/test", {})
 
         assert exc_info.value.status_code == 401
         assert request_count == 1
@@ -282,7 +282,7 @@ class TestExternalProviderAuthErrors:
         provider = _make_provider(transport)
 
         with pytest.raises(ProviderAuthError) as exc_info:
-            await provider._post_json("/test", {})
+            await provider.post_json("/test", {})
 
         assert exc_info.value.status_code == 403
         assert request_count == 1
@@ -300,7 +300,7 @@ class TestExternalProviderAuthErrors:
         provider = _make_provider(transport)
 
         with pytest.raises(ProviderError) as exc_info:
-            await provider._post_json("/test", {})
+            await provider.post_json("/test", {})
 
         assert not isinstance(exc_info.value, ProviderAuthError)
         assert exc_info.value.status_code == 404
@@ -314,7 +314,7 @@ class TestExternalProviderOverride:
         mock = RecordingBackend({"mocked": True})
 
         with provider.override(mock):
-            result = await provider._post_json("/test", {"x": 1})
+            result = await provider.post_json("/test", {"x": 1})
 
         assert result == {"mocked": True}
         assert mock.calls == [("/test", {"x": 1})]
@@ -329,12 +329,12 @@ class TestExternalProviderOverride:
         async def task_a():
             with provider.override(mock_a):
                 await asyncio.sleep(0.01)
-                results["a"] = await provider._post_json("/test", {})
+                results["a"] = await provider.post_json("/test", {})
 
         async def task_b():
             with provider.override(mock_b):
                 await asyncio.sleep(0.01)
-                results["b"] = await provider._post_json("/test", {})
+                results["b"] = await provider.post_json("/test", {})
 
         await asyncio.gather(task_a(), task_b())
 
@@ -348,8 +348,8 @@ class TestExternalProviderOverride:
         mock = RecordingBackend({"fake": True})
 
         with provider.override(mock):
-            result_fake = await provider._post_json("/test", {})
-        result_real = await provider._post_json("/test", {})
+            result_fake = await provider.post_json("/test", {})
+        result_real = await provider.post_json("/test", {})
 
         assert result_fake == {"fake": True}
         assert result_real == {"real": True}
@@ -361,7 +361,7 @@ class TestExternalProviderClose:
         transport = _transport_sequence([_json_response({"ok": True}), _json_response({"ok": True})])
         provider = _make_provider(transport)
 
-        await provider._post_json("/test", {})
+        await provider.post_json("/test", {})
         assert provider._client is not None
 
         await provider.close()
@@ -427,7 +427,7 @@ class TestExternalProviderGetJson:
     async def test_get_json(self):
         transport = _transport_sequence([_json_response({"data": [1, 2, 3]})])
         provider = _make_provider(transport)
-        result = await provider._get_json("/items", params={"page": "1"})
+        result = await provider.get_json("/items", params={"page": "1"})
         assert result == {"data": [1, 2, 3]}
 
 
@@ -446,11 +446,11 @@ class ConcretePoller(StatelessPollingProvider[str, dict[str, object]]):
         self.submit_calls: list[str] = []
         self.poll_calls: list[str] = []
 
-    async def _submit(self, request: str) -> str:
+    async def submit(self, request: str) -> str:
         self.submit_calls.append(request)
         return f"key-{request}"
 
-    async def _poll_once(self, key: str) -> ProviderOutcome[dict[str, object]] | None:
+    async def poll_once(self, key: str) -> ProviderOutcome[dict[str, object]] | None:
         self.poll_calls.append(key)
         idx = min(self._poll_index, len(self._poll_responses) - 1)
         self._poll_index += 1
@@ -543,10 +543,10 @@ class TestStatelessPollingProviderCall:
             poll_interval = 0.05
             terminal_statuses = frozenset({"done", "error"})
 
-            async def _submit(self, request: str) -> str:
+            async def submit(self, request: str) -> str:
                 return "key"
 
-            async def _poll_once(self, key: str) -> ProviderOutcome[str] | None:
+            async def poll_once(self, key: str) -> ProviderOutcome[str] | None:
                 return ProviderOutcome(key=key, status="done", value="result")
 
         poller = CustomPoller(base_url="http://test.local")
@@ -560,10 +560,10 @@ class TestStatelessPollingProviderCall:
         class LabeledPoller(StatelessPollingProvider[str, dict[str, object]]):
             poll_interval = 0.05
 
-            async def _submit(self, request: str) -> str:
+            async def submit(self, request: str) -> str:
                 return "key"
 
-            async def _poll_once(self, key: str) -> ProviderOutcome[dict[str, object]] | None:
+            async def poll_once(self, key: str) -> ProviderOutcome[dict[str, object]] | None:
                 return ProviderOutcome(key=key, status="completed", cost_usd=0.02)
 
             def _cost_reason(self, request: str, key: str) -> str:

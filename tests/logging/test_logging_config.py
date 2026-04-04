@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
 
 from ai_pipeline_core.database import LogRecord
-from ai_pipeline_core.logger import setup_logging
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._handler import ExecutionLogHandler
-from ai_pipeline_core.logger.logging_config import _LoggingConfig
+from ai_pipeline_core.logger._logging_config import _LoggingConfig
 
 
 class Test_LoggingConfig:
@@ -104,14 +104,14 @@ handlers:
 class TestSetupLogging:
     """Test setup_logging function."""
 
-    @patch("ai_pipeline_core.logger.logging_config._LoggingConfig.apply")
+    @patch("ai_pipeline_core.logger._logging_config._LoggingConfig.apply")
     def test_setup_logging_basic(self, mock_apply: Mock) -> None:
         """Test basic setup_logging call."""
         setup_logging()
         mock_apply.assert_called_once()
 
-    @patch("ai_pipeline_core.logger.logging_config.logging.getLogger")
-    @patch("ai_pipeline_core.logger.logging_config._LoggingConfig.apply")
+    @patch("ai_pipeline_core.logger._logging_config.logging.getLogger")
+    @patch("ai_pipeline_core.logger._logging_config._LoggingConfig.apply")
     def test_setup_logging_with_level(self, mock_apply: Mock, mock_get_logger: Mock) -> None:
         """Test setup_logging with custom level."""
         mock_logger = MagicMock()
@@ -126,7 +126,7 @@ class TestSetupLogging:
         # Should set Prefect env
         assert os.environ["PREFECT_LOGGING_LEVEL"] == "DEBUG"
 
-    @patch("ai_pipeline_core.logger.logging_config._LoggingConfig")
+    @patch("ai_pipeline_core.logger._logging_config._LoggingConfig")
     def test_setup_logging_with_config_path(self, mock_config_class: Mock, tmp_path: Path) -> None:
         """Test setup_logging with custom config path."""
         config_file = tmp_path / "custom.yml"
@@ -144,7 +144,7 @@ class TestImportTimeSetup:
 
     def test_import_triggers_setup(self) -> None:
         """setup_logging() is called during package import."""
-        import ai_pipeline_core.logger.logging_config as cfg
+        import ai_pipeline_core.logger._logging_config as cfg
 
         assert cfg._logging_config is not None
 

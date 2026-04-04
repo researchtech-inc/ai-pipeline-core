@@ -12,10 +12,6 @@ from typing import Any
 
 import yaml
 
-__all__ = [
-    "setup_logging",
-]
-
 # Default log levels for different components
 _DEFAULT_LOG_LEVELS = {
     "ai_pipeline_core": "INFO",
@@ -159,7 +155,6 @@ def setup_logging(config_path: Path | None = None, level: str | None = None) -> 
 
     Initializes logging configuration for the pipeline system.
     Called automatically at package import time (``ai_pipeline_core/__init__.py``).
-    Can also be called explicitly to override configuration.
 
     Args:
         config_path: Optional path to YAML logging configuration file.

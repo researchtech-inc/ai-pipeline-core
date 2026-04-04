@@ -93,8 +93,8 @@ class ExternalProvider:
     on first request. Thread-safe initialization via ``threading.Lock``
     (safe across event loops in test runners).
 
-    Subclasses define domain-specific methods that call ``_post_json()``
-    and ``_get_json()``. Do not store business data on the instance.
+    Subclasses define domain-specific methods that call ``post_json()``
+    and ``get_json()``. Do not store business data on the instance.
 
     Infrastructure singleton rules (CLAUDE.md §1.2 category 2):
         - Assign once at module scope, never reassign.
@@ -171,7 +171,7 @@ class ExternalProvider:
 
     # ── HTTP convenience ──────────────────────────────────
 
-    async def _post_json(
+    async def post_json(
         self,
         path: str,
         payload: dict[str, Any],
@@ -188,7 +188,7 @@ class ExternalProvider:
             retries=retries,
         )
 
-    async def _get_json(
+    async def get_json(
         self,
         path: str,
         *,
@@ -308,8 +308,8 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
     """Base for providers using submit-then-poll with content-key correlation.
 
     Subclasses implement:
-        ``_submit(request)`` → key: submit work, return the polling key.
-        ``_poll_once(key)`` → ``ProviderOutcome[ResultT] | None``: check status once.
+        ``submit(request)`` → key: submit work, return the polling key.
+        ``poll_once(key)`` → ``ProviderOutcome[ResultT] | None``: check status once.
 
     The ``call()`` method wires these together with timeout handling.
 
@@ -322,7 +322,7 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
     terminal_statuses: ClassVar[frozenset[str]] = frozenset({"completed", "failed", "unknown"})
 
     @abstractmethod
-    async def _submit(self, request: RequestT) -> str:
+    async def submit(self, request: RequestT) -> str:
         """Submit work to the external service.
 
         Returns the deterministic key used for later polling.
@@ -332,7 +332,7 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
         ...
 
     @abstractmethod
-    async def _poll_once(self, key: str) -> ProviderOutcome[ResultT] | None:
+    async def poll_once(self, key: str) -> ProviderOutcome[ResultT] | None:
         """Check status once for a previously submitted key.
 
         Returns ``ProviderOutcome`` when the key has reached a terminal
@@ -361,7 +361,7 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
         Does not raise on timeout — the caller decides whether
         timeout is an error for their use case.
         """
-        key = await self._submit(request)
+        key = await self.submit(request)
         if wait <= 0:
             return None
         return await self._poll_until(key, request=request, max_wait=wait)
@@ -378,7 +378,7 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
 
         This method handles only the timing loop. It does not
         acquire concurrency slots or track costs — those are
-        the subclass's responsibility in ``_submit`` and ``_poll_once``.
+        the subclass's responsibility in ``submit`` and ``poll_once``.
 
         Returns ``ProviderOutcome`` with ``status="timeout"`` on expiry.
         """
@@ -386,7 +386,7 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
         deadline = time.monotonic() + max_wait
 
         while time.monotonic() < deadline:
-            outcome = await self._poll_once(key)
+            outcome = await self.poll_once(key)
             if outcome is not None:
                 self._track_cost(outcome.cost_usd, reason=self._cost_reason(request, key))
                 return outcome

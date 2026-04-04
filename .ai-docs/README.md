@@ -11,21 +11,17 @@ Auto-generated API reference. Do not edit manually. Run: `make docs-ai-build`
 3. [documents](documents.md) — Document system for AI pipeline flows.
 4. [exceptions](exceptions.md)
 5. [llm](llm.md) — Large Language Model integration via LiteLLM proxy.
-6. [logger](logger.md) — Logging infrastructure for AI Pipeline Core.
-7. [observability](observability.md) — Observability system for AI pipelines.
-8. [pipeline](pipeline.md) — Pipeline framework primitives.
-9. [prompt_compiler](prompt_compiler.md) — Prompt compiler for type-safe, validated prompt specifications.
-10. [providers](providers.md)
-11. [replay](replay.md) — Generic replay and experimentation entry points.
-12. [settings](settings.md)
-13. [testing](testing.md)
+6. [observability](observability.md) — Observability system for AI pipelines.
+7. [pipeline](pipeline.md) — Pipeline framework primitives.
+8. [prompt_compiler](prompt_compiler.md) — Prompt compiler for type-safe, validated prompt specifications.
+9. [providers](providers.md)
+10. [replay](replay.md) — Generic replay and experimentation entry points.
+11. [settings](settings.md)
+12. [testing](testing.md)
 
-## database
+## [database](database.md)
 
 Unified database module for the span-based schema.
-
-Read [Full guide](database.md) for detailed informations how to use it
-
 ### Types & Constants
 
 ```python
@@ -199,12 +195,9 @@ def create_debug_sink(output_dir: Path, *, parent: FilesystemDatabase | None=Non
 ```
 
 
-## deployment
+## [deployment](deployment.md)
 
 Pipeline deployment utilities for unified, type-safe deployments.
-
-Read [Full guide](deployment.md) for detailed informations how to use it
-
 ### Classes
 
 ```python
@@ -286,12 +279,9 @@ class RemoteDeployment(Generic[TOptions, TResult]):
 ```
 
 
-## documents
+## [documents](documents.md)
 
 Document system for AI pipeline flows.
-
-Read [Full guide](documents.md) for detailed informations how to use it
-
 ### Types & Constants
 
 ```python
@@ -487,9 +477,7 @@ def load_document_from_file(doc_type: type[D], file_path: Path, *, reason: str='
 ```
 
 
-## exceptions
-
-Read [Full guide](exceptions.md) for detailed informations how to use it
+## [exceptions](exceptions.md)
 
 ### Classes
 
@@ -519,12 +507,9 @@ class StubNotImplementedError(NonRetriableError):
 ```
 
 
-## llm
+## [llm](llm.md)
 
 Large Language Model integration via LiteLLM proxy.
-
-Read [Full guide](llm.md) for detailed informations how to use it
-
 ### Types & Constants
 
 ```python
@@ -720,26 +705,9 @@ class ToolCallRecord:
 ```
 
 
-## logger
-
-Logging infrastructure for AI Pipeline Core.
-
-Read [Full guide](logger.md) for detailed informations how to use it
-
-### Functions
-
-```python
-def setup_logging(config_path: Path | None=None, level: str | None=None) -> None: ...
-    """Setup logging for the AI Pipeline Core library."""
-```
-
-
-## observability
+## [observability](observability.md)
 
 Observability system for AI pipelines.
-
-Read [Full guide](observability.md) for detailed informations how to use it
-
 ### Functions
 
 ```python
@@ -748,12 +716,9 @@ def main(argv: list[str] | None=None) -> int: ...
 ```
 
 
-## pipeline
+## [pipeline](pipeline.md)
 
 Pipeline framework primitives.
-
-Read [Full guide](pipeline.md) for detailed informations how to use it
-
 ### Classes
 
 ```python
@@ -893,12 +858,9 @@ async def traced_operation(name: str, description: str='') -> AsyncGenerator[Non
 ```
 
 
-## prompt_compiler
+## [prompt_compiler](prompt_compiler.md)
 
 Prompt compiler for type-safe, validated prompt specifications.
-
-Read [Full guide](prompt_compiler.md) for detailed informations how to use it
-
 ### Classes
 
 ```python
@@ -985,9 +947,7 @@ def ListField(*, description: str, **kwargs: Any) -> Any: ...
 ```
 
 
-## providers
-
-Read [Full guide](providers.md) for detailed informations how to use it
+## [providers](providers.md)
 
 ### Classes
 
@@ -1029,8 +989,12 @@ class ExternalProvider:
     def __init__(self, base_url: str, api_key: str='') -> None: ...
     async def close(self) -> None: ...
         """Shut down the HTTP client. Call from deployment shutdown."""
+    async def get_json(self, path: str, *, params: dict[str, Any] | None=None, request_timeout: float | None=None, retries: int | None=None) -> dict[str, Any]: ...
+        """GET, return parsed JSON response dict. Transport retries included."""
     def override(self, backend: Any) -> Generator[None]: ...
         """Replace this provider's backend for testing."""
+    async def post_json(self, path: str, payload: dict[str, Any], *, request_timeout: float | None=None, retries: int | None=None) -> dict[str, Any]: ...
+        """POST JSON, return parsed response dict. Transport retries included."""
 
 
 class StatelessPollingProvider(ExternalProvider):
@@ -1043,17 +1007,18 @@ class StatelessPollingProvider(ExternalProvider):
     # Methods
     async def call(self, request: RequestT, *, wait: float=0) -> ProviderOutcome[ResultT] | None: ...
         """Submit, then optionally poll until terminal or timeout."""
+    async def poll_once(self, key: str) -> ProviderOutcome[ResultT] | None: ...
+        """Check status once for a previously submitted key."""
+    async def submit(self, request: RequestT) -> str: ...
+        """Submit work to the external service."""
 
-    # Inherited from ExternalProvider: __init__, close, override
+    # Inherited from ExternalProvider: __init__, close, get_json, override, post_json
 ```
 
 
-## replay
+## [replay](replay.md)
 
 Generic replay and experimentation entry points.
-
-Read [Full guide](replay.md) for detailed informations how to use it
-
 ### Classes
 
 ```python
@@ -1096,9 +1061,7 @@ async def find_experiment_span_ids(database: DatabaseReader, deployment_id: UUID
 ```
 
 
-## settings
-
-Read [Full guide](settings.md) for detailed informations how to use it
+## [settings](settings.md)
 
 ### Classes
 
@@ -1141,9 +1104,7 @@ class Settings(BaseSettings):
 ```
 
 
-## testing
-
-Read [Full guide](testing.md) for detailed informations how to use it
+## [testing](testing.md)
 
 ### Functions
 
