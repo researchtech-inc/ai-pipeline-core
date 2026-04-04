@@ -43,9 +43,9 @@ ai-replay = "ai_pipeline_core.replay.cli:main"
 ai-trace = "ai_pipeline_core.observability.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/bbarwik/ai-pipeline-core"
-Repository = "https://github.com/bbarwik/ai-pipeline-core"
-Issues = "https://github.com/bbarwik/ai-pipeline-core/issues"
+Homepage = "https://github.com/researchtech-inc/ai-pipeline-core"
+Repository = "https://github.com/researchtech-inc/ai-pipeline-core"
+Issues = "https://github.com/researchtech-inc/ai-pipeline-core/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -249,7 +249,7 @@ ignore-setters = true
 [tool.basedpyright]
 pythonVersion = "3.14"
 typeCheckingMode = "strict"
-include = ["ai_pipeline_core", "tools/trace-inspector/src"]
+include = ["ai_pipeline_core", "tools/trace-inspector/trace_inspector"]
 exclude = [
     "**/__pycache__",
     "**/node_modules",

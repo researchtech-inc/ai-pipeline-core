@@ -42,6 +42,38 @@ This installs four CLI commands:
 - `ai-replay` — execute or inspect replayable span JSON files, or replay directly from database-backed runs
 - `ai-trace` — list, show, and download execution data from the database
 
+### Development Tools for Downstream Projects
+
+Projects built on ai-pipeline-core can install the companion development tools directly from GitHub:
+
+```bash
+pip install "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/dev-cli"
+pip install "docs-generator @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/docs-generator"
+pip install "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/trace-inspector"
+```
+
+Or add them to your project's `pyproject.toml`:
+
+```toml
+[project.optional-dependencies]
+dev = [
+    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/dev-cli",
+    "docs-generator @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/docs-generator",
+    "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/trace-inspector",
+]
+```
+
+To pin to a specific version, append `@v0.20.0` (or a commit hash) before `#subdirectory`:
+
+```toml
+"dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.20.0#subdirectory=tools/dev-cli"
+```
+
+This installs three additional CLI commands:
+- `dev` — development workflow CLI (test, lint, typecheck, format, check)
+- `ai-docs` — AI-focused documentation generator
+- `ai-trace-inspect` — trace inspection and markdown debug bundle generation
+
 ### Requirements
 
 - Python 3.14 or higher
@@ -55,7 +87,7 @@ This is an internal framework under active development. **No backward compatibil
 ### Development Installation
 
 ```bash
-git clone https://github.com/bbarwik/ai-pipeline-core.git
+git clone https://github.com/researchtech-inc/ai-pipeline-core.git
 cd ai-pipeline-core
 make install-dev     # Initializes uv environment and installs pre-commit hooks
 ```
@@ -1444,8 +1476,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/bbarwik/ai-pipeline-core/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/bbarwik/ai-pipeline-core/discussions)
+- **Issues**: [GitHub Issues](https://github.com/researchtech-inc/ai-pipeline-core/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/researchtech-inc/ai-pipeline-core/discussions)
 
 ## Acknowledgments
 

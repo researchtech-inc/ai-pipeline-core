@@ -121,7 +121,7 @@ jobs:
             ```
 
             ### Changes
-            Compare: https://github.com/bbarwik/ai-pipeline-core/compare/${{ steps.previoustag.outputs.tag }}...v${{ needs.check-version.outputs.version }}
+            Compare: https://github.com/researchtech-inc/ai-pipeline-core/compare/${{ steps.previoustag.outputs.tag }}...v${{ needs.check-version.outputs.version }}
           artifacts: dist/*
 
       - name: Publish to PyPI
