@@ -1,5 +1,6 @@
 # Temporary working files
 .tmp/
+.redesign/
 
 # Testmon cache
 .testmondata*
