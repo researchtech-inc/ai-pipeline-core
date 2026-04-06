@@ -21,15 +21,17 @@ from pydantic import BaseModel, Field
 
 from ai_pipeline_core import (
     Conversation,
+    DeploymentPlan,
     DeploymentResult,
     Document,
     FlowOptions,
+    FlowOutputs,
+    FlowStep,
     ModelOptions,
     PipelineDeployment,
     PipelineFlow,
     PipelineTask,
     Tool,
-    find_document,
     get_run_id,
 )
 
@@ -153,10 +155,9 @@ class AnalyzeDocumentTask(PipelineTask):
     name = "analyze_document"
 
     @classmethod
-    async def run(cls, documents: tuple[InputDocument | ShowcaseConfigDocument, ...]) -> tuple[AnalysisDocument, ...]:
+    async def run(cls, source: InputDocument, config: ShowcaseConfigDocument) -> tuple[AnalysisDocument, ...]:
         logger.info("Running %s", cls.name)
-        cfg = find_document(documents, ShowcaseConfigDocument).parsed
-        source = find_document(documents, InputDocument)
+        cfg = config.parsed
         conv = Conversation(model=cfg.core_model).with_context(source)
         conv = await conv.send(
             f"Analyze '{source.name}' and summarize key themes.",
@@ -175,10 +176,9 @@ class ExtractInsightsTask(PipelineTask):
     name = "extract_insights"
 
     @classmethod
-    async def run(cls, documents: tuple[AnalysisDocument | ShowcaseConfigDocument, ...]) -> tuple[InsightDocument, ...]:
+    async def run(cls, analysis: AnalysisDocument, config: ShowcaseConfigDocument) -> tuple[InsightDocument, ...]:
         logger.info("Running %s", cls.name)
-        cfg = find_document(documents, ShowcaseConfigDocument).parsed
-        analysis = find_document(documents, AnalysisDocument)
+        cfg = config.parsed
         options = ModelOptions(reasoning_effort=cfg.reasoning_effort)
         conv = Conversation(model=cfg.fast_model, model_options=options).with_context(analysis)
         conv = await conv.send_structured(
@@ -202,10 +202,9 @@ class ResearchTask(PipelineTask):
     name = "research_with_tools"
 
     @classmethod
-    async def run(cls, documents: tuple[AnalysisDocument | ShowcaseConfigDocument, ...]) -> tuple[ResearchDocument, ...]:
+    async def run(cls, analysis: AnalysisDocument, config: ShowcaseConfigDocument) -> tuple[ResearchDocument, ...]:
         logger.info("Running %s", cls.name)
-        cfg = find_document(documents, ShowcaseConfigDocument).parsed
-        analysis = find_document(documents, AnalysisDocument)
+        cfg = config.parsed
         tools = [
             LookupRelatedTopics(),
             VerifyClaim(),
@@ -234,23 +233,26 @@ class CompileReportTask(PipelineTask):
     name = "compile_report"
 
     @classmethod
-    async def run(cls, documents: tuple[InsightDocument | ResearchDocument, ...]) -> tuple[ReportDocument, ...]:
+    async def run(
+        cls,
+        insights: tuple[InsightDocument, ...],
+        research_docs: tuple[ResearchDocument, ...],
+    ) -> tuple[ReportDocument, ...]:
         logger.info("Running %s", cls.name)
-        insights = [doc.parsed for doc in documents if isinstance(doc, InsightDocument)]
-        research = [doc for doc in documents if isinstance(doc, ResearchDocument)]
-        lines = ["# Showcase Report", "", f"Insights: {len(insights)} | Research: {len(research)}", ""]
-        for idx, insight in enumerate(insights, start=1):
+        parsed_insights = [document.parsed for document in insights]
+        lines = ["# Showcase Report", "", f"Insights: {len(parsed_insights)} | Research: {len(research_docs)}", ""]
+        for idx, insight in enumerate(parsed_insights, start=1):
             lines.append(f"## Insight {idx}")
             lines.append(f"Complexity: {insight.complexity}")
             lines.extend(f"- {finding}" for finding in insight.findings)
             lines.append("")
-        for idx, doc in enumerate(research, start=1):
+        for idx, doc in enumerate(research_docs, start=1):
             lines.append(f"## Research {idx}")
             lines.append(doc.text)
             lines.append("")
         return (
             ReportDocument.derive(
-                derived_from=tuple(documents),
+                derived_from=(*insights, *research_docs),
                 name="report.md",
                 content="\n".join(lines),
             ),
@@ -262,14 +264,15 @@ class AnalysisFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[InputDocument | ShowcaseConfigDocument, ...],
+        sources: tuple[InputDocument, ...],
+        config: ShowcaseConfigDocument,
         options: ShowcaseFlowOptions,
     ) -> tuple[AnalysisDocument, ...]:
         logger.info("Running %s [%s]", type(self).name, get_run_id())
-        cfg = find_document(documents, ShowcaseConfigDocument)
+        _ = options
         outputs: list[AnalysisDocument] = []
-        for source in [doc for doc in documents if isinstance(doc, InputDocument)]:
-            outputs.extend(await AnalyzeDocumentTask.run((source, cfg)))
+        for source in sources:
+            outputs.extend(await AnalyzeDocumentTask.run(source=source, config=config))
         return tuple(outputs)
 
 
@@ -278,14 +281,15 @@ class ExtractionFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[AnalysisDocument | ShowcaseConfigDocument, ...],
+        analyses: tuple[AnalysisDocument, ...],
+        config: ShowcaseConfigDocument,
         options: ShowcaseFlowOptions,
     ) -> tuple[InsightDocument, ...]:
         logger.info("Running %s [%s]", type(self).name, get_run_id())
-        cfg = find_document(documents, ShowcaseConfigDocument)
+        _ = options
         outputs: list[InsightDocument] = []
-        for analysis in [doc for doc in documents if isinstance(doc, AnalysisDocument)]:
-            outputs.extend(await ExtractInsightsTask.run((analysis, cfg)))
+        for analysis in analyses:
+            outputs.extend(await ExtractInsightsTask.run(analysis=analysis, config=config))
         return tuple(outputs)
 
 
@@ -294,14 +298,15 @@ class ResearchFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[AnalysisDocument | ShowcaseConfigDocument, ...],
+        analyses: tuple[AnalysisDocument, ...],
+        config: ShowcaseConfigDocument,
         options: ShowcaseFlowOptions,
     ) -> tuple[ResearchDocument, ...]:
         logger.info("Running %s [%s]", type(self).name, get_run_id())
-        cfg = find_document(documents, ShowcaseConfigDocument)
+        _ = options
         outputs: list[ResearchDocument] = []
-        for analysis in [doc for doc in documents if isinstance(doc, AnalysisDocument)]:
-            outputs.extend(await ResearchTask.run((analysis, cfg)))
+        for analysis in analyses:
+            outputs.extend(await ResearchTask.run(analysis=analysis, config=config))
         return tuple(outputs)
 
 
@@ -310,11 +315,13 @@ class ReportFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[InsightDocument | ResearchDocument, ...],
+        insights: tuple[InsightDocument, ...],
+        research_docs: tuple[ResearchDocument, ...],
         options: ShowcaseFlowOptions,
     ) -> tuple[ReportDocument, ...]:
         logger.info("Running %s [%s]", type(self).name, get_run_id())
-        return await CompileReportTask.run(tuple(documents))
+        _ = options
+        return await CompileReportTask.run(insights=insights, research_docs=research_docs)
 
 
 class ShowcaseResult(DeploymentResult):
@@ -327,9 +334,10 @@ class ShowcaseResult(DeploymentResult):
 class ShowcasePipeline(PipelineDeployment[ShowcaseFlowOptions, ShowcaseResult]):
     pubsub_service_type: ClassVar[str] = "showcase"
 
-    def build_flows(self, options: ShowcaseFlowOptions) -> list[PipelineFlow]:
+    def build_plan(self, options: ShowcaseFlowOptions) -> DeploymentPlan:
         logger.info("Building flows for %s", type(self).__name__)
-        return [AnalysisFlow(), ExtractionFlow(), ResearchFlow(), ReportFlow()]
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(AnalysisFlow()), FlowStep(ExtractionFlow()), FlowStep(ResearchFlow()), FlowStep(ReportFlow())))
 
     @staticmethod
     def build_result(
@@ -338,12 +346,13 @@ class ShowcasePipeline(PipelineDeployment[ShowcaseFlowOptions, ShowcaseResult]):
         options: ShowcaseFlowOptions,
     ) -> ShowcaseResult:
         _ = (run_id, options)
+        outputs = FlowOutputs(documents)
         return ShowcaseResult(
             success=True,
-            analysis_count=len([d for d in documents if isinstance(d, AnalysisDocument)]),
-            insight_count=len([d for d in documents if isinstance(d, InsightDocument)]),
-            research_count=len([d for d in documents if isinstance(d, ResearchDocument)]),
-            report_count=len([d for d in documents if isinstance(d, ReportDocument)]),
+            analysis_count=len(outputs.all(AnalysisDocument)),
+            insight_count=len(outputs.all(InsightDocument)),
+            research_count=len(outputs.all(ResearchDocument)),
+            report_count=len(outputs.all(ReportDocument)),
         )
 
 

@@ -61,12 +61,12 @@ class SnapshotTask(PipelineTask):
     """Task replayed from a downloaded span snapshot."""
 
     @classmethod
-    async def run(cls, documents: tuple[SnapshotInputDocument, ...]) -> tuple[SnapshotOutputDocument, ...]:
-        conv = Conversation(model="test-model", enable_substitutor=False, include_date=False).with_context(documents[0])
+    async def run(cls, input_docs: tuple[SnapshotInputDocument, ...]) -> tuple[SnapshotOutputDocument, ...]:
+        conv = Conversation(model="test-model", enable_substitutor=False, include_date=False).with_context(input_docs[0])
         conv = await conv.send("Summarize the context document.", purpose="snapshot-task")
         return (
             SnapshotOutputDocument.derive(
-                derived_from=(documents[0],),
+                derived_from=(input_docs[0],),
                 name="snapshot-output.txt",
                 content=conv.content,
                 description="snapshot replay output",
@@ -75,9 +75,9 @@ class SnapshotTask(PipelineTask):
 
 
 class SnapshotFlow(PipelineFlow):
-    async def run(self, documents: tuple[SnapshotInputDocument, ...], options: FlowOptions) -> tuple[SnapshotOutputDocument, ...]:
+    async def run(self, input_docs: tuple[SnapshotInputDocument, ...], options: FlowOptions) -> tuple[SnapshotOutputDocument, ...]:
         _ = options
-        return await SnapshotTask.run(documents)
+        return await SnapshotTask.run(input_docs=input_docs)
 
 
 class SnapshotResult(DeploymentResult):
@@ -102,7 +102,7 @@ class HistoryTask(PipelineTask):
     """Task that creates a tool loop followed by a normal follow-up turn."""
 
     @classmethod
-    async def run(cls, documents: tuple[HistoryInputDocument, ...]) -> tuple[HistoryOutputDocument, ...]:
+    async def run(cls, input_docs: tuple[HistoryInputDocument, ...]) -> tuple[HistoryOutputDocument, ...]:
         conv = Conversation(model="test-model", enable_substitutor=False, include_date=False)
         conv = await conv.send(
             "Search for the weather.",
@@ -112,7 +112,7 @@ class HistoryTask(PipelineTask):
         conv = await conv.send("Give the concise answer.", purpose="history-followup")
         return (
             HistoryOutputDocument.derive(
-                derived_from=(documents[0],),
+                derived_from=(input_docs[0],),
                 name="history-output.txt",
                 content=conv.content,
                 description="history replay output",
@@ -121,9 +121,9 @@ class HistoryTask(PipelineTask):
 
 
 class HistoryFlow(PipelineFlow):
-    async def run(self, documents: tuple[HistoryInputDocument, ...], options: FlowOptions) -> tuple[HistoryOutputDocument, ...]:
+    async def run(self, input_docs: tuple[HistoryInputDocument, ...], options: FlowOptions) -> tuple[HistoryOutputDocument, ...]:
         _ = options
-        return await HistoryTask.run(documents)
+        return await HistoryTask.run(input_docs=input_docs)
 
 
 class HistoryResult(DeploymentResult):

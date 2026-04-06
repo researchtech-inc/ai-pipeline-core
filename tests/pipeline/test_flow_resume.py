@@ -16,9 +16,9 @@ class OutputDoc(Document):
 
 class EchoTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[InputDoc, ...]) -> tuple[OutputDoc, ...]:
+    async def run(cls, input_docs: tuple[InputDoc, ...]) -> tuple[OutputDoc, ...]:
         _ = cls
-        source = documents[0]
+        source = input_docs[0]
         return (OutputDoc.derive(derived_from=(source,), name=f"out_{source.name}", content=source.content),)
 
 

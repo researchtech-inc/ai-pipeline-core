@@ -1,12 +1,14 @@
 """Pipeline deployment utilities for unified, type-safe deployments."""
 
-from .base import DeploymentResult, FlowAction, FlowDirective, PipelineDeployment
+from .base import DeploymentPlan, DeploymentResult, FieldGate, FlowOutputs, FlowStep, PipelineDeployment
 from .remote import RemoteDeployment
 
 __all__ = [
+    "DeploymentPlan",
     "DeploymentResult",
-    "FlowAction",
-    "FlowDirective",
+    "FieldGate",
+    "FlowOutputs",
+    "FlowStep",
     "PipelineDeployment",
     "RemoteDeployment",
 ]

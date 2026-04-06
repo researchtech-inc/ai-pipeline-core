@@ -161,7 +161,8 @@ class _DeployTestResult(DeploymentResult):
 class _DeployTestFlow(PipelineFlow):
     """Class-based flow for deploy schema tests."""
 
-    async def run(self, documents: tuple[_DeployInputDoc, ...], options: _DeployTestOptions) -> tuple[_DeployOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_DeployInputDoc, ...], options: _DeployTestOptions) -> tuple[_DeployOutputDoc, ...]:
+        _ = (input_docs, options)
         return (_DeployOutputDoc.create_root(name="out.txt", content="ok", reason="test"),)
 
 

@@ -7,7 +7,6 @@ from uuid import UUID
 
 from prefect import flow
 
-from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline import PipelineFlow
 from ai_pipeline_core.pipeline.options import FlowOptions
 from ai_pipeline_core.settings import settings
@@ -28,7 +27,8 @@ def build_integration_meta(deployment: Any) -> dict[str, Any]:
     flows: list[PipelineFlow]
     try:
         options = cast(FlowOptions, deployment.options_type.model_construct())
-        flows = list(deployment.build_flows(options))
+        plan = deployment.build_plan(options)
+        flows = [step.flow for step in plan.steps]
     except Exception as exc:
         logger.warning("Failed to build flow metadata for %s: %s", type(deployment).__name__, exc)
         flows = []
@@ -41,7 +41,7 @@ def build_integration_meta(deployment: Any) -> dict[str, Any]:
         }
 
     first_flow = flows[0]
-    input_types: list[type[Document]] = type(first_flow).input_document_types
+    input_types = list(type(first_flow).input_document_types)
     all_types = deployment._all_document_types(flows)
 
     return {
@@ -73,11 +73,12 @@ def build_prefect_flow(deployment: Any) -> Any:
         publisher = _create_publisher(settings, deployment.pubsub_service_type)
         database = _create_span_database_from_settings(settings)
         try:
-            built_flows = list(cast(Sequence[PipelineFlow], deployment.build_flows(cast(Any, options))))
+            built_plan = deployment.build_plan(cast(Any, options))
+            built_flows = list(cast(Sequence[PipelineFlow], [step.flow for step in built_plan.steps]))
             if not built_flows:
-                raise ValueError(f"{type(deployment).__name__}.build_flows() returned an empty list.")
+                raise ValueError(f"{type(deployment).__name__}.build_plan() returned an empty plan.")
 
-            start_step_input_types: list[type[Document]] = type(built_flows[0]).input_document_types
+            start_step_input_types = list(type(built_flows[0]).input_document_types)
             typed_docs = await resolve_document_inputs(
                 document_inputs,
                 deployment._all_document_types(built_flows),

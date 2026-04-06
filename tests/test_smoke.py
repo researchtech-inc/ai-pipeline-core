@@ -1,5 +1,8 @@
 """Smoke tests verifying showcase examples import without errors and have valid flow chain structure."""
 
+import subprocess
+import sys
+
 
 def test_showcase_imports() -> None:
     """examples/showcase.py imports without errors."""
@@ -22,23 +25,37 @@ def test_showcase_replay_imports() -> None:
     assert hasattr(m, "ReplayUppercaseTask")
 
 
-def test_showcase_builds_flows() -> None:
-    """ShowcasePipeline.build_flows() returns PipelineFlow instances."""
+def test_showcase_remote_deployment_imports() -> None:
+    """examples/showcase_remote_deployment.py imports without errors."""
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import examples.showcase_remote_deployment as m; assert hasattr(m, 'CompetitiveIntelPipeline')",
+        ],
+        check=True,
+    )
+
+
+def test_showcase_builds_plan() -> None:
+    """ShowcasePipeline.build_plan() returns FlowStep-wrapped PipelineFlow instances."""
     from examples.showcase import ShowcasePipeline
     from ai_pipeline_core.pipeline import PipelineFlow, FlowOptions
 
     deployment = ShowcasePipeline()
-    flows = deployment.build_flows(FlowOptions())
+    plan = deployment.build_plan(FlowOptions())
+    flows = [step.flow for step in plan.steps]
     assert len(flows) >= 1
     assert all(isinstance(f, PipelineFlow) for f in flows)
 
 
-def test_database_showcase_builds_flows() -> None:
-    """DatabaseShowcasePipeline.build_flows() returns PipelineFlow instances."""
+def test_database_showcase_builds_plan() -> None:
+    """DatabaseShowcasePipeline.build_plan() returns FlowStep-wrapped PipelineFlow instances."""
     from examples.showcase_database import DatabaseShowcasePipeline
     from ai_pipeline_core.pipeline import PipelineFlow, FlowOptions
 
     deployment = DatabaseShowcasePipeline()
-    flows = deployment.build_flows(FlowOptions())
+    plan = deployment.build_plan(FlowOptions())
+    flows = [step.flow for step in plan.steps]
     assert len(flows) >= 1
     assert all(isinstance(f, PipelineFlow) for f in flows)

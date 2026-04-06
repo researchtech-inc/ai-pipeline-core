@@ -13,12 +13,15 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from ai_pipeline_core import (
+    DeploymentPlan,
     DeploymentResult,
     Document,
+    FieldGate,
     FlowOptions,
+    FlowStep,
     PipelineDeployment,
     PipelineFlow,
 )
@@ -46,22 +49,33 @@ class ValidResult(DeploymentResult):
 class ValidFlow(PipelineFlow):
     """Single-step flow for testing."""
 
-    async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
-        return (OutputDoc.derive(derived_from=(documents[0],), name="output.txt", content="result"),)
+    async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+        _ = options
+        return (OutputDoc.derive(derived_from=(input_docs[0],), name="output.txt", content="result"),)
 
 
 class FlowA(PipelineFlow):
     """First flow in multi-step pipeline."""
 
-    async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[MiddleDoc, ...]:
-        return (MiddleDoc.derive(derived_from=(documents[0],), name="middle.txt", content="middle"),)
+    async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[MiddleDoc, ...]:
+        _ = options
+        return (MiddleDoc.derive(derived_from=(input_docs[0],), name="middle.txt", content="middle"),)
 
 
 class FlowB(PipelineFlow):
     """Second flow in multi-step pipeline."""
 
-    async def run(self, documents: tuple[MiddleDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
-        return (OutputDoc.derive(derived_from=(documents[0],), name="output.txt", content="final"),)
+    async def run(self, middle_docs: tuple[MiddleDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+        _ = options
+        return (OutputDoc.derive(derived_from=(middle_docs[0],), name="output.txt", content="final"),)
+
+
+class _SkipDecisionModel(BaseModel):
+    should_run: bool
+
+
+class _SkipDecisionDoc(Document[_SkipDecisionModel]):
+    """Typed control document used to trigger a gated skip in tests."""
 
 
 # --- DeploymentResult tests ---
@@ -248,9 +262,9 @@ class TestPipelineDeploymentValidation:
 class TestAbstractSubclass:
     """Test PipelineDeployment partial subclassing."""
 
-    def test_requires_build_flows_override(self):
-        """Test that subclass without build_flows override raises TypeError."""
-        with pytest.raises(TypeError, match="build_flows"):
+    def test_requires_build_flows_or_build_plan_override(self):
+        """Test that subclass without build_flows/build_plan override raises TypeError."""
+        with pytest.raises(TypeError, match=r"build_flows.*build_plan"):
 
             class PartialDeployment(PipelineDeployment[FlowOptions, ValidResult]):
                 """Intermediate class without build_flows."""
@@ -267,8 +281,9 @@ class ValidDeployment(PipelineDeployment[FlowOptions, ValidResult]):
 
     flow_retries = 0
 
-    def build_flows(self, options):
-        return [ValidFlow()]
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(ValidFlow()),))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
@@ -289,15 +304,16 @@ class TestAllDocumentTypes:
 
             flow_retries = 0
 
-            def build_flows(self, options):
-                return [FlowA(), FlowB()]
+            def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+                _ = options
+                return DeploymentPlan(steps=(FlowStep(FlowA()), FlowStep(FlowB())))
 
             @staticmethod
             def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
                 return ValidResult(success=True)
 
         deployment = MultiFlowDeployment()
-        flows = deployment.build_flows(FlowOptions())
+        flows = [step.flow for step in deployment.build_plan(FlowOptions()).steps]
         types = deployment._all_document_types(flows)
         type_names = {t.__name__ for t in types}
         assert "InputDoc" in type_names
@@ -401,15 +417,17 @@ class _Schema_TestResult(DeploymentResult):
 class _SchemaTestFlow(PipelineFlow):
     """Flow for schema testing."""
 
-    async def run(self, documents: tuple[InputDoc, ...], options: _Schema_TestOptions) -> tuple[OutputDoc, ...]:
-        return (OutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+    async def run(self, input_docs: tuple[InputDoc, ...], options: _Schema_TestOptions) -> tuple[OutputDoc, ...]:
+        _ = options
+        return (OutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 class _SchemaTestDeployment(PipelineDeployment[_Schema_TestOptions, _Schema_TestResult]):
     flow_retries = 0
 
-    def build_flows(self, options):
-        return [_SchemaTestFlow()]
+    def build_plan(self, options: _Schema_TestOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(_SchemaTestFlow()),))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: _Schema_TestOptions) -> _Schema_TestResult:
@@ -516,9 +534,9 @@ class TestRunPassesOptionsObject:
         received_options: list[FlowOptions] = []
 
         class CapturingFlow(PipelineFlow):
-            async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
                 received_options.append(options)
-                return (OutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+                return (OutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
         class CapturingDeployment(PipelineDeployment[FlowOptions, ValidResult]):
             flow_retries = 0
@@ -551,9 +569,10 @@ class TestRunContextIncludesExecutionId:
         captured_ctx: list[Any] = []
 
         class CtxFlow(PipelineFlow):
-            async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                _ = (input_docs, options)
                 captured_ctx.append(get_execution_context())
-                return (OutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+                return (OutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
         class CtxDeployment(PipelineDeployment[FlowOptions, ValidResult]):
             flow_retries = 0
@@ -631,9 +650,9 @@ class TestAsPrefectFlowParentParams:
 class ExampleDeployment(PipelineDeployment[_TestOptions, _TestResult]):
     flow_retries = 0
 
-    def build_flows(self, options: _TestOptions):
+    def build_plan(self, options: _TestOptions) -> DeploymentPlan:
         _ = options
-        return [StageOne(), StageTwo()]
+        return DeploymentPlan(steps=(FlowStep(StageOne()), FlowStep(StageTwo())))
 
     @staticmethod
     def build_result(run_id, documents, options):
@@ -677,14 +696,15 @@ async def test_deployment_persists_logs_and_log_summaries(input_documents) -> No
 
 @pytest.mark.asyncio
 async def test_skipped_flow_persists_lifecycle_log_and_summary(input_documents) -> None:
-    from ai_pipeline_core.deployment.base import FlowAction, FlowDirective
-
     class SkipSecondFlowDeployment(ExampleDeployment):
-        def plan_next_flow(self, flow_class, plan, output_documents):
-            _ = (plan, output_documents)
-            if flow_class is StageTwo:
-                return FlowDirective(action=FlowAction.SKIP, reason="skip-for-test")
-            return FlowDirective()
+        def build_plan(self, options: _TestOptions) -> DeploymentPlan:
+            _ = options
+            return DeploymentPlan(
+                steps=(
+                    FlowStep(StageOne()),
+                    FlowStep(StageTwo(), run_if=FieldGate(_SkipDecisionDoc, "should_run", op="truthy", on_missing="skip")),
+                )
+            )
 
     database = _MemoryDatabase()
     await SkipSecondFlowDeployment().run("run-skip-logs", input_documents, _TestOptions(), database=database)
@@ -721,8 +741,8 @@ async def test_cached_flow_persists_lifecycle_log_and_summary(input_documents) -
     assert json.loads(cached_spans[0].metrics_json)["log_summary"]["total"] >= 1
 
 
-def test_deployment_requires_build_flows_override():
-    with pytest.raises(TypeError, match="build_flows"):
+def test_deployment_requires_build_flows_or_build_plan_override():
+    with pytest.raises(TypeError, match=r"build_flows.*build_plan"):
 
         class MissingFlows(PipelineDeployment[_TestOptions, _TestResult]):
             flow_retries = 0

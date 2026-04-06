@@ -28,8 +28,8 @@ class OutputDoc(Document):
 
 class PersistTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[InputDoc, ...]) -> tuple[OutputDoc, ...]:
-        source = documents[0]
+    async def run(cls, input_docs: tuple[InputDoc, ...]) -> tuple[OutputDoc, ...]:
+        source = input_docs[0]
         return (OutputDoc.derive(derived_from=(source,), name="out.txt", content="ok"),)
 
 

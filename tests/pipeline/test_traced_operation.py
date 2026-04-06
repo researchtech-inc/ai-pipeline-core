@@ -104,11 +104,11 @@ def _make_context_with_db(database: _MemoryDatabase) -> ExecutionContext:
 
 class _TaskWithTracedOperation(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_TracedInputDoc, ...]) -> tuple[_TracedOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_TracedInputDoc, ...]) -> tuple[_TracedOutputDoc, ...]:
         async with traced_operation("inner-span", description="inner description"):
             conv = Conversation(model="test-model", enable_substitutor=False)
             await conv.send("hello", purpose="say-hello")
-        return (_TracedOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+        return (_TracedOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 def _make_input() -> _TracedInputDoc:

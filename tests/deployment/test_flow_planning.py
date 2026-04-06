@@ -1,159 +1,154 @@
 # pyright: reportPrivateUsage=false
-"""Tests for plan_next_flow skip/continue logic and resolve_document_inputs provenance preservation."""
-
-from collections.abc import Sequence
+"""Tests for build_plan gating and resolve_document_inputs provenance preservation."""
 
 import pytest
+from pydantic import BaseModel
 
-from ai_pipeline_core import DeploymentResult, Document, FlowOptions, PipelineDeployment
-from ai_pipeline_core.deployment import FlowAction, FlowDirective
-from ai_pipeline_core.deployment._types import _MemoryPublisher
-from ai_pipeline_core.deployment._resolve import _DocumentInput
-from ai_pipeline_core.deployment._resolve import resolve_document_inputs
-from ai_pipeline_core.deployment._types import FlowSkippedEvent
+from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FieldGate, FlowOptions, FlowStep, PipelineDeployment
+from ai_pipeline_core.deployment._resolve import _DocumentInput, resolve_document_inputs
+from ai_pipeline_core.deployment._types import FlowSkippedEvent, _MemoryPublisher
 from ai_pipeline_core.pipeline import PipelineFlow, PipelineTask
 
 
-# ---------------------------------------------------------------------------
-# Document types
-# ---------------------------------------------------------------------------
-
-
 class PlanInputDoc(Document):
-    """Input for plan_next_flow tests."""
+    """Input for build_plan gate tests."""
 
 
 class PlanMiddleDoc(Document):
-    """Intermediate output for plan_next_flow tests."""
+    """Intermediate output for build_plan gate tests."""
 
 
 class PlanOutputDoc(Document):
-    """Final output for plan_next_flow tests."""
+    """Final output for build_plan gate tests."""
+
+
+class PlanDecisionModel(BaseModel):
+    should_run: bool
+
+
+class PlanDecisionDoc(Document[PlanDecisionModel]):
+    """Typed control document used by FieldGate."""
 
 
 class PlanResult(DeploymentResult):
     output_count: int = 0
 
 
-# ---------------------------------------------------------------------------
-# Tasks + Flows
-# ---------------------------------------------------------------------------
-
-
 class ToMiddleTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[PlanInputDoc, ...]) -> tuple[PlanMiddleDoc, ...]:
-        return tuple(PlanMiddleDoc.derive(derived_from=(d,), name=f"mid_{d.name}", content="mid") for d in documents)
+    async def run(cls, input_docs: tuple[PlanInputDoc, ...]) -> tuple[PlanMiddleDoc, ...]:
+        return tuple(PlanMiddleDoc.derive(derived_from=(d,), name=f"mid_{d.name}", content="mid") for d in input_docs)
 
 
 class ToOutputTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[PlanMiddleDoc, ...]) -> tuple[PlanOutputDoc, ...]:
-        return tuple(PlanOutputDoc.derive(derived_from=(d,), name=f"out_{d.name}", content="out") for d in documents)
+    async def run(cls, middle_docs: tuple[PlanMiddleDoc, ...]) -> tuple[PlanOutputDoc, ...]:
+        return tuple(PlanOutputDoc.derive(derived_from=(d,), name=f"out_{d.name}", content="out") for d in middle_docs)
 
 
-class ProducerFlow(PipelineFlow):
-    name = "producer"
+class _FalseDecisionProducerFlow(PipelineFlow):
+    name = "false-decision-producer"
 
-    async def run(self, documents: tuple[PlanInputDoc, ...], options: FlowOptions) -> tuple[PlanMiddleDoc, ...]:
-        return await ToMiddleTask.run(documents)
+    async def run(self, input_docs: tuple[PlanInputDoc, ...], options: FlowOptions) -> tuple[PlanMiddleDoc | PlanDecisionDoc, ...]:
+        _ = options
+        middle = await ToMiddleTask.run(input_docs=input_docs)
+        decision = PlanDecisionDoc.derive(
+            derived_from=input_docs,
+            name="decision.json",
+            content=PlanDecisionModel(should_run=False),
+        )
+        return (*middle, decision)
 
 
-class EmptyProducerFlow(PipelineFlow):
-    name = "empty-producer"
+class _TrueDecisionProducerFlow(PipelineFlow):
+    name = "true-decision-producer"
 
-    async def run(self, documents: tuple[PlanInputDoc, ...], options: FlowOptions) -> tuple[PlanMiddleDoc, ...]:
-        return ()
+    async def run(self, input_docs: tuple[PlanInputDoc, ...], options: FlowOptions) -> tuple[PlanMiddleDoc | PlanDecisionDoc, ...]:
+        _ = options
+        middle = await ToMiddleTask.run(input_docs=input_docs)
+        decision = PlanDecisionDoc.derive(
+            derived_from=input_docs,
+            name="decision.json",
+            content=PlanDecisionModel(should_run=True),
+        )
+        return (*middle, decision)
 
 
 class ConsumerFlow(PipelineFlow):
     name = "consumer"
     ran = False
 
-    async def run(self, documents: tuple[PlanMiddleDoc, ...], options: FlowOptions) -> tuple[PlanOutputDoc, ...]:
+    async def run(self, middle_docs: tuple[PlanMiddleDoc, ...], options: FlowOptions) -> tuple[PlanOutputDoc, ...]:
+        _ = options
         type(self).ran = True
-        return await ToOutputTask.run(documents)
+        return await ToOutputTask.run(middle_docs=middle_docs)
 
 
-# ---------------------------------------------------------------------------
-# plan_next_flow with actual previous_output_documents
-# ---------------------------------------------------------------------------
-
-
-class _SkipWhenEmptyDeployment(PipelineDeployment[FlowOptions, PlanResult]):
-    """Skips consumer flow when producer outputs zero documents."""
-
+class _SkipWhenGateFalseDeployment(PipelineDeployment[FlowOptions, PlanResult]):
     flow_retries = 0
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [EmptyProducerFlow(), ConsumerFlow()]
-
-    def plan_next_flow(
-        self,
-        flow_class: type[PipelineFlow],
-        plan: Sequence[PipelineFlow],
-        output_documents: tuple[Document, ...],
-    ) -> FlowDirective:
-        if flow_class is ConsumerFlow and not output_documents:
-            return FlowDirective(action=FlowAction.SKIP, reason="no intermediate documents")
-        return FlowDirective()
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(
+            steps=(
+                FlowStep(_FalseDecisionProducerFlow()),
+                FlowStep(ConsumerFlow(), run_if=FieldGate(PlanDecisionDoc, "should_run", op="truthy", on_missing="skip")),
+            )
+        )
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PlanResult:
+        _ = (run_id, options)
         return PlanResult(success=True, output_count=len(documents))
 
 
-class _ContinueWhenDocsExist(PipelineDeployment[FlowOptions, PlanResult]):
-    """Continues consumer flow when producer produces documents."""
-
+class _RunWhenGateTrueDeployment(PipelineDeployment[FlowOptions, PlanResult]):
     flow_retries = 0
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [ProducerFlow(), ConsumerFlow()]
-
-    def plan_next_flow(
-        self,
-        flow_class: type[PipelineFlow],
-        plan: Sequence[PipelineFlow],
-        output_documents: tuple[Document, ...],
-    ) -> FlowDirective:
-        if flow_class is ConsumerFlow and not output_documents:
-            return FlowDirective(action=FlowAction.SKIP, reason="no intermediate documents")
-        return FlowDirective()
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(
+            steps=(
+                FlowStep(_TrueDecisionProducerFlow()),
+                FlowStep(ConsumerFlow(), run_if=FieldGate(PlanDecisionDoc, "should_run", op="truthy", on_missing="skip")),
+            )
+        )
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PlanResult:
+        _ = (run_id, options)
         return PlanResult(success=True, output_count=len(documents))
 
 
 @pytest.mark.asyncio
-async def test_empty_flow_return_raises_type_error() -> None:
-    """Flows returning empty tuple are rejected — every flow must produce output documents."""
+async def test_field_gate_skips_when_false() -> None:
     publisher = _MemoryPublisher()
     ConsumerFlow.ran = False
-    doc = PlanInputDoc.create_root(name="in.txt", content="x", reason="gap7")
-    with pytest.raises(TypeError, match="returned an empty tuple"):
-        await _SkipWhenEmptyDeployment().run("gap7-skip", [doc], FlowOptions(), publisher=publisher)
+    doc = PlanInputDoc.create_root(name="in.txt", content="x", reason="gate-false")
 
-
-@pytest.mark.asyncio
-async def test_plan_next_flow_continues_when_output_docs_exist() -> None:
-    """plan_next_flow receives output_documents and continues (doesn't skip)."""
-    publisher = _MemoryPublisher()
-    ConsumerFlow.ran = False
-    doc = PlanInputDoc.create_root(name="in.txt", content="x", reason="gap7b")
-    result = await _ContinueWhenDocsExist().run("gap7-continue", [doc], FlowOptions(), publisher=publisher)
+    result = await _SkipWhenGateFalseDeployment().run("gate-skip", [doc], FlowOptions(), publisher=publisher)
 
     assert result.success
-    assert ConsumerFlow.ran
+    assert ConsumerFlow.ran is False
 
-    skipped = [e for e in publisher.events if isinstance(e, FlowSkippedEvent)]
+    skipped = [event for event in publisher.events if isinstance(event, FlowSkippedEvent)]
+    assert len(skipped) == 1
+    assert "run_if gate did not pass" in skipped[0].reason
+
+
+@pytest.mark.asyncio
+async def test_field_gate_continues_when_true() -> None:
+    publisher = _MemoryPublisher()
+    ConsumerFlow.ran = False
+    doc = PlanInputDoc.create_root(name="in.txt", content="x", reason="gate-true")
+
+    result = await _RunWhenGateTrueDeployment().run("gate-run", [doc], FlowOptions(), publisher=publisher)
+
+    assert result.success
+    assert ConsumerFlow.ran is True
+
+    skipped = [event for event in publisher.events if isinstance(event, FlowSkippedEvent)]
     assert skipped == []
-
-
-# ---------------------------------------------------------------------------
-# resolve_document_inputs provenance preservation
-# ---------------------------------------------------------------------------
 
 
 class ResolveInputDoc(Document):

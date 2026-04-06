@@ -61,9 +61,9 @@ class InlineRemoteChildOutput(Document):
 
 
 class InlineRemoteChildFlow(PipelineFlow):
-    async def run(self, documents: tuple[AlphaDoc, ...], options: FlowOptions) -> tuple[InlineRemoteChildOutput, ...]:
+    async def run(self, alpha_docs: tuple[AlphaDoc, ...], options: FlowOptions) -> tuple[InlineRemoteChildOutput, ...]:
         _ = options
-        return (InlineRemoteChildOutput.derive(derived_from=documents, name="remote.txt", content="remote"),)
+        return (InlineRemoteChildOutput.derive(derived_from=alpha_docs, name="remote.txt", content="remote"),)
 
 
 class InlineRemoteChildDeployment(PipelineDeployment[FlowOptions, InlineRemoteChildResult]):

@@ -1,6 +1,7 @@
 """Parallel execution primitives for pipeline tasks."""
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from dataclasses import dataclass
@@ -14,8 +15,10 @@ __all__ = [
     "TaskHandle",
     "as_task_completed",
     "collect_tasks",
-    "run_tasks_until",
 ]
+
+logger = logging.getLogger(__name__)
+_DEFAULT_FAN_OUT_WARNING_THRESHOLD = 50
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -97,6 +100,15 @@ async def collect_tasks(
     ordered_handles = _normalize_handles(handles)
     if not ordered_handles:
         return TaskBatch(completed=[], incomplete=[])
+    if len(ordered_handles) > _DEFAULT_FAN_OUT_WARNING_THRESHOLD:
+        logger.warning(
+            "collect_tasks() received %d handles, which exceeds the global warning threshold of %d. "
+            "If this fan-out is intentional, declare max_fan_out = %d on the flow class to document it. "
+            "In Phase 1, max_fan_out is informational only and does not change the warning threshold.",
+            len(ordered_handles),
+            _DEFAULT_FAN_OUT_WARNING_THRESHOLD,
+            len(ordered_handles),
+        )
 
     completed: list[tuple[Document[Any], ...]] = []
     incomplete: list[TaskHandle[tuple[Document[Any], ...]]] = []
@@ -137,24 +149,3 @@ async def as_task_completed(*handles: TaskAwaitableGroup) -> AsyncIterator[TaskH
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
         for finished in done:
             yield by_task[finished]
-
-
-async def run_tasks_until(
-    task_cls: type[Any],
-    argument_groups: Sequence[tuple[tuple[Any, ...], dict[str, Any]]],
-    *,
-    deadline_seconds: float | None = None,
-) -> TaskBatch:
-    """Launch ``task_cls.run(*args, **kwargs)`` for each argument group and collect the handles."""
-    handles: list[TaskAwaitable] = []
-    try:
-        for args, kwargs in argument_groups:
-            handles.append(task_cls.run(*args, **kwargs))
-    except Exception:
-        normalized_handles = _normalize_handles(tuple(handles))
-        for handle in normalized_handles:
-            handle.cancel()
-        if normalized_handles:
-            await asyncio.gather(*(handle.result() for handle in normalized_handles), return_exceptions=True)
-        raise
-    return await collect_tasks(handles, deadline_seconds=deadline_seconds)

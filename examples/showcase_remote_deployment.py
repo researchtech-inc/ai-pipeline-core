@@ -44,16 +44,18 @@ from pydantic import BaseModel, Field
 
 from ai_pipeline_core import (
     Conversation,
+    DeploymentPlan,
     DeploymentResult,
     Document,
     FlowOptions,
+    FlowOutputs,
+    FlowStep,
     ModelOptions,
     PipelineDeployment,
     PipelineFlow,
     PipelineTask,
     RemoteDeployment,
     Tool,
-    find_document,
     get_run_id,
     safe_gather,
     traced_operation,
@@ -121,7 +123,7 @@ class CompetitorInputDocument(Document):
     """Competitor brief passed to the child deployment for deep analysis."""
 
 
-class ResearchDocument(Document):
+class CompetitorResearchDocument(Document):
     """Enriched research from tool-assisted investigation."""
 
 
@@ -236,9 +238,8 @@ class ResearchTask(PipelineTask):
     name = "competitor_research"
 
     @classmethod
-    async def run(cls, documents: tuple[CompetitorInputDocument | PipelineConfigDocument, ...]) -> tuple[ResearchDocument, ...]:
-        cfg = find_document(documents, PipelineConfigDocument).parsed
-        brief = find_document(documents, CompetitorInputDocument)
+    async def run(cls, brief: CompetitorInputDocument, config: PipelineConfigDocument) -> tuple[CompetitorResearchDocument, ...]:
+        cfg = config.parsed
         tools = [LookupMarketData(), LookupIndustryTrends()]
         conv = Conversation(model=cfg.core_model).with_context(brief)
         conv = await conv.send(
@@ -250,7 +251,7 @@ class ResearchTask(PipelineTask):
             purpose=f"research {brief.name}",
         )
         return (
-            ResearchDocument.derive(
+            CompetitorResearchDocument.derive(
                 derived_from=(brief,),
                 name=f"research_{brief.id}.md",
                 content=conv.content,
@@ -263,11 +264,12 @@ class ResearchFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[CompetitorInputDocument | PipelineConfigDocument, ...],
+        brief: CompetitorInputDocument,
+        config: PipelineConfigDocument,
         options: CompetitiveIntelOptions,
-    ) -> tuple[ResearchDocument, ...]:
+    ) -> tuple[CompetitorResearchDocument, ...]:
         _ = options
-        return await ResearchTask.run(documents)
+        return await ResearchTask.run(brief=brief, config=config)
 
 
 # --- Assessment flow (dual-perspective analysis) ---
@@ -279,11 +281,11 @@ class AssessmentTask(PipelineTask):
     @classmethod
     async def run(
         cls,
-        documents: tuple[CompetitorInputDocument | ResearchDocument | PipelineConfigDocument, ...],
+        brief: CompetitorInputDocument,
+        research: CompetitorResearchDocument,
+        config: PipelineConfigDocument,
     ) -> tuple[StrengthsDocument, WeaknessesDocument]:
-        cfg = find_document(documents, PipelineConfigDocument).parsed
-        brief = find_document(documents, CompetitorInputDocument)
-        research = find_document(documents, ResearchDocument)
+        cfg = config.parsed
 
         # Warmup: populate provider cache with shared context (brief + research)
         conv = Conversation(model=cfg.core_model).with_context(brief, research)
@@ -331,11 +333,13 @@ class AssessmentFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[CompetitorInputDocument | ResearchDocument | PipelineConfigDocument, ...],
+        brief: CompetitorInputDocument,
+        research: CompetitorResearchDocument,
+        config: PipelineConfigDocument,
         options: CompetitiveIntelOptions,
     ) -> tuple[StrengthsDocument | WeaknessesDocument, ...]:
         _ = options
-        return await AssessmentTask.run(documents)
+        return await AssessmentTask.run(brief=brief, research=research, config=config)
 
 
 # --- Scoring flow (structured output) ---
@@ -347,12 +351,12 @@ class ScoringTask(PipelineTask):
     @classmethod
     async def run(
         cls,
-        documents: tuple[StrengthsDocument | WeaknessesDocument | CompetitorInputDocument | PipelineConfigDocument, ...],
+        strengths: StrengthsDocument,
+        weaknesses: WeaknessesDocument,
+        brief: CompetitorInputDocument,
+        config: PipelineConfigDocument,
     ) -> tuple[ThreatScoreDocument, ...]:
-        cfg = find_document(documents, PipelineConfigDocument).parsed
-        brief = find_document(documents, CompetitorInputDocument)
-        strengths = find_document(documents, StrengthsDocument)
-        weaknesses = find_document(documents, WeaknessesDocument)
+        cfg = config.parsed
 
         options = ModelOptions(reasoning_effort=cfg.reasoning_effort)
         conv = Conversation(model=cfg.fast_model, model_options=options).with_context(brief, strengths, weaknesses)
@@ -380,11 +384,14 @@ class ScoringFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[StrengthsDocument | WeaknessesDocument | CompetitorInputDocument | PipelineConfigDocument, ...],
+        strengths: StrengthsDocument,
+        weaknesses: WeaknessesDocument,
+        brief: CompetitorInputDocument,
+        config: PipelineConfigDocument,
         options: CompetitiveIntelOptions,
     ) -> tuple[ThreatScoreDocument, ...]:
         _ = options
-        return await ScoringTask.run(documents)
+        return await ScoringTask.run(strengths=strengths, weaknesses=weaknesses, brief=brief, config=config)
 
 
 # --- Child deployment assembly ---
@@ -399,9 +406,9 @@ class CompetitorAnalysisPipeline(PipelineDeployment[CompetitiveIntelOptions, Com
     separate Prefect worker; in this example it falls back to inline execution.
     """
 
-    def build_flows(self, options: CompetitiveIntelOptions) -> list[PipelineFlow]:
+    def build_plan(self, options: CompetitiveIntelOptions) -> DeploymentPlan:
         _ = options
-        return [ResearchFlow(), AssessmentFlow(), ScoringFlow()]
+        return DeploymentPlan(steps=(FlowStep(ResearchFlow()), FlowStep(AssessmentFlow()), FlowStep(ScoringFlow())))
 
     @staticmethod
     def build_result(
@@ -410,10 +417,11 @@ class CompetitorAnalysisPipeline(PipelineDeployment[CompetitiveIntelOptions, Com
         options: CompetitiveIntelOptions,
     ) -> CompetitorAnalysisResult:
         _ = (run_id, options)
-        briefs = [d for d in documents if isinstance(d, CompetitorInputDocument)]
-        scores = [d for d in documents if isinstance(d, ThreatScoreDocument)]
-        strengths = [d for d in documents if isinstance(d, StrengthsDocument)]
-        weaknesses = [d for d in documents if isinstance(d, WeaknessesDocument)]
+        outputs = FlowOutputs(documents)
+        briefs = outputs.all(CompetitorInputDocument)
+        scores = outputs.all(ThreatScoreDocument)
+        strengths = outputs.all(StrengthsDocument)
+        weaknesses = outputs.all(WeaknessesDocument)
 
         score = scores[0].parsed if scores else None
         return CompetitorAnalysisResult(
@@ -455,10 +463,10 @@ class TriageTask(PipelineTask):
     @classmethod
     async def run(
         cls,
-        documents: tuple[CompetitorBriefDocument | PipelineConfigDocument, ...],
+        briefs: tuple[CompetitorBriefDocument, ...],
+        config: PipelineConfigDocument,
     ) -> tuple[TriagedCompetitorDocument, ...]:
-        cfg = find_document(documents, PipelineConfigDocument).parsed
-        briefs = [d for d in documents if isinstance(d, CompetitorBriefDocument)]
+        cfg = config.parsed
 
         results: list[TriagedCompetitorDocument] = []
         for brief in briefs:
@@ -489,12 +497,13 @@ class TriageFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[CompetitorBriefDocument | PipelineConfigDocument, ...],
+        briefs: tuple[CompetitorBriefDocument, ...],
+        config: PipelineConfigDocument,
         options: CompetitiveIntelOptions,
     ) -> tuple[TriagedCompetitorDocument, ...]:
         _ = options
-        logger.info("Triaging %d competitor briefs", sum(1 for d in documents if isinstance(d, CompetitorBriefDocument)))
-        return await TriageTask.run(documents)
+        logger.info("Triaging %d competitor briefs", len(briefs))
+        return await TriageTask.run(briefs=briefs, config=config)
 
 
 # --- Deep analysis flow (delegates to child deployments via RemoteDeployment) ---
@@ -508,10 +517,9 @@ class AnalyzeCompetitorTask(PipelineTask):
     @classmethod
     async def run(
         cls,
-        documents: tuple[TriagedCompetitorDocument | PipelineConfigDocument, ...],
+        triage: TriagedCompetitorDocument,
+        config: PipelineConfigDocument,
     ) -> tuple[CompetitorAnalysisDocument, ...]:
-        triage = find_document(documents, TriagedCompetitorDocument)
-        config = find_document(documents, PipelineConfigDocument)
         parsed = triage.parsed
 
         # Prepare child deployment inputs
@@ -560,17 +568,16 @@ class DeepAnalysisFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[TriagedCompetitorDocument | PipelineConfigDocument, ...],
+        triaged_competitors: tuple[TriagedCompetitorDocument, ...],
+        config: PipelineConfigDocument,
         options: CompetitiveIntelOptions,
     ) -> tuple[CompetitorAnalysisDocument, ...]:
         _ = options
-        config = find_document(documents, PipelineConfigDocument)
-        triaged = [d for d in documents if isinstance(d, TriagedCompetitorDocument)]
-        logger.info("Dispatching %d competitor analyses via RemoteDeployment [%s]", len(triaged), get_run_id())
+        logger.info("Dispatching %d competitor analyses via RemoteDeployment [%s]", len(triaged_competitors), get_run_id())
 
         # Run all competitor analyses in parallel via safe_gather
         analysis_docs = await safe_gather(
-            *(AnalyzeCompetitorTask.run((t, config)) for t in triaged),
+            *(AnalyzeCompetitorTask.run(triage=triage, config=config) for triage in triaged_competitors),
             label="parallel-competitor-analyses",
         )
 
@@ -587,10 +594,10 @@ class SynthesisTask(PipelineTask):
     @classmethod
     async def run(
         cls,
-        documents: tuple[CompetitorAnalysisDocument | PipelineConfigDocument, ...],
+        analyses: tuple[CompetitorAnalysisDocument, ...],
+        config: PipelineConfigDocument,
     ) -> tuple[LandscapeReportDocument, ...]:
-        cfg = find_document(documents, PipelineConfigDocument).parsed
-        analyses = [d for d in documents if isinstance(d, CompetitorAnalysisDocument)]
+        cfg = config.parsed
 
         async with traced_operation("compile_landscape", description="Compile all analyses into landscape report"):
             conv = Conversation(model=cfg.core_model).with_context(*analyses)
@@ -619,12 +626,13 @@ class SynthesisFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[CompetitorAnalysisDocument | PipelineConfigDocument, ...],
+        analyses: tuple[CompetitorAnalysisDocument, ...],
+        config: PipelineConfigDocument,
         options: CompetitiveIntelOptions,
     ) -> tuple[LandscapeReportDocument, ...]:
         _ = options
-        logger.info("Synthesizing landscape report from %d analyses", sum(1 for d in documents if isinstance(d, CompetitorAnalysisDocument)))
-        return await SynthesisTask.run(documents)
+        logger.info("Synthesizing landscape report from %d analyses", len(analyses))
+        return await SynthesisTask.run(analyses=analyses, config=config)
 
 
 # =============================================================================
@@ -648,9 +656,9 @@ class CompetitiveIntelPipeline(PipelineDeployment[CompetitiveIntelOptions, Compe
 
     pubsub_service_type: ClassVar[str] = "competitive-intel"
 
-    def build_flows(self, options: CompetitiveIntelOptions) -> list[PipelineFlow]:
+    def build_plan(self, options: CompetitiveIntelOptions) -> DeploymentPlan:
         _ = options
-        return [TriageFlow(), DeepAnalysisFlow(), SynthesisFlow()]
+        return DeploymentPlan(steps=(FlowStep(TriageFlow()), FlowStep(DeepAnalysisFlow()), FlowStep(SynthesisFlow())))
 
     @staticmethod
     def build_result(
@@ -659,8 +667,9 @@ class CompetitiveIntelPipeline(PipelineDeployment[CompetitiveIntelOptions, Compe
         options: CompetitiveIntelOptions,
     ) -> CompetitiveIntelResult:
         _ = (run_id, options)
-        analyses = [d for d in documents if isinstance(d, CompetitorAnalysisDocument)]
-        reports = [d for d in documents if isinstance(d, LandscapeReportDocument)]
+        outputs = FlowOutputs(documents)
+        analyses = outputs.all(CompetitorAnalysisDocument)
+        reports = outputs.all(LandscapeReportDocument)
         high_count = sum(1 for a in analyses if "critical" in a.text.lower() or "high" in a.text.lower())
         return CompetitiveIntelResult(
             success=True,

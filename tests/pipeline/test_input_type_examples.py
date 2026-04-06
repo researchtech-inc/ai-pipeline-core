@@ -36,8 +36,8 @@ class FrozenConfig(BaseModel, frozen=True):
 def test_document_list_input() -> None:
     class T(PipelineTask):
         @classmethod
-        async def run(cls, documents: tuple[GoodInput, ...]) -> tuple[GoodOutput, ...]:
-            _ = (cls, documents)
+        async def run(cls, input_docs: tuple[GoodInput, ...]) -> tuple[GoodOutput, ...]:
+            _ = (cls, input_docs)
             return ()
 
     assert GoodInput in T.input_document_types
@@ -101,6 +101,26 @@ def test_rejects_set_container() -> None:
             @classmethod
             async def run(cls, documents: set[GoodInput]) -> tuple[GoodOutput, ...]:
                 _ = (cls, documents)
+                return ()
+
+
+def test_rejects_bare_list_annotation() -> None:
+    with pytest.raises(TypeError, match="bare 'list'"):
+
+        class T(PipelineTask):
+            @classmethod
+            async def run(cls, documents: list) -> tuple[GoodOutput, ...]:  # pyright: ignore[reportMissingTypeArgument] - intentional bare list to verify validator
+                _ = (cls, documents)
+                return ()
+
+
+def test_rejects_bare_dict_annotation() -> None:
+    with pytest.raises(TypeError, match="bare 'dict'"):
+
+        class T(PipelineTask):
+            @classmethod
+            async def run(cls, config: dict) -> tuple[GoodOutput, ...]:  # pyright: ignore[reportMissingTypeArgument] - intentional bare dict to verify validator
+                _ = (cls, config)
                 return ()
 
 

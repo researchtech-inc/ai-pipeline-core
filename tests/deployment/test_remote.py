@@ -29,7 +29,8 @@ class SampleOutputDoc(Document):
 class SampleFlow(PipelineFlow):
     """Sample flow for testing."""
 
-    async def run(self, documents: tuple[SampleInputDoc, ...], options: FlowOptions) -> tuple[SampleOutputDoc, ...]:
+    async def run(self, input_docs: tuple[SampleInputDoc, ...], options: FlowOptions) -> tuple[SampleOutputDoc, ...]:
+        _ = (input_docs, options)
         return ()
 
 

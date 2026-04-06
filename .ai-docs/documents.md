@@ -2,13 +2,13 @@
 # CLASSES: Attachment, Document, DocumentValidationError, DocumentSizeError, DocumentNameError
 # DEPENDS: BaseModel, Exception
 # PURPOSE: Document system for AI pipeline flows.
-# VERSION: 0.20.0
+# VERSION: 0.21.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
 
 ```python
-from ai_pipeline_core import Attachment, Document, DocumentSha256, ensure_extension, find_all, find_document, find_latest, replace_extension, sanitize_url
+from ai_pipeline_core import Attachment, Document, DocumentSha256, ensure_extension, find_document, replace_extension, sanitize_url
 ```
 
 ## Types & Constants
@@ -701,27 +701,6 @@ def replace_extension(name: str, ext: str) -> str:
     if dot_pos > 0:
         return name[:dot_pos] + ext
     return name + ext
-
-
-def find_all[T](documents: Sequence[Any], doc_type: type[T]) -> list[T]:
-    """Find all documents of the given type in a sequence."""
-    return [doc for doc in documents if isinstance(doc, doc_type)]
-
-
-def find_latest[T](documents: Sequence[Any], doc_type: type[T]) -> T:
-    """Find the last document of the given type in a sequence.
-
-    Returns the last matching document by position — the most recently appended.
-    Raises DocumentValidationError if no match is found.
-    """
-    result: T | None = None
-    for doc in documents:
-        if isinstance(doc, doc_type):
-            result = doc
-    if result is None:
-        available = sorted({type(d).__name__ for d in documents})
-        raise DocumentValidationError(f"No document of type '{doc_type.__name__}' found. Available types: {', '.join(available) or 'none'}")
-    return result
 
 
 def find_document[T](documents: Sequence[Any], doc_type: type[T]) -> T:

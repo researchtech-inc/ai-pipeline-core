@@ -72,8 +72,25 @@ All operations must be asynchronous. No blocking I/O calls allowed.
 
 - Modules/agents/tools form **acyclic dependency graph**
 - Clear module boundaries with defined inputs/outputs
-- Task inputs support typed parameters: scalars, enums, frozen BaseModels, `Conversation`, `Document`, and typed containers thereof
+- Task inputs use named typed parameters: scalars, enums, frozen BaseModels, `Conversation`, `Document` subclasses, and typed containers thereof
+- Flow inputs use named `Document`-typed parameters resolved from the deployment blackboard
 - **Context as document types** — Prompt specs declare `input_documents` for expected context; missing documents warned at runtime
+
+### 1.5 Document Philosophy
+
+Documents are durable pipeline artifacts with independent meaning.
+
+- Make something a `Document` when a reader investigating the run would care about the artifact on its own.
+- Use frozen models or dataclasses for transient transport values, prompt scaffolding, lookup tables, or routing glue with no durable meaning.
+- If an artifact exists only to shuttle a field or two between steps, it is probably not a `Document`.
+
+### 1.6 Task Atomicity
+
+Tasks are atomic in **purpose**, not necessarily in wall-clock duration.
+
+- A task may perform multiple internal operations when they are one coherent business action with one execution record.
+- Tasks own model calls, tool use, provider calls, and durable artifact creation.
+- Tasks must not orchestrate other tasks. If one unit of work depends on another, the flow must coordinate them.
 
 ### 1.4 Configuration
 
@@ -385,10 +402,11 @@ Enforced at import time via `__init_subclass__` in `_file_rules.py`. Framework i
 - **`PromptSpec` co-location** — at most one standalone spec per file; follow-up specs (`follows=`) targeting the same file are allowed; cross-file follow-ups must be alone in their file
 - **Mandatory docstrings** — application flows, tasks, and specs must have non-empty docstrings
 - **`_abstract_task = True` / `_abstract_flow = True`** — set on intermediate base classes to skip `run()` validation. Concrete subclasses are validated normally
+- Single-document task returns are allowed; the runtime normalizes them to a tuple internally.
 
 ### 4.12 Task Return Annotations
 
-`PipelineTask.run()` return type must be `tuple[DocumentSubclass, ...]`, `None`, `list[DocumentSubclass]`, or unions thereof. Bare `-> MyDocument` (single document) is rejected at import time — use `-> tuple[MyDocument, ...]` instead. Enforced in `_type_validation.py`.
+`PipelineTask.run()` return type must be `MyDocument`, `tuple[MyDocument, ...]`, `None`, `list[MyDocument]`, or unions thereof. Single-document return is allowed; the runtime normalizes it to a tuple. Enforced in `_type_validation.py`.
 
 ### 4.13 Actionable Error and Warning Messages
 
@@ -410,6 +428,22 @@ logger.warning(
 )
 ```
 
+### 4.14 Runtime Guards
+
+- **Task-in-task detection** — Tasks must not call other tasks. A `RuntimeError` is raised if `Task.run()` is called from within another task's execution scope. Orchestration belongs in flows.
+- **Conversation-in-flow detection** — `Conversation.send()` and related send paths must not be called directly from a flow. A `RuntimeError` is raised if an LLM call is made from flow scope without a task.
+- **Document type freezing** — `input_document_types` and `output_document_types` on flows and tasks are frozen tuples after class definition. They cannot be reassigned.
+
+### 4.15 Return Discipline
+
+- Tasks must not return input documents unchanged. The deployment blackboard carries earlier artifacts automatically, so tasks do not need to forward them.
+- Returning an input document with the same SHA256 from a task raises `TypeError`. Use `derive()`, `create()`, `create_external()`, or `create_root()` to create the correct new artifact.
+- Flows returning unchanged inputs are treated as a warning-level smell. The Great Filter expects flows to return only the phase handoff, not cargo-forward earlier artifacts.
+
+### 4.16 Fan-Out Warning
+
+`collect_tasks()` warns when more than 50 handles are collected. Set `max_fan_out` on the flow class to document intentional high fan-out; this is documentation today and reserved for future enforcement.
+
 ---
 
 ## 5. Deployment & Operations
@@ -427,6 +461,41 @@ logger.warning(
 - Centralized services handle coordination (LiteLLM, ClickHouse)
 - No single points of failure (where possible)
 - Deployment system should be able to manage resources (API keys, models, scaling)
+
+### 5.3 Deployment Plan
+
+Deployments define the maximum execution path via `build_plan()` returning a `DeploymentPlan` with `FlowStep` entries.
+
+- `FlowStep` wraps one flow instance and may add `run_if=FieldGate(...)` plus an optional `group` tag.
+- `FieldGate` reads a named field on the latest control document of a specified type and applies a truthy/falsy or equality check.
+- `group_stop_if` on `DeploymentPlan` stops all remaining steps in a group when a control document satisfies the stop gate.
+- `build_flows()` remains a fallback wrapper, but the plan model is `build_plan()` / `DeploymentPlan` / `FlowStep` / `FieldGate`.
+
+### 5.4 The Great Filter
+
+Flows are the great filter of pipeline state.
+
+- Tasks produce artifacts during the phase.
+- The framework preserves those artifacts in the durable record.
+- The flow returns only the handoff artifacts that the next phase actually needs.
+
+The deployment accumulates those handoffs in a blackboard. Earlier artifacts remain available automatically, so flows must not forward unchanged inputs just to keep them alive.
+
+### 5.5 Composite Documents
+
+Use a composite document when several artifacts always travel together across flow boundaries and form one coherent handoff.
+
+- Composite documents keep flow signatures narrow and readable.
+- Do not bundle unrelated artifacts just for convenience.
+- Composite handoffs are typically assembled by a dedicated task at the end of a phase.
+
+### 5.6 Control Documents
+
+Control documents are small typed documents used for runtime gating.
+
+- A control document records a durable, inspectable decision with explanatory content.
+- A `FieldGate` reads a named field on the latest control document of the specified type.
+- A control document that is only a flag wrapper with no explanatory content is a design smell.
 
 ---
 

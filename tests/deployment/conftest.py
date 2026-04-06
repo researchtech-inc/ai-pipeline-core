@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from ai_pipeline_core import DeploymentResult, Document, FlowOptions, PipelineDeployment
+from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FlowOptions, FlowStep, PipelineDeployment
 from ai_pipeline_core.pipeline import PipelineFlow, PipelineTask
 
 logger = logging.getLogger(__name__)
@@ -34,26 +34,26 @@ class _TestOptions(FlowOptions):
 
 class ToMiddleTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[InputDoc, ...]) -> tuple[MiddleDoc, ...]:
-        return (MiddleDoc.derive(derived_from=(documents[0],), name="middle.txt", content="m"),)
+    async def run(cls, input_docs: tuple[InputDoc, ...]) -> tuple[MiddleDoc, ...]:
+        return (MiddleDoc.derive(derived_from=(input_docs[0],), name="middle.txt", content="m"),)
 
 
 class ToOutputTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[MiddleDoc, ...]) -> tuple[OutputDoc, ...]:
-        return (OutputDoc.derive(derived_from=(documents[0],), name="output.txt", content="o"),)
+    async def run(cls, middle_docs: tuple[MiddleDoc, ...]) -> tuple[OutputDoc, ...]:
+        return (OutputDoc.derive(derived_from=(middle_docs[0],), name="output.txt", content="o"),)
 
 
 class StageOne(PipelineFlow):
-    async def run(self, documents: tuple[InputDoc, ...], options: _TestOptions) -> tuple[MiddleDoc, ...]:
+    async def run(self, input_docs: tuple[InputDoc, ...], options: _TestOptions) -> tuple[MiddleDoc, ...]:
         _ = options
-        return await ToMiddleTask.run(documents)
+        return await ToMiddleTask.run(input_docs=input_docs)
 
 
 class StageTwo(PipelineFlow):
-    async def run(self, documents: tuple[MiddleDoc, ...], options: _TestOptions) -> tuple[OutputDoc, ...]:
+    async def run(self, middle_docs: tuple[MiddleDoc, ...], options: _TestOptions) -> tuple[OutputDoc, ...]:
         _ = options
-        return await ToOutputTask.run(documents)
+        return await ToOutputTask.run(middle_docs=middle_docs)
 
 
 class _TestResult(DeploymentResult):
@@ -105,32 +105,32 @@ class InputToMiddleTask(PipelineTask):
     """Task: PubsubInputDoc -> PubsubMiddleDoc."""
 
     @classmethod
-    async def run(cls, documents: tuple[PubsubInputDoc, ...]) -> tuple[PubsubMiddleDoc, ...]:
-        return (PubsubMiddleDoc.derive(derived_from=(documents[0],), name="middle.json", content={"a": 1}),)
+    async def run(cls, input_docs: tuple[PubsubInputDoc, ...]) -> tuple[PubsubMiddleDoc, ...]:
+        return (PubsubMiddleDoc.derive(derived_from=(input_docs[0],), name="middle.json", content={"a": 1}),)
 
 
 class MiddleToOutputTask(PipelineTask):
     """Task: PubsubMiddleDoc -> PubsubOutputDoc."""
 
     @classmethod
-    async def run(cls, documents: tuple[PubsubMiddleDoc, ...]) -> tuple[PubsubOutputDoc, ...]:
-        return (PubsubOutputDoc.derive(derived_from=(documents[0],), name="output.json", content={"b": 2}),)
+    async def run(cls, middle_docs: tuple[PubsubMiddleDoc, ...]) -> tuple[PubsubOutputDoc, ...]:
+        return (PubsubOutputDoc.derive(derived_from=(middle_docs[0],), name="output.json", content={"b": 2}),)
 
 
 class ChainOutputToFinalTask(PipelineTask):
     """Task: PubsubOutputDoc -> PubsubFinalDoc."""
 
     @classmethod
-    async def run(cls, documents: tuple[PubsubOutputDoc, ...]) -> tuple[PubsubFinalDoc, ...]:
-        return (PubsubFinalDoc.derive(derived_from=(documents[0],), name="c_out.json", content={"c": 3}),)
+    async def run(cls, output_docs: tuple[PubsubOutputDoc, ...]) -> tuple[PubsubFinalDoc, ...]:
+        return (PubsubFinalDoc.derive(derived_from=(output_docs[0],), name="c_out.json", content={"c": 3}),)
 
 
 class DirectInputToOutputTask(PipelineTask):
     """Task: PubsubInputDoc -> PubsubOutputDoc."""
 
     @classmethod
-    async def run(cls, documents: tuple[PubsubInputDoc, ...]) -> tuple[PubsubOutputDoc, ...]:
-        return (PubsubOutputDoc.derive(derived_from=(documents[0],), name="output.json", content={"done": True}),)
+    async def run(cls, input_docs: tuple[PubsubInputDoc, ...]) -> tuple[PubsubOutputDoc, ...]:
+        return (PubsubOutputDoc.derive(derived_from=(input_docs[0],), name="output.json", content={"done": True}),)
 
 
 class InputToMiddleFlow(PipelineFlow):
@@ -138,9 +138,10 @@ class InputToMiddleFlow(PipelineFlow):
 
     name = "input_to_middle"
 
-    async def run(self, documents: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubMiddleDoc, ...]:
+    async def run(self, input_docs: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubMiddleDoc, ...]:
         _flow_executions.append("flow_1")
-        return await InputToMiddleTask.run(documents)
+        _ = options
+        return await InputToMiddleTask.run(input_docs=input_docs)
 
 
 class MiddleToOutputFlow(PipelineFlow):
@@ -148,9 +149,10 @@ class MiddleToOutputFlow(PipelineFlow):
 
     name = "middle_to_output"
 
-    async def run(self, documents: tuple[PubsubMiddleDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
+    async def run(self, middle_docs: tuple[PubsubMiddleDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
         _flow_executions.append("flow_2")
-        return await MiddleToOutputTask.run(documents)
+        _ = options
+        return await MiddleToOutputTask.run(middle_docs=middle_docs)
 
 
 class FailingMiddleToOutputFlow(PipelineFlow):
@@ -159,8 +161,9 @@ class FailingMiddleToOutputFlow(PipelineFlow):
     name = "failing_middle_to_output"
     retries = 0
 
-    async def run(self, documents: tuple[PubsubMiddleDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
+    async def run(self, middle_docs: tuple[PubsubMiddleDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
         _flow_executions.append("failing_flow_2")
+        _ = (middle_docs, options)
         raise RuntimeError("deliberate test failure")
 
 
@@ -169,9 +172,10 @@ class ChainInputToMiddleFlow(PipelineFlow):
 
     name = "chain_input_to_middle"
 
-    async def run(self, documents: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubMiddleDoc, ...]:
+    async def run(self, input_docs: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubMiddleDoc, ...]:
         _flow_executions.append("flow_a")
-        return await InputToMiddleTask.run(documents)
+        _ = options
+        return await InputToMiddleTask.run(input_docs=input_docs)
 
 
 class ChainMiddleToOutputFlow(PipelineFlow):
@@ -179,9 +183,10 @@ class ChainMiddleToOutputFlow(PipelineFlow):
 
     name = "chain_middle_to_output"
 
-    async def run(self, documents: tuple[PubsubMiddleDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
+    async def run(self, middle_docs: tuple[PubsubMiddleDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
         _flow_executions.append("flow_b")
-        return await MiddleToOutputTask.run(documents)
+        _ = options
+        return await MiddleToOutputTask.run(middle_docs=middle_docs)
 
 
 class ChainOutputToFinalFlow(PipelineFlow):
@@ -189,9 +194,10 @@ class ChainOutputToFinalFlow(PipelineFlow):
 
     name = "chain_output_to_final"
 
-    async def run(self, documents: tuple[PubsubOutputDoc, ...], options: FlowOptions) -> tuple[PubsubFinalDoc, ...]:
+    async def run(self, output_docs: tuple[PubsubOutputDoc, ...], options: FlowOptions) -> tuple[PubsubFinalDoc, ...]:
         _flow_executions.append("flow_c")
-        return await ChainOutputToFinalTask.run(documents)
+        _ = options
+        return await ChainOutputToFinalTask.run(output_docs=output_docs)
 
 
 class DirectInputToOutputFlow(PipelineFlow):
@@ -199,9 +205,10 @@ class DirectInputToOutputFlow(PipelineFlow):
 
     name = "direct_input_to_output"
 
-    async def run(self, documents: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
+    async def run(self, input_docs: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
         _flow_executions.append("single_flow")
-        return await DirectInputToOutputTask.run(documents)
+        _ = options
+        return await DirectInputToOutputTask.run(input_docs=input_docs)
 
 
 # --- Pubsub deployment classes ---
@@ -212,8 +219,9 @@ class TwoStageDeployment(PipelineDeployment[FlowOptions, PubsubResult]):
 
     flow_retries = 0
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [InputToMiddleFlow(), MiddleToOutputFlow()]
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(InputToMiddleFlow()), FlowStep(MiddleToOutputFlow())))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PubsubResult:
@@ -225,8 +233,9 @@ class ThreeStageDeployment(PipelineDeployment[FlowOptions, PubsubResult]):
 
     flow_retries = 0
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [ChainInputToMiddleFlow(), ChainMiddleToOutputFlow(), ChainOutputToFinalFlow()]
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(ChainInputToMiddleFlow()), FlowStep(ChainMiddleToOutputFlow()), FlowStep(ChainOutputToFinalFlow())))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PubsubResult:
@@ -238,8 +247,9 @@ class SingleStageDeployment(PipelineDeployment[FlowOptions, PubsubResult]):
 
     flow_retries = 0
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [DirectInputToOutputFlow()]
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(DirectInputToOutputFlow()),))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PubsubResult:
@@ -251,8 +261,9 @@ class FailingSecondStageDeployment(PipelineDeployment[FlowOptions, PubsubResult]
 
     flow_retries = 0
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [InputToMiddleFlow(), FailingMiddleToOutputFlow()]
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(InputToMiddleFlow()), FlowStep(FailingMiddleToOutputFlow())))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PubsubResult:

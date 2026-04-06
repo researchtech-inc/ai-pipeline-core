@@ -141,3 +141,58 @@ rules:
       include: ["**/ai_pipeline_core/database/filesystem/"]
 
   # Rule: No Example: blocks in docstrings — canonical rule is in docstring_rules.yml
+
+  - id: no-hard-coded-slicing
+    patterns:
+      - pattern: $X[:$N]
+      - metavariable-regex:
+          metavariable: $X
+          regex: "^(documents?|messages?|items?|results?|records?|handles?|flows?|tasks?|rounds?|logs?|spans?)$"
+      - metavariable-regex:
+          metavariable: $N
+          regex: "^[0-9]+$"
+    message: >
+      Hard-coded slice [:N] discards data silently. Use an explicit
+      truncation helper with a named constant and log what was dropped.
+      If the bound is known-small and documented, add # nosemgrep with
+      the bound justification.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include: ["ai_pipeline_core/"]
+      exclude: ["**/tests/**", "**/examples/**"]
+
+  - id: no-double-nested-loop
+    patterns:
+      - pattern: |
+          for $LEFT in $LEFT_ITEMS:
+              ...
+              for $RIGHT in $RIGHT_ITEMS:
+                  ...
+                  if $LEFT == $RIGHT:
+                      ...
+    message: >
+      Nested for-loops suggest O(n^2) complexity. Use dict lookup, set
+      intersection, or itertools for O(n) alternatives. If n is bounded,
+      add a constant and comment documenting the bound.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include: ["ai_pipeline_core/"]
+      exclude: ["**/tests/**", "**/examples/**"]
+
+  - id: no-dict-unpacking-task-flow-call
+    pattern-either:
+      - pattern: $CLS.run(**$DICT)
+      - pattern: await $CLS.run(**$DICT)
+    message: >
+      Do not unpack dicts into task or flow calls. Pass named arguments
+      explicitly so the type checker can verify each parameter.
+      Write: TaskClass.run(source=doc, model=model)
+      Not:   TaskClass.run(**params_dict)
+    severity: ERROR
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "ai_pipeline_core/deployment/_deployment_runtime.py"

@@ -82,8 +82,9 @@ class _SaveProgressTask(PipelineTask):
 class _ZombieFlow1(PipelineFlow):
     """Flow 1: produces a single official PlanDoc."""
 
-    async def run(self, documents: tuple[_InputDoc, ...], options: FlowOptions) -> tuple[_PlanDoc, ...]:
-        return (_PlanDoc.derive(derived_from=(documents[0],), name="plan.json", content='{"topic": "AI"}'),)
+    async def run(self, input_docs: tuple[_InputDoc, ...], options: FlowOptions) -> tuple[_PlanDoc, ...]:
+        _ = options
+        return (_PlanDoc.derive(derived_from=(input_docs[0],), name="plan.json", content='{"topic": "AI"}'),)
 
 
 class _ZombieFlow2(PipelineFlow):
@@ -91,12 +92,13 @@ class _ZombieFlow2(PipelineFlow):
 
     retries = 0
 
-    async def run(self, documents: tuple[_PlanDoc, ...], options: FlowOptions) -> tuple[_AnalysisDoc, ...]:
-        _zombie_flow2_received.extend(documents)
-        await _SaveProgressTask.run(documents)
+    async def run(self, plan_docs: tuple[_PlanDoc, ...], options: FlowOptions) -> tuple[_AnalysisDoc, ...]:
+        _ = options
+        _zombie_flow2_received.extend(plan_docs)
+        await _SaveProgressTask.run(plans=plan_docs)
         if _zombie_flow2_crash_flag[0]:
             raise RuntimeError("Simulated crash after saving progress")
-        return (_AnalysisDoc.derive(derived_from=(documents[0],), name="analysis.json", content='{"done": true}'),)
+        return (_AnalysisDoc.derive(derived_from=(plan_docs[0],), name="analysis.json", content='{"done": true}'),)
 
 
 class _ZombieBugDeployment(PipelineDeployment[FlowOptions, _SimpleResult]):
@@ -172,18 +174,20 @@ class TestBug1ResumeZombieDocuments:
 class _Bug2Flow1(PipelineFlow):
     """Flow 1: produces both IntermediateDoc and ReportDoc."""
 
-    async def run(self, documents: tuple[_InputDoc, ...], options: FlowOptions) -> tuple[_IntermediateDoc | _ReportDoc, ...]:
+    async def run(self, input_docs: tuple[_InputDoc, ...], options: FlowOptions) -> tuple[_IntermediateDoc | _ReportDoc, ...]:
+        _ = options
         return (
-            _IntermediateDoc.derive(derived_from=(documents[0],), name="intermediate.txt", content="bridge data"),
-            _ReportDoc.derive(derived_from=(documents[0],), name="report_from_flow1.txt", content="flow1 report"),
+            _IntermediateDoc.derive(derived_from=(input_docs[0],), name="intermediate.txt", content="bridge data"),
+            _ReportDoc.derive(derived_from=(input_docs[0],), name="report_from_flow1.txt", content="flow1 report"),
         )
 
 
 class _Bug2Flow2(PipelineFlow):
     """Flow 2: takes IntermediateDoc, outputs ReportDoc (same output type as flow 1)."""
 
-    async def run(self, documents: tuple[_IntermediateDoc, ...], options: FlowOptions) -> tuple[_ReportDoc, ...]:
-        return (_ReportDoc.derive(derived_from=(documents[0],), name="report_from_flow2.txt", content="flow2 report"),)
+    async def run(self, intermediate_docs: tuple[_IntermediateDoc, ...], options: FlowOptions) -> tuple[_ReportDoc, ...]:
+        _ = options
+        return (_ReportDoc.derive(derived_from=(intermediate_docs[0],), name="report_from_flow2.txt", content="flow2 report"),)
 
 
 class _Bug2Deployment(PipelineDeployment[FlowOptions, _SimpleResult]):

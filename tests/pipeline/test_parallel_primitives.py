@@ -1,12 +1,13 @@
 """Tests for handle-based parallel execution primitives."""
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
 
 from ai_pipeline_core.documents import Document
-from ai_pipeline_core.pipeline import PipelineTask, TaskBatch, TaskHandle, as_task_completed, collect_tasks, run_tasks_until
+from ai_pipeline_core.pipeline import PipelineTask, TaskBatch, TaskHandle, as_task_completed, collect_tasks
 from ai_pipeline_core.pipeline._execution_context import FlowFrame, pipeline_test_context, set_execution_context
 
 
@@ -16,13 +17,15 @@ class _PDoc(Document):
 
 class _FastTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_PDoc, ...]) -> tuple[_PDoc, ...]:
+    async def run(cls, input_docs: tuple[_PDoc, ...]) -> tuple[_PDoc, ...]:
+        _ = input_docs
         return (_PDoc(name="fast.txt", content=b"fast"),)
 
 
 class _SlowTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_PDoc, ...]) -> tuple[_PDoc, ...]:
+    async def run(cls, input_docs: tuple[_PDoc, ...]) -> tuple[_PDoc, ...]:
+        _ = input_docs
         await asyncio.sleep(60)
         return (_PDoc(name="slow.txt", content=b"slow"),)
 
@@ -31,7 +34,8 @@ class _FailTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_PDoc, ...]) -> tuple[_PDoc, ...]:
+    async def run(cls, input_docs: tuple[_PDoc, ...]) -> tuple[_PDoc, ...]:
+        _ = input_docs
         raise ValueError("run fail")
 
 
@@ -134,6 +138,20 @@ async def test_collect_tasks_accepts_list() -> None:
 
 
 @pytest.mark.asyncio
+async def test_collect_tasks_warns_on_high_fan_out(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="ai_pipeline_core.pipeline._parallel")
+    with pipeline_test_context() as ctx:
+        with set_execution_context(ctx.with_flow(_make_flow_frame())):
+            handles = [_FastTask.run((_make_doc(str(index)),)) for index in range(51)]
+            batch = await collect_tasks(handles)
+
+    assert len(batch.completed) == 51
+    assert "exceeds the global warning threshold of 50" in caplog.text
+    assert "declare max_fan_out = 51 on the flow class to document it" in caplog.text
+    assert "max_fan_out is informational only" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_as_task_completed_yields_handles() -> None:
     with pipeline_test_context() as ctx:
         with set_execution_context(ctx.with_flow(_make_flow_frame())):
@@ -146,15 +164,11 @@ async def test_as_task_completed_yields_handles() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_tasks_until_dispatches_and_collects() -> None:
+async def test_collect_tasks_on_dispatched_handle_list() -> None:
     with pipeline_test_context() as ctx:
         with set_execution_context(ctx.with_flow(_make_flow_frame())):
-            groups = [
-                (((_make_doc("a"),),), {}),
-                (((_make_doc("b"),),), {}),
-                (((_make_doc("c"),),), {}),
-            ]
-            batch = await run_tasks_until(_FastTask, groups)
+            handles = [_FastTask.run((_make_doc(label),)) for label in ("a", "b", "c")]
+            batch = await collect_tasks(handles)
 
     assert len(batch.completed) == 3
     assert batch.incomplete == []

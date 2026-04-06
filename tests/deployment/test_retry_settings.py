@@ -40,8 +40,9 @@ class TestResolveFlowRetries:
 
             retries = 5
 
-            async def run(self, documents: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
-                return (_SettingsOutputDoc.derive(derived_from=documents, name="out.txt", content="ok"),)
+            async def run(self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
+                _ = options
+                return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
         assert _resolve_flow_retries(_ExplicitFlow, deployment_flow_retries=10) == 5
         assert _resolve_flow_retries(_ExplicitFlow, deployment_flow_retries=None) == 5
@@ -65,8 +66,9 @@ class TestResolveFlowRetries:
 
             retries = 0
 
-            async def run(self, documents: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
-                return (_SettingsOutputDoc.derive(derived_from=documents, name="out.txt", content="ok"),)
+            async def run(self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
+                _ = options
+                return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
         assert _resolve_flow_retries(_ZeroFlow, deployment_flow_retries=5) == 0
 
@@ -80,8 +82,9 @@ class TestResolveFlowRetryDelay:
 
             retry_delay_seconds = 10
 
-            async def run(self, documents: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
-                return (_SettingsOutputDoc.derive(derived_from=documents, name="out.txt", content="ok"),)
+            async def run(self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
+                _ = options
+                return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
         assert _resolve_flow_retry_delay(_DelayFlow, deployment_flow_retry_delay_seconds=99) == 10
 
@@ -119,8 +122,8 @@ class TestTaskRetrySettings:
             retries = 0
 
             @classmethod
-            async def run(cls, documents: tuple[_SettingsInputDoc, ...]) -> tuple[_SettingsOutputDoc, ...]:
-                return (_SettingsOutputDoc.derive(derived_from=documents, name="out.txt", content="ok"),)
+            async def run(cls, input_docs: tuple[_SettingsInputDoc, ...]) -> tuple[_SettingsOutputDoc, ...]:
+                return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
         assert _ZeroRetryTask.retries == 0
         assert _ZeroRetryTask.retries is not None

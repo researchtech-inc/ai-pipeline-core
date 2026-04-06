@@ -2,7 +2,7 @@
 # CLASSES: LimitKind, PipelineLimit, FlowOptions, PipelineFlow, TaskHandle, TaskBatch, PipelineTask
 # DEPENDS: BaseModel, StrEnum
 # PURPOSE: Pipeline framework primitives.
-# VERSION: 0.20.0
+# VERSION: 0.21.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -22,7 +22,6 @@ from ai_pipeline_core import (
     get_run_id,
     pipeline_concurrency,
     pipeline_test_context,
-    run_tasks_until,
     safe_gather,
     safe_gather_indexed,
     traced_operation,
@@ -83,25 +82,33 @@ class PipelineFlow:
     """Base class for pipeline flows.
 
     Flows are the unit of resume, progress tracking, and document hand-off in a deployment.
-    Define ``run`` as an **instance method** (not @classmethod) because flows can carry
+    Define ``run`` as an **instance method** (not ``@classmethod``) because flows can carry
     per-instance configuration passed via ``build_flows()``::
 
-        class TranslateFlow(PipelineFlow):
-            target_language: str = "en"
+        class EvidenceFlow(PipelineFlow):
+            round_number: int
 
-            async def run(self, documents: tuple[SourceDoc, ...], options: FlowOptions) -> tuple[TranslatedDoc, ...]:
-                return await TranslateTask.run(documents, language=self.target_language)
+            async def run(
+                self,
+                planning: PlanningContextDocument,
+                state: EvidenceStateDocument | None,
+                options: ResearchOptions,
+            ) -> tuple[EvidenceDocument, ...]:
+                ...
+
+    Resolution rules:
+    - ``planning: PlanningContextDocument`` -> latest document of that type
+    - ``state: EvidenceStateDocument | None`` -> latest, or ``None`` if absent
+    - ``dossiers: tuple[DossierDocument, ...]`` -> all accumulated documents of that type
+    - ``options: ResearchOptions`` -> the deployment options object
 
     The deployment creates flow instances with constructor kwargs::
 
         def build_flows(self, options):
-            return [TranslateFlow(target_language="fr"), TranslateFlow(target_language="de")]
+            return [EvidenceFlow(round_number=1), EvidenceFlow(round_number=2)]
 
     Each instance runs independently with its own parameters, resume record, and progress.
     Constructor kwargs are captured for replay serialization via ``get_params()``.
-
-    Signature must be exactly ``(self, documents: tuple[DocType, ...], options: FlowOptions)``
-    and is validated at class definition time by ``__init_subclass__``.
     Use ``get_run_id()`` from ``ai_pipeline_core.pipeline`` to access the run ID inside a flow."""
 
     name: ClassVar[str]
@@ -109,8 +116,9 @@ class PipelineFlow:
     retries: ClassVar[int | None] = None
     retry_delay_seconds: ClassVar[int | None] = None  # None = use Settings.flow_retry_delay_seconds
     BASE_COST_USD: ClassVar[float] = 0.0
-    input_document_types: ClassVar[list[type[Document]]] = []
-    output_document_types: ClassVar[list[type[Document]]] = []
+    max_fan_out: ClassVar[int | None] = None  # Maximum expected fan-out for this flow.
+    input_document_types: ClassVar[tuple[type[Document], ...]] = ()
+    output_document_types: ClassVar[tuple[type[Document], ...]] = ()
     task_graph: ClassVar[list[tuple[str, str, float]]] = []
 
     def __init__(self, **kwargs: Any) -> None:
@@ -139,6 +147,7 @@ class PipelineFlow:
 
     def __init_subclass__(cls, *, stub: bool = False, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        cls._document_types_frozen = False
         cls._stub = stub
         if cls is PipelineFlow:
             return
@@ -149,6 +158,7 @@ class PipelineFlow:
                     "Use stub=True for placeholder classes awaiting implementation. "
                     "Use _abstract_flow for intermediate base classes meant for override."
                 )
+            freeze_document_type_metadata(cls)
             return
 
         is_stub = stub
@@ -167,10 +177,12 @@ class PipelineFlow:
         cls._validate_class_config()
         run_fn, hints, params = cls._validate_run_signature()
         input_types, output_types = cls._extract_document_types(hints, params)
-        cls.input_document_types = input_types
-        cls.output_document_types = output_types
+        cls.input_document_types = tuple(input_types)
+        cls.output_document_types = tuple(output_types)
         cls.task_graph = cls._parse_task_graph(run_fn)
+        _warn_on_unused_task_outputs(cls.__name__, _parse_task_bindings_from_source(run_fn))
         cls._prefect_flow_fn = cls._build_prefect_flow()
+        freeze_document_type_metadata(cls)
 
         # Register after all validation passes to avoid poisoning the registry on failure
         if not exempt:
@@ -182,13 +194,8 @@ class PipelineFlow:
         """Return constructor params for flow plan serialization."""
         return dict(getattr(self, "_params", {}))
 
-    async def run(self, documents: tuple[Any, ...], options: Any) -> tuple[Any, ...]:
-        """Execute the flow.
-
-        Subclasses must provide concrete ``tuple[MyDocument, ...]`` and ``FlowOptions``
-        annotations. The base stub stays broad so static type checkers accept
-        narrower overrides; ``__init_subclass__`` enforces the real signature.
-        """
+    async def run(self, **kwargs: Any) -> tuple[Any, ...]:
+        """Execute the flow. Subclasses provide concrete typed annotations."""
         raise NotImplementedError
 
 
@@ -240,10 +247,10 @@ class PipelineTask:
 
         class SummarizeTask(PipelineTask):
             @classmethod
-            async def run(cls, documents: tuple[ArticleDocument, ...]) -> tuple[SummaryDocument, ...]:
-                conv = Conversation(model="gemini-3-flash").with_context(documents[0])
+            async def run(cls, articles: tuple[ArticleDocument, ...]) -> tuple[SummaryDocument, ...]:
+                conv = Conversation(model="gemini-3-flash").with_context(articles[0])
                 conv = await conv.send("Summarize this article.")
-                return (SummaryDocument.derive(derived_from=(documents[0],), name="summary.md", content=conv.content),)
+                return (SummaryDocument.derive(derived_from=(articles[0],), name="summary.md", content=conv.content),)
 
     Calling ``await SummarizeTask.run((doc,))`` dispatches the full lifecycle. Calling without
     ``await`` returns a ``TaskHandle`` for parallel execution via ``collect_tasks``."""
@@ -258,11 +265,12 @@ class PipelineTask:
     cache_ttl_seconds: ClassVar[int | None] = None
     BASE_COST_USD: ClassVar[float] = 0.0
     expected_cost: ClassVar[float | None] = None
-    input_document_types: ClassVar[list[type[Document]]] = []
-    output_document_types: ClassVar[list[type[Document]]] = []
+    input_document_types: ClassVar[tuple[type[Document], ...]] = ()
+    output_document_types: ClassVar[tuple[type[Document], ...]] = ()
 
     def __init_subclass__(cls, *, stub: bool = False, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        cls._document_types_frozen = False
         cls._stub = stub
         if cls is PipelineTask:
             return
@@ -273,6 +281,7 @@ class PipelineTask:
                     "Use stub=True for placeholder classes awaiting implementation. "
                     "Use _abstract_task for intermediate base classes meant for override."
                 )
+            freeze_document_type_metadata(cls)
             return
 
         is_stub = stub
@@ -295,16 +304,18 @@ class PipelineTask:
             inherited_spec = getattr(cls, "_run_spec", None)
             if inherited_spec is None:
                 raise TypeError(f"PipelineTask '{cls.__name__}' must define @classmethod async def run(cls, ...) or inherit a validated run() implementation.")
-            cls.input_document_types = list(inherited_spec.input_document_types)
-            cls.output_document_types = list(inherited_spec.output_document_types)
+            cls.input_document_types = tuple(inherited_spec.input_document_types)
+            cls.output_document_types = tuple(inherited_spec.output_document_types)
             cls._prefect_task_fn = cls._build_prefect_task()
         else:
             spec = cls._validate_run_signature(own_run)
             cls._run_spec = spec
-            cls.input_document_types = list(spec.input_document_types)
-            cls.output_document_types = list(spec.output_document_types)
+            cls.input_document_types = tuple(spec.input_document_types)
+            cls.output_document_types = tuple(spec.output_document_types)
             cls.run = classmethod(cls._build_run_wrapper(spec))
             cls._prefect_task_fn = cls._build_prefect_task()
+
+        freeze_document_type_metadata(cls)
 
         # Register after all validation passes to avoid poisoning the registry on failure
         if not exempt:
@@ -499,6 +510,15 @@ async def collect_tasks(
     ordered_handles = _normalize_handles(handles)
     if not ordered_handles:
         return TaskBatch(completed=[], incomplete=[])
+    if len(ordered_handles) > _DEFAULT_FAN_OUT_WARNING_THRESHOLD:
+        logger.warning(
+            "collect_tasks() received %d handles, which exceeds the global warning threshold of %d. "
+            "If this fan-out is intentional, declare max_fan_out = %d on the flow class to document it. "
+            "In Phase 1, max_fan_out is informational only and does not change the warning threshold.",
+            len(ordered_handles),
+            _DEFAULT_FAN_OUT_WARNING_THRESHOLD,
+            len(ordered_handles),
+        )
 
     completed: list[tuple[Document[Any], ...]] = []
     incomplete: list[TaskHandle[tuple[Document[Any], ...]]] = []
@@ -539,27 +559,6 @@ async def as_task_completed(*handles: TaskAwaitableGroup) -> AsyncIterator[TaskH
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
         for finished in done:
             yield by_task[finished]
-
-
-async def run_tasks_until(
-    task_cls: type[Any],
-    argument_groups: Sequence[tuple[tuple[Any, ...], dict[str, Any]]],
-    *,
-    deadline_seconds: float | None = None,
-) -> TaskBatch:
-    """Launch ``task_cls.run(*args, **kwargs)`` for each argument group and collect the handles."""
-    handles: list[TaskAwaitable] = []
-    try:
-        for args, kwargs in argument_groups:
-            handles.append(task_cls.run(*args, **kwargs))
-    except Exception:
-        normalized_handles = _normalize_handles(tuple(handles))
-        for handle in normalized_handles:
-            handle.cancel()
-        if normalized_handles:
-            await asyncio.gather(*(handle.result() for handle in normalized_handles), return_exceptions=True)
-        raise
-    return await collect_tasks(handles, deadline_seconds=deadline_seconds)
 
 
 @asynccontextmanager
@@ -633,7 +632,7 @@ async def test_add_cost_reaches_span_context(self) -> None:
             assert span_ctx._added_cost_usd == pytest.approx(0.01)
 ```
 
-**Collect tasks accepts list** (`tests/pipeline/test_parallel_primitives.py:126`)
+**Collect tasks accepts list** (`tests/pipeline/test_parallel_primitives.py:130`)
 
 ```python
 @pytest.mark.asyncio
@@ -658,6 +657,20 @@ async def test_collect_tasks_empty_returns_empty_batch() -> None:
     assert batch.incomplete == []
 ```
 
+**Collect tasks on dispatched handle list** (`tests/pipeline/test_parallel_primitives.py:167`)
+
+```python
+@pytest.mark.asyncio
+async def test_collect_tasks_on_dispatched_handle_list() -> None:
+    with pipeline_test_context() as ctx:
+        with set_execution_context(ctx.with_flow(_make_flow_frame())):
+            handles = [_FastTask.run((_make_doc(label),)) for label in ("a", "b", "c")]
+            batch = await collect_tasks(handles)
+
+    assert len(batch.completed) == 3
+    assert batch.incomplete == []
+```
+
 **Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:115`)
 
 ```python
@@ -677,24 +690,6 @@ def test_pipeline_test_context_sets_and_restores() -> None:
         assert ctx.run_id == "ctx-test"
 
     assert get_execution_context() is before
-```
-
-**Add cost persists to span record** (`tests/pipeline/test_add_cost.py:264`)
-
-```python
-@pytest.mark.asyncio
-async def test_add_cost_persists_to_span_record(self) -> None:
-    db = _MemoryDatabase()
-    ctx = _make_execution_context(db)
-    with set_execution_context(ctx):
-        async with track_span(SpanKind.OPERATION, "api-call", "", sinks=ctx.sinks, db=ctx.database) as span_ctx:
-            add_cost(0.006)
-            add_cost(0.004)
-            span_id = span_ctx.span_id
-
-    span = await db.get_span(span_id)
-    assert span is not None
-    assert span.cost_usd == pytest.approx(0.01)
 ```
 
 
@@ -731,40 +726,6 @@ async def test_traced_operation_marks_failed_span_and_reraises() -> None:
     assert operation_span.status == SpanStatus.FAILED
     assert operation_span.error_type == "ValueError"
     assert operation_span.error_message == "boom"
-```
-
-**Run tasks until cancels started tasks on bind failure** (`tests/pipeline/test_verified_parallel_regressions.py:33`)
-
-```python
-@pytest.mark.asyncio
-async def test_run_tasks_until_cancels_started_tasks_on_bind_failure() -> None:
-    class _SlowTask(PipelineTask):
-        """Task that blocks until cancellation."""
-
-        @classmethod
-        async def run(
-            cls,
-            documents: tuple[_ParallelInputDoc, ...],
-        ) -> tuple[_ParallelOutputDoc, ...]:
-            await asyncio.sleep(10)
-            return ()
-
-    doc = _ParallelInputDoc.create_root(name="in.txt", content="x", reason="test")
-
-    with pipeline_test_context():
-        with pytest.raises(TypeError):
-            await run_tasks_until(
-                _SlowTask,
-                [
-                    (((doc,),), {}),
-                    (((doc,),), {}),
-                    (("not-a-document",), {}),
-                ],
-            )
-
-    await asyncio.sleep(0.05)
-    lingering_tasks = [task for task in asyncio.all_tasks() if "_SlowTask.run" in repr(task.get_coro()) and not task.done()]
-    assert lingering_tasks == []
 ```
 
 **Base flow options rejects extra** (`tests/pipeline/test_options.py:29`)
@@ -806,4 +767,14 @@ def test_inf_raises(self) -> None:
 
     with pytest.raises(TypeError, match="BASE_COST_USD"):
         type("InfCostTask", (PipelineTask,), {"name": "InfCostTask", "BASE_COST_USD": float("inf"), "estimated_minutes": 1.0})
+```
+
+**Inf raises** (`tests/pipeline/test_add_cost.py:226`)
+
+```python
+def test_inf_raises(self) -> None:
+    from ai_pipeline_core.pipeline._flow import PipelineFlow
+
+    with pytest.raises(TypeError, match="BASE_COST_USD"):
+        type("InfCostFlow", (PipelineFlow,), {"name": "InfCostFlow", "BASE_COST_USD": float("inf"), "estimated_minutes": 1.0})
 ```

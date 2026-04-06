@@ -44,8 +44,9 @@ class _WiringResult(DeploymentResult):
 class _WiringFlow(PipelineFlow):
     """Flow for wiring tests."""
 
-    async def run(self, documents: tuple[_WiringInputDoc, ...], options: FlowOptions) -> tuple[_WiringOutputDoc, ...]:
-        return (_WiringOutputDoc.derive(derived_from=documents, name="out.txt", content="done"),)
+    async def run(self, input_docs: tuple[_WiringInputDoc, ...], options: FlowOptions) -> tuple[_WiringOutputDoc, ...]:
+        _ = options
+        return (_WiringOutputDoc.derive(derived_from=input_docs, name="out.txt", content="done"),)
 
 
 class _WiringDeployment(PipelineDeployment[FlowOptions, _WiringResult]):
@@ -66,7 +67,8 @@ class _FailingFlow(PipelineFlow):
 
     retries = 0
 
-    async def run(self, documents: tuple[_WiringInputDoc, ...], options: FlowOptions) -> tuple[_WiringOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_WiringInputDoc, ...], options: FlowOptions) -> tuple[_WiringOutputDoc, ...]:
+        _ = (input_docs, options)
         raise RuntimeError("deliberate failure")
 
 
@@ -86,7 +88,8 @@ class _FailingDeployment(PipelineDeployment[FlowOptions, _WiringResult]):
 class _CancellingFlow(PipelineFlow):
     """Flow that raises CancelledError."""
 
-    async def run(self, documents: tuple[_WiringInputDoc, ...], options: FlowOptions) -> tuple[_WiringOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_WiringInputDoc, ...], options: FlowOptions) -> tuple[_WiringOutputDoc, ...]:
+        _ = (input_docs, options)
         raise asyncio.CancelledError()
 
 

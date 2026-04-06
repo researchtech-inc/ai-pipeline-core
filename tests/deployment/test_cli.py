@@ -156,24 +156,28 @@ class _UnrelatedInputDoc(Document):
 
 
 class _DbFallbackFlow(PipelineFlow):
-    async def run(self, documents: tuple[_DbFallbackInputDoc, ...], options: FlowOptions) -> tuple[_DbFallbackOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_DbFallbackInputDoc, ...], options: FlowOptions) -> tuple[_DbFallbackOutputDoc, ...]:
+        _ = (input_docs, options)
         return ()
 
 
 class _Flow1(PipelineFlow):
-    async def run(self, documents: tuple[FlowInputDoc, ...], options: FlowOptions) -> tuple[FlowOutputDoc, ...]:
+    async def run(self, flow_inputs: tuple[FlowInputDoc, ...], options: FlowOptions) -> tuple[FlowOutputDoc, ...]:
+        _ = (flow_inputs, options)
         return ()
 
 
 class _Flow2(PipelineFlow):
-    async def run(self, documents: tuple[FlowOutputDoc, ...], options: FlowOptions) -> tuple[FlowOutputDoc2, ...]:
+    async def run(self, upstream_outputs: tuple[FlowOutputDoc, ...], options: FlowOptions) -> tuple[FlowOutputDoc2, ...]:
+        _ = (upstream_outputs, options)
         return ()
 
 
 class _Flow2Bad(PipelineFlow):
     """Flow whose input is not produced by _Flow1 — chain validation must reject this."""
 
-    async def run(self, documents: tuple[_UnrelatedInputDoc, ...], options: FlowOptions) -> tuple[FlowOutputDoc2, ...]:
+    async def run(self, unrelated_input: _UnrelatedInputDoc, options: FlowOptions) -> tuple[FlowOutputDoc2, ...]:
+        _ = (unrelated_input, options)
         return ()
 
 
@@ -195,7 +199,8 @@ class _DbFallbackDeployment(PipelineDeployment[FlowOptions, _DbFallbackResult]):
 
 
 class _CliFlow(PipelineFlow):
-    async def run(self, documents: tuple[_CliInputDoc, ...], options: FlowOptions) -> tuple[_CliOutputDoc, ...]:
+    async def run(self, cli_inputs: tuple[_CliInputDoc, ...], options: FlowOptions) -> tuple[_CliOutputDoc, ...]:
+        _ = (cli_inputs, options)
         return ()
 
 

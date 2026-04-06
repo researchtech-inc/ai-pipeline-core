@@ -82,9 +82,9 @@ class _ProbeTask(PipelineTask):
     captured_task_ctx: list[TaskRunContext | None] = []
 
     @classmethod
-    async def run(cls, documents: tuple[_PrefectInputDoc, ...]) -> tuple[_PrefectOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_PrefectInputDoc, ...]) -> tuple[_PrefectOutputDoc, ...]:
         cls.captured_task_ctx.append(TaskRunContext.get())
-        return (_PrefectOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+        return (_PrefectOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 class _BaseRetryTask(PipelineTask):
@@ -95,11 +95,11 @@ class _BaseRetryTask(PipelineTask):
     call_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_PrefectInputDoc, ...]) -> tuple[_PrefectOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_PrefectInputDoc, ...]) -> tuple[_PrefectOutputDoc, ...]:
         cls.call_count += 1
         if cls.call_count <= 2:
             raise ValueError("transient failure")
-        return (_PrefectOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+        return (_PrefectOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 class _InheritedRetryTask(_BaseRetryTask):
@@ -116,11 +116,11 @@ class _DirectRetryTask(PipelineTask):
     call_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_PrefectInputDoc, ...]) -> tuple[_PrefectOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_PrefectInputDoc, ...]) -> tuple[_PrefectOutputDoc, ...]:
         cls.call_count += 1
         if cls.call_count == 1:
             raise ValueError("transient failure")
-        return (_PrefectOutputDoc.derive(derived_from=(documents[0],), name="retried.txt", content="ok"),)
+        return (_PrefectOutputDoc.derive(derived_from=(input_docs[0],), name="retried.txt", content="ok"),)
 
 
 # ── Unit tests: Prefect object configuration ─────────────────────────────
@@ -166,8 +166,9 @@ class TestPrefectFlowConfig:
         from ai_pipeline_core.pipeline.options import FlowOptions
 
         class _ConfigProbeFlow(PipelineFlow):
-            async def run(self, documents: tuple[_PrefectInputDoc, ...], options: FlowOptions) -> tuple[_PrefectOutputDoc, ...]:
-                return documents  # type: ignore[return-value]
+            async def run(self, input_docs: tuple[_PrefectInputDoc, ...], options: FlowOptions) -> tuple[_PrefectOutputDoc, ...]:
+                _ = options
+                return tuple(_PrefectOutputDoc.derive(derived_from=(document,), name=f"out-{document.name}", content="ok") for document in input_docs)
 
         assert _ConfigProbeFlow._prefect_flow_fn is not None
         assert _ConfigProbeFlow._prefect_flow_fn.name == "_ConfigProbeFlow"

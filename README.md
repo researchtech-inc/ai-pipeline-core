@@ -153,33 +153,38 @@ class AnalyzeDocument(PipelineTask):
 class AnalysisFlow(PipelineFlow):
     """Analyze all input documents."""
 
-    async def run(self, documents: tuple[InputDocument, ...], options: FlowOptions) -> tuple[AnalysisDocument, ...]:
+    async def run(self, input_documents: tuple[InputDocument, ...], options: FlowOptions) -> tuple[AnalysisDocument, ...]:
         results: list[AnalysisDocument] = []
-        for doc in documents:
-            results.extend(await AnalyzeDocument.run((doc,)))
+        for doc in input_documents:
+            results.extend(await AnalyzeDocument.run(documents=(doc,)))
         return tuple(results)
 
 
 class ReportFlow(PipelineFlow):
     """Generate final report from analyses."""
 
-    async def run(self, documents: tuple[AnalysisDocument, ...], options: FlowOptions) -> tuple[ReportDocument, ...]:
+    async def run(self, analyses: tuple[AnalysisDocument, ...], options: FlowOptions) -> tuple[ReportDocument, ...]:
         report = ReportDocument.derive(
             name="report.md",
             content="# Report\n\nAnalysis complete.",
-            derived_from=documents,
+            derived_from=analyses,
         )
         return (report,)
 
 
-# 5. Deployment -- ties flows together with type chain validation
+# 5. Deployment -- build the execution plan up front
 class MyResult(DeploymentResult):
     report_count: int = 0
 
 
 class MyPipeline(PipelineDeployment[FlowOptions, MyResult]):
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
-        return [AnalysisFlow(), ReportFlow()]
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        return DeploymentPlan(
+            steps=(
+                FlowStep(AnalysisFlow()),
+                FlowStep(ReportFlow()),
+            )
+        )
 
     @staticmethod
     def build_result(
@@ -681,7 +686,7 @@ class ExpensiveTask(PipelineTask):
 **Invocation patterns:**
 
 ```python
-# Sequential — await TaskClass.run(documents)
+# Sequential — await TaskClass.run(...)
 result = await ProcessChunk.run(documents)
 
 # Parallel — TaskClass.run() without await returns TaskHandle
@@ -719,16 +724,22 @@ class AnalysisFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[InputDoc, ...],  # Input types extracted from annotation
+        input_docs: tuple[InputDoc, ...],  # Collection input: all matching docs
         options: MyFlowOptions,  # Must be FlowOptions or subclass
     ) -> tuple[OutputDoc, ...]:  # Output types extracted from annotation
         results: list[OutputDoc] = []
-        for doc in documents:
-            results.extend(await AnalyzeTask.run((doc,)))
+        for doc in input_docs:
+            results.extend(await AnalyzeTask.run(documents=(doc,)))
         return tuple(results)
 ```
 
-The flow's `documents` parameter annotation determines input types, and the return annotation determines output types. The `run()` method must have exactly 3 parameters: `self`, `documents: tuple[...]`, and `options: FlowOptions`. Use `get_run_id()` inside a flow when you need the current run ID.
+Flow input parameter annotations determine input resolution from the blackboard:
+- `source: MyDocument` means the latest matching document is injected
+- `source: MyDocument | None` means latest-or-`None`
+- `sources: tuple[MyDocument, ...]` means all matching documents
+- `options: MyFlowOptions` receives the deployment options object
+
+The flow return annotation determines output types. `run()` must be an instance method with `self` first, at least one named input parameter, and a `tuple[DocumentSubclass, ...]` return annotation. Use `get_run_id()` inside a flow when you need the current run ID.
 
 **Constructor parameters** for per-instance configuration:
 
@@ -736,7 +747,8 @@ The flow's `documents` parameter annotation determines input types, and the retu
 class ConfigurableFlow(PipelineFlow):
     """Flow with per-instance model configuration."""
 
-    async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+    async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+        _ = (input_docs, options)
         model = self.model  # Access constructor params as attributes
         ...
 
@@ -770,8 +782,13 @@ Orchestrates multi-flow pipelines with resume, per-flow uploads, and event publi
 class MyPipeline(PipelineDeployment[MyOptions, MyResult]):
     pubsub_service_type = "research"  # Enables Pub/Sub event publishing
 
-    def build_flows(self, options: MyOptions) -> list[PipelineFlow]:
-        return [AnalysisFlow(), ReportFlow(model="gemini-3.1-pro")]
+    def build_plan(self, options: MyOptions) -> DeploymentPlan:
+        return DeploymentPlan(
+            steps=(
+                FlowStep(AnalysisFlow()),
+                FlowStep(ReportFlow(model="gemini-3.1-pro")),
+            )
+        )
 
     @staticmethod
     def build_result(
@@ -781,20 +798,33 @@ class MyPipeline(PipelineDeployment[MyOptions, MyResult]):
     ) -> MyResult: ...
 ```
 
-**Dynamic flow control** with `plan_next_flow()`:
+**Dynamic flow control** with `build_plan()` and `FieldGate`:
 
 ```python
-from ai_pipeline_core.deployment.base import FlowDirective, FlowAction
+from pydantic import BaseModel
+from ai_pipeline_core import DeploymentPlan, Document, FieldGate, FlowStep
+
+
+class SynthesisDecision(BaseModel, frozen=True):
+    should_synthesize: bool
+
+
+class SynthesisDecisionDocument(Document[SynthesisDecision]):
+    pass
 
 
 class MyPipeline(PipelineDeployment[MyOptions, MyResult]):
-    def build_flows(self, options: MyOptions) -> list[PipelineFlow]:
-        return [ExtractFlow(), AnalyzeFlow(), SynthesisFlow()]
-
-    def plan_next_flow(self, flow_class, plan, output_documents) -> FlowDirective:
-        if flow_class is SynthesisFlow and not output_documents:
-            return FlowDirective(action=FlowAction.SKIP, reason="No documents to synthesize")
-        return FlowDirective()  # CONTINUE by default
+    def build_plan(self, options: MyOptions) -> DeploymentPlan:
+        return DeploymentPlan(
+            steps=(
+                FlowStep(ExtractFlow()),
+                FlowStep(AnalyzeFlow()),
+                FlowStep(
+                    SynthesisFlow(),
+                    run_if=FieldGate(SynthesisDecisionDocument, "should_synthesize", op="truthy", on_missing="skip"),
+                ),
+            )
+        )
 ```
 
 **Execution modes:**
@@ -821,7 +851,7 @@ prefect_flow = pipeline.as_prefect_flow()
 - **Per-flow resume**: Skips flows with a cached completed execution node in the database (explicit completion tracking, not document-presence inference). Configurable `cache_ttl` (default 24h)
 - **Type chain validation**: At runtime, validates that at least one of each flow's declared input types is producible by preceding flows (union semantics)
 - **Event publishing**: 11 lifecycle events (run started/completed/failed, flow started/completed/failed/skipped, task started/completed/failed, heartbeat) via Pub/Sub. Enabled by setting `pubsub_service_type` ClassVar. Requires `PUBSUB_PROJECT_ID` and `PUBSUB_TOPIC_ID` env vars
-- **Dynamic flow control**: `plan_next_flow()` returns `FlowDirective` to skip or continue flows based on runtime state
+- **Dynamic flow control**: `build_plan()` returns `FlowStep` entries, and `FieldGate` / `group_stop_if` drive runtime skips and loop stops from typed control documents
 - **Flow retries**: Configurable via `flow_retries` (default `None` → uses `Settings.flow_retries`, default `0`) and `flow_retry_delay_seconds` (default `None` → uses `Settings.flow_retry_delay_seconds`, default `30`) ClassVars on the deployment. Exponential backoff, capped at 300s. Individual flows can override with explicit `retries = N`
 - **Concurrency limits**: Cross-run enforcement via Prefect global concurrency limits
 - **CLI mode**: `--start N` / `--end N` for step control with the configured database backend
@@ -881,14 +911,14 @@ class AnalyzeDataTask(PipelineTask, stub=True):
     """
 
     @classmethod
-    async def run(cls, documents: tuple[CleanedDataDoc, ...]) -> tuple[AnalysisResultDoc, ...]: ...
+    async def run(cls, cleaned_docs: tuple[CleanedDataDoc, ...]) -> tuple[AnalysisResultDoc, ...]: ...
 
 
 # Stub flow — same pattern
 class AnalysisFlow(PipelineFlow, stub=True):
     """Run analysis pipeline."""
 
-    async def run(self, documents: tuple[CleanedDataDoc, ...], options: FlowOptions) -> tuple[AnalysisResultDoc, ...]: ...
+    async def run(self, cleaned_docs: tuple[CleanedDataDoc, ...], options: FlowOptions) -> tuple[AnalysisResultDoc, ...]: ...
 
 
 # Stub PromptSpec — uses keyword arg syntax
@@ -915,7 +945,7 @@ See `examples/showcase_stubs.py` for a complete working example.
 **Task dispatch** for parallel task execution within flows:
 
 ```python
-from ai_pipeline_core import PipelineTask, collect_tasks, as_task_completed, run_tasks_until
+from ai_pipeline_core import PipelineTask, collect_tasks, as_task_completed
 
 # Dispatch tasks for parallel execution (run without await returns TaskHandle)
 handle_a = ExtractTask.run(docs_a)
@@ -930,9 +960,6 @@ batch = await collect_tasks(handle_a, handle_b, handle_c, deadline_seconds=120.0
 # Iterate in completion order
 async for handle in as_task_completed(handle_a, handle_b, handle_c):
     result = await handle.result()
-
-# Sugar: dispatch + collect in one call
-batch = await run_tasks_until(ExtractTask, [((docs_a,), {}), ((docs_b,), {}), ((docs_c,), {})], deadline_seconds=120.0)
 ```
 
 **`safe_gather` and `safe_gather_indexed`** run coroutines in parallel with fault tolerance:
@@ -1320,15 +1347,15 @@ print(settings.app_name)
 
 ### Framework Rules
 
-1. **Pipeline classes**: Subclass `PipelineTask` for tasks and `PipelineFlow` for flows. Use `PipelineDeployment.build_flows()` for dynamic flow lists
-2. **Task invocation**: Use `await TaskClass.run(documents)` for sequential execution, `TaskClass.run(documents)` (without await) for parallel TaskHandle
+1. **Pipeline classes**: Subclass `PipelineTask` for tasks and `PipelineFlow` for flows. Use `PipelineDeployment.build_plan()` as the primary deployment authoring path; `build_flows()` remains a fallback wrapper
+2. **Task invocation**: Use `await TaskClass.run(...)` for sequential execution and `TaskClass.run(...)` (without await) when you want a parallel `TaskHandle`
 3. **Logging**: Use `logging.getLogger(__name__)` -- never `print()`. Logging is auto-configured on import
 4. **LLM calls**: Use `Conversation` for all LLM interactions (multi-turn and single-shot). Use `tools=` for function calling
 5. **Options**: Omit `ModelOptions` unless specifically needed (defaults are production-optimized)
 6. **Documents**: Use `create_root()` for pipeline inputs, `derive()` for content transformations, `create()` for causally triggered documents, `create_external()` for URI provenance. Always subclass `Document`
-7. **Type annotations**: Input/output types are in the `run()` method signature -- `tuple[InputDoc, ...]` and `-> tuple[OutputDoc, ...]`
+7. **Type annotations**: Input/output types are in the `run()` method signature. Flows use named `Document` parameters resolved from the deployment blackboard, and tasks use explicit typed inputs with document return annotations
 8. **Initialization**: Logger at module scope, not in functions
-9. **Document collections**: Use plain `tuple[Document, ...]` inside tasks and flows; deployment entrypoints still accept generic sequences
+9. **Document collections**: Use typed tuples like `tuple[MyDocument, ...]` when a task needs a collection input. Flows declare named document parameters, and deployment entrypoints still accept generic document sequences
 
 ### Import Convention
 
@@ -1338,7 +1365,7 @@ Always import from the top-level package when possible:
 # Top-level imports (preferred)
 from ai_pipeline_core import Document, PipelineTask, PipelineFlow, PipelineDeployment, Conversation, Tool
 from ai_pipeline_core import ExternalProvider, StatelessPollingProvider, ProviderOutcome, ProviderError, ProviderAuthError
-from ai_pipeline_core import collect_tasks, as_task_completed, run_tasks_until, TaskHandle, TaskBatch
+from ai_pipeline_core import collect_tasks, as_task_completed, TaskHandle, TaskBatch
 
 # Sub-package imports for symbols not at top level
 from ai_pipeline_core.llm import ModelOptions

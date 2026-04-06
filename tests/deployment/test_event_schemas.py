@@ -35,33 +35,33 @@ class _GapResult(DeploymentResult):
 class _GapFlow(PipelineFlow):
     name = "gap-flow"
 
-    async def run(self, documents: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
         _ = options
-        return (_GapOutputDoc.derive(derived_from=documents, name="gap-out.txt", content="ok"),)
+        return (_GapOutputDoc.derive(derived_from=input_docs, name="gap-out.txt", content="ok"),)
 
 
 class _FailingGapFlow(PipelineFlow):
     name = "failing-gap-flow"
     retries = 0
 
-    async def run(self, documents: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
-        _ = (documents, options)
+    async def run(self, input_docs: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
+        _ = (input_docs, options)
         raise RuntimeError("intentional flow failure")
 
 
 class _WrongShapeGapFlow(PipelineFlow):
     name = "wrong-shape-gap-flow"
 
-    async def run(self, documents: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
         _ = options
-        return cast(Any, [_GapOutputDoc.derive(derived_from=documents, name="gap-out.txt", content="ok")])
+        return cast(Any, [_GapOutputDoc.derive(derived_from=input_docs, name="gap-out.txt", content="ok")])
 
 
 class _WrongItemGapFlow(PipelineFlow):
     name = "wrong-item-gap-flow"
 
-    async def run(self, documents: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
-        _ = (documents, options)
+    async def run(self, input_docs: tuple[_GapInputDoc, ...], options: FlowOptions) -> tuple[_GapOutputDoc, ...]:
+        _ = (input_docs, options)
         return cast(Any, ("not-a-document",))
 
 

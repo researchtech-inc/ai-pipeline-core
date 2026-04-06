@@ -69,9 +69,9 @@ class CleanDataTask(PipelineTask):
     """
 
     @classmethod
-    async def run(cls, documents: tuple[RawDataDoc, ...]) -> tuple[CleanedDataDoc, ...]:
+    async def run(cls, raw_documents: tuple[RawDataDoc, ...]) -> tuple[CleanedDataDoc, ...]:
         results: list[CleanedDataDoc] = []
-        for doc in documents:
+        for doc in raw_documents:
             cleaned = CleanedDataDoc.derive(
                 derived_from=(doc,),
                 name=f"cleaned_{doc.name}",
@@ -102,7 +102,7 @@ class AnalyzeDataTask(PipelineTask, stub=True):
     """
 
     @classmethod
-    async def run(cls, documents: tuple[CleanedDataDoc, ...]) -> tuple[AnalysisResultDoc, ...]: ...
+    async def run(cls, cleaned_documents: tuple[CleanedDataDoc, ...]) -> tuple[AnalysisResultDoc, ...]: ...
 
 
 class SynthesizeReportTask(PipelineTask, stub=True):
@@ -117,7 +117,7 @@ class SynthesizeReportTask(PipelineTask, stub=True):
     """
 
     @classmethod
-    async def run(cls, documents: tuple[AnalysisResultDoc, ...]) -> tuple[FinalReportDoc, ...]: ...
+    async def run(cls, analysis_results: tuple[AnalysisResultDoc, ...]) -> tuple[FinalReportDoc, ...]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +132,9 @@ class DataCleaningFlow(PipelineFlow):
     Output: CleanedDataDoc ready for analysis.
     """
 
-    async def run(self, documents: tuple[RawDataDoc, ...], options: FlowOptions) -> tuple[CleanedDataDoc, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return await CleanDataTask.run(documents)
+    async def run(self, raw_documents: tuple[RawDataDoc, ...], options: FlowOptions) -> tuple[CleanedDataDoc, ...]:
+        _ = options
+        return await CleanDataTask.run(raw_documents=raw_documents)
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +149,8 @@ class AnalysisFlow(PipelineFlow, stub=True):
     Output: AnalysisResultDoc with structured findings.
     """
 
-    async def run(self, documents: tuple[CleanedDataDoc, ...], options: FlowOptions) -> tuple[AnalysisResultDoc, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        ...
+    async def run(self, cleaned_documents: tuple[CleanedDataDoc, ...], options: FlowOptions) -> tuple[AnalysisResultDoc, ...]:
+        _ = (cleaned_documents, options)
 
 
 class ReportFlow(PipelineFlow, stub=True):
@@ -159,8 +160,8 @@ class ReportFlow(PipelineFlow, stub=True):
     Output: FinalReportDoc with formatted report.
     """
 
-    async def run(self, documents: tuple[AnalysisResultDoc, ...], options: FlowOptions) -> tuple[FinalReportDoc, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        ...
+    async def run(self, analysis_results: tuple[AnalysisResultDoc, ...], options: FlowOptions) -> tuple[FinalReportDoc, ...]:
+        _ = (analysis_results, options)
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +206,7 @@ def main() -> None:
     async def run_demo() -> None:
         with pipeline_test_context():
             raw = RawDataDoc.create_root(reason="demo input", name="sample.txt", content="  Hello World  ")
-            result = await DataCleaningFlow().run((raw,), FlowOptions())
+            result = await DataCleaningFlow().run(raw_documents=(raw,), options=FlowOptions())
             logger.info("DataCleaningFlow produced: %s (content: %r)", result[0].name, result[0].text)
 
     asyncio.run(run_demo())
@@ -215,7 +216,7 @@ def main() -> None:
         with pipeline_test_context():
             doc = CleanedDataDoc.create_root(reason="demo", name="test.txt", content="test")
             try:
-                await AnalyzeDataTask.run((doc,))
+                await AnalyzeDataTask.run(cleaned_documents=(doc,))
             except StubNotImplementedError as e:
                 logger.info("Stub task correctly raised: %s", e)
 

@@ -9,9 +9,12 @@ import asyncio
 import json
 from typing import override
 
-from ai_pipeline_core import DeploymentResult, Document, FlowOptions, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FlowOptions, FlowOutputs, FlowStep, PipelineDeployment, PipelineFlow, PipelineTask
 from ai_pipeline_core.database import DatabaseReader, SpanKind, SpanRecord
 from ai_pipeline_core.database._memory import _MemoryDatabase
+
+SUMMARY_PREVIEW_CHARS = 60
+RESULT_PREVIEW_CHARS = 200
 
 
 class RawDataDocument(Document):
@@ -32,14 +35,14 @@ class CleanDataTask(PipelineTask):
     name = "clean-data"
 
     @classmethod
-    async def run(cls, documents: tuple[RawDataDocument, ...]) -> tuple[CleanedDataDocument, ...]:
+    async def run(cls, raw_documents: tuple[RawDataDocument, ...]) -> tuple[CleanedDataDocument, ...]:
         return tuple(
             CleanedDataDocument.derive(
                 derived_from=(raw,),
                 name=f"cleaned_{raw.name}",
                 content=" ".join(raw.text.split()).upper(),
             )
-            for raw in documents
+            for raw in raw_documents
         )
 
 
@@ -49,13 +52,13 @@ class BuildSummaryTask(PipelineTask):
     name = "build-summary"
 
     @classmethod
-    async def run(cls, documents: tuple[CleanedDataDocument, ...]) -> tuple[SummaryReportDocument, ...]:
-        lines = ["# Summary", "", f"Total documents: {len(documents)}", ""]
-        for index, document in enumerate(documents, start=1):
-            lines.append(f"- Doc {index} ({document.name}): {document.text[:60]}")
+    async def run(cls, cleaned_documents: tuple[CleanedDataDocument, ...]) -> tuple[SummaryReportDocument, ...]:
+        lines = ["# Summary", "", f"Total documents: {len(cleaned_documents)}", ""]
+        for index, document in enumerate(cleaned_documents, start=1):
+            lines.append(f"- Doc {index} ({document.name}): {document.text[:SUMMARY_PREVIEW_CHARS]}")
         return (
             SummaryReportDocument.derive(
-                derived_from=tuple(documents),
+                derived_from=cleaned_documents,
                 name="summary.md",
                 content="\n".join(lines),
             ),
@@ -68,11 +71,11 @@ class CleaningFlow(PipelineFlow):
     @override
     async def run(
         self,
-        documents: tuple[RawDataDocument, ...],
+        raw_documents: tuple[RawDataDocument, ...],
         options: FlowOptions,
     ) -> tuple[CleanedDataDocument, ...]:
         _ = options
-        return await CleanDataTask.run(documents)
+        return await CleanDataTask.run(raw_documents=raw_documents)
 
 
 class SummaryFlow(PipelineFlow):
@@ -81,11 +84,11 @@ class SummaryFlow(PipelineFlow):
     @override
     async def run(
         self,
-        documents: tuple[CleanedDataDocument, ...],
+        cleaned_documents: tuple[CleanedDataDocument, ...],
         options: FlowOptions,
     ) -> tuple[SummaryReportDocument, ...]:
         _ = options
-        return await BuildSummaryTask.run(documents)
+        return await BuildSummaryTask.run(cleaned_documents=cleaned_documents)
 
 
 class DatabaseShowcaseResult(DeploymentResult):
@@ -99,9 +102,9 @@ class DatabaseShowcasePipeline(PipelineDeployment[FlowOptions, DatabaseShowcaseR
     """Minimal deployment used to populate _MemoryDatabase."""
 
     @override
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
         _ = options
-        return [CleaningFlow(), SummaryFlow()]
+        return DeploymentPlan(steps=(FlowStep(CleaningFlow()), FlowStep(SummaryFlow())))
 
     @staticmethod
     def build_result(
@@ -110,12 +113,13 @@ class DatabaseShowcasePipeline(PipelineDeployment[FlowOptions, DatabaseShowcaseR
         options: FlowOptions,
     ) -> DatabaseShowcaseResult:
         _ = (run_id, options)
-        summaries = [document for document in documents if isinstance(document, SummaryReportDocument)]
-        if not summaries:
+        outputs = FlowOutputs(documents)
+        summary = outputs.latest(SummaryReportDocument)
+        if summary is None:
             return DatabaseShowcaseResult(success=False, error="No summary produced")
         return DatabaseShowcaseResult(
             success=True,
-            summary_preview=summaries[0].text[:200],
+            summary_preview=summary.text[:RESULT_PREVIEW_CHARS],
             document_count=len(documents),
         )
 

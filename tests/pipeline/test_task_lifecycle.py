@@ -28,7 +28,8 @@ class _OutDoc(Document):
 
 class _PassthroughTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_InDoc, ...]) -> tuple[_OutDoc, ...]:
+    async def run(cls, input_docs: tuple[_InDoc, ...]) -> tuple[_OutDoc, ...]:
+        _ = input_docs
         return (_OutDoc(name="out.txt", content=b"output"),)
 
 
@@ -36,7 +37,8 @@ class _FailingTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_InDoc, ...]) -> tuple[_OutDoc, ...]:
+    async def run(cls, input_docs: tuple[_InDoc, ...]) -> tuple[_OutDoc, ...]:
+        _ = input_docs
         raise ValueError("task failed deliberately")
 
 
@@ -47,9 +49,9 @@ class _CacheableTask(PipelineTask):
     run_calls = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_InDoc, ...]) -> tuple[_OutDoc, ...]:
+    async def run(cls, input_docs: tuple[_InDoc, ...]) -> tuple[_OutDoc, ...]:
         cls.run_calls += 1
-        return (_OutDoc.derive(derived_from=(documents[0],), name="cached.txt", content=f"call-{cls.run_calls}"),)
+        return (_OutDoc.derive(derived_from=(input_docs[0],), name="cached.txt", content=f"call-{cls.run_calls}"),)
 
 
 class _RecordingSpanDatabase(_MemoryDatabase):
@@ -174,7 +176,7 @@ async def test_failed_task_writes_started_then_failed_span_rows() -> None:
     assert failed_span.status == SpanStatus.FAILED
     assert failed_span.error_type == "ValueError"
     assert failed_span.error_message == "task failed deliberately"
-    assert json.loads(failed_span.input_json)["documents"]["items"][0]["sha256"] == _make_input().sha256
+    assert json.loads(failed_span.input_json)["input_docs"]["items"][0]["sha256"] == _make_input().sha256
 
 
 @pytest.mark.asyncio

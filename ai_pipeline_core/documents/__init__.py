@@ -9,16 +9,14 @@ from ._context import (
 )
 from .attachment import Attachment
 from .document import Document
-from .utils import ensure_extension, find_all, find_document, find_latest, replace_extension, sanitize_url
+from .utils import ensure_extension, find_document, replace_extension, sanitize_url
 
 __all__ = [
     "Attachment",
     "Document",
     "DocumentSha256",
     "ensure_extension",
-    "find_all",
     "find_document",
-    "find_latest",
     "replace_extension",
     "sanitize_url",
 ]

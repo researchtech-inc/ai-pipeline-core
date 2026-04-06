@@ -41,12 +41,14 @@ from ai_pipeline_core._llm_core import generate as core_generate
 from ai_pipeline_core.database import SpanKind, SpanRecord, SpanStatus
 from ai_pipeline_core.database._documents import load_documents_from_database
 from ai_pipeline_core.documents import Document
+from ai_pipeline_core.pipeline._document_type_metadata import _FrozenDocumentTypesMeta, freeze_document_type_metadata
 from ai_pipeline_core.pipeline._execution_context import (
     ExecutionContext,
     FlowFrame,
     TaskContext,
     TaskFrame,
     _TaskDocumentContext,
+    assert_not_inside_task,
     get_execution_context,
     get_sinks,
     record_lifecycle_event,
@@ -79,6 +81,8 @@ logger = logging.getLogger(__name__)
 
 MILLISECONDS_PER_SECOND = 1000
 MAX_RETRY_DELAY_SECONDS = 300
+_RUN_SIGNATURE_WARNING_PARAMETER_COUNT = 8
+_RUN_SIGNATURE_ERROR_PARAMETER_COUNT = 12
 
 EVENT_PUBLISH_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
 SUMMARY_GENERATION_EXCEPTIONS = (Exception,)
@@ -90,7 +94,26 @@ _SUMMARY_PROMPT = "Write a concise 1-2 sentence summary of document '{name}'. Fo
 __all__ = ["PipelineTask"]
 
 
-class PipelineTask:
+def _validate_run_parameter_count(task_name: str, parameters: list[inspect.Parameter]) -> None:
+    """Warn on large task signatures and reject excessively large ones."""
+    input_parameter_count = len(parameters) - 1
+    if input_parameter_count >= _RUN_SIGNATURE_ERROR_PARAMETER_COUNT:
+        raise TypeError(
+            f"PipelineTask '{task_name}'.run declares {input_parameter_count} input parameters. "
+            f"Task signatures may define at most {_RUN_SIGNATURE_ERROR_PARAMETER_COUNT - 1} inputs excluding 'cls'. "
+            "Group related values into a frozen BaseModel parameter or a typed Document so the task interface stays explicit and maintainable."
+        )
+    if input_parameter_count >= _RUN_SIGNATURE_WARNING_PARAMETER_COUNT:
+        logger.warning(
+            "PipelineTask '%s'.run declares %d input parameters. Keep task signatures below %d inputs when possible. "
+            "Group related values into a frozen BaseModel parameter or a typed Document to keep orchestration explicit.",
+            task_name,
+            input_parameter_count,
+            _RUN_SIGNATURE_WARNING_PARAMETER_COUNT,
+        )
+
+
+class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     """Base class for pipeline tasks.
 
     Tasks are stateless units of work. Define ``run`` as a **@classmethod** because tasks
@@ -106,10 +129,10 @@ class PipelineTask:
 
         class SummarizeTask(PipelineTask):
             @classmethod
-            async def run(cls, documents: tuple[ArticleDocument, ...]) -> tuple[SummaryDocument, ...]:
-                conv = Conversation(model="gemini-3-flash").with_context(documents[0])
+            async def run(cls, articles: tuple[ArticleDocument, ...]) -> tuple[SummaryDocument, ...]:
+                conv = Conversation(model="gemini-3-flash").with_context(articles[0])
                 conv = await conv.send("Summarize this article.")
-                return (SummaryDocument.derive(derived_from=(documents[0],), name="summary.md", content=conv.content),)
+                return (SummaryDocument.derive(derived_from=(articles[0],), name="summary.md", content=conv.content),)
 
     Calling ``await SummarizeTask.run((doc,))`` dispatches the full lifecycle. Calling without
     ``await`` returns a ``TaskHandle`` for parallel execution via ``collect_tasks``.
@@ -127,14 +150,16 @@ class PipelineTask:
     _stub: ClassVar[bool] = False
     BASE_COST_USD: ClassVar[float] = 0.0
     expected_cost: ClassVar[float | None] = None
+    _document_types_frozen: ClassVar[bool] = False
 
-    input_document_types: ClassVar[list[type[Document]]] = []
-    output_document_types: ClassVar[list[type[Document]]] = []
+    input_document_types: ClassVar[tuple[type[Document], ...]] = ()
+    output_document_types: ClassVar[tuple[type[Document], ...]] = ()
     _run_spec: ClassVar[_TaskRunSpec]
     _prefect_task_fn: ClassVar[Any] = None
 
     def __init_subclass__(cls, *, stub: bool = False, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        cls._document_types_frozen = False
         cls._stub = stub
         if cls is PipelineTask:
             return
@@ -145,6 +170,7 @@ class PipelineTask:
                     "Use stub=True for placeholder classes awaiting implementation. "
                     "Use _abstract_task for intermediate base classes meant for override."
                 )
+            freeze_document_type_metadata(cls)
             return
 
         is_stub = stub
@@ -167,16 +193,18 @@ class PipelineTask:
             inherited_spec = getattr(cls, "_run_spec", None)
             if inherited_spec is None:
                 raise TypeError(f"PipelineTask '{cls.__name__}' must define @classmethod async def run(cls, ...) or inherit a validated run() implementation.")
-            cls.input_document_types = list(inherited_spec.input_document_types)
-            cls.output_document_types = list(inherited_spec.output_document_types)
+            cls.input_document_types = tuple(inherited_spec.input_document_types)
+            cls.output_document_types = tuple(inherited_spec.output_document_types)
             cls._prefect_task_fn = cls._build_prefect_task()
         else:
             spec = cls._validate_run_signature(own_run)
             cls._run_spec = spec
-            cls.input_document_types = list(spec.input_document_types)
-            cls.output_document_types = list(spec.output_document_types)
+            cls.input_document_types = tuple(spec.input_document_types)
+            cls.output_document_types = tuple(spec.output_document_types)
             cls.run = classmethod(cls._build_run_wrapper(spec))
             cls._prefect_task_fn = cls._build_prefect_task()
+
+        freeze_document_type_metadata(cls)
 
         # Register after all validation passes to avoid poisoning the registry on failure
         if not exempt:
@@ -232,6 +260,19 @@ class PipelineTask:
             raise TypeError(
                 f"PipelineTask '{cls.__name__}'.run must use signature @classmethod async def run(cls, ...). Found first parameter '{parameters[0].name}'."
             )
+        _validate_run_parameter_count(cls.__name__, parameters)
+
+        for parameter in parameters[1:]:
+            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                raise TypeError(
+                    f"PipelineTask '{cls.__name__}'.run parameter '*{parameter.name}' uses *args. "
+                    f"Task inputs must be explicit named parameters. Replace *{parameter.name} with named parameters like 'documents: tuple[MyDocument, ...]'."
+                )
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                raise TypeError(
+                    f"PipelineTask '{cls.__name__}'.run parameter '**{parameter.name}' uses **kwargs. "
+                    f"Task inputs must be explicit named parameters. Replace **{parameter.name} with named parameters like 'config: MyConfig'."
+                )
 
         hints = resolve_type_hints(user_run)
         input_document_types: list[type[Document]] = []
@@ -297,6 +338,7 @@ class PipelineTask:
                     f"Implement the run() body and remove 'stub=True' from the class declaration to enable execution."
                 )
             arguments = task_cls._bind_run_arguments(args, kwargs)
+            assert_not_inside_task(task_cls.__name__)
             try:
                 asyncio.get_running_loop()
             except RuntimeError as exc:
@@ -449,7 +491,20 @@ class PipelineTask:
     @classmethod
     async def _run_and_normalize(cls, arguments: Mapping[str, Any]) -> tuple[Document, ...]:
         result = await cls._run_spec.user_run(cls, **dict(arguments))
-        return cls._normalize_result_documents(result)
+        result_docs = cls._normalize_result_documents(result)
+        if result_docs:
+            input_docs = _input_documents(arguments)
+            if input_docs:
+                input_sha256s = frozenset(document.sha256 for document in input_docs)
+                passthrough_docs = [document for document in result_docs if document.sha256 in input_sha256s]
+                if passthrough_docs:
+                    passthrough_names = ", ".join(f"'{document.name}'" for document in passthrough_docs)
+                    raise TypeError(
+                        f"PipelineTask '{cls.__name__}' returned input document(s) unchanged: {passthrough_names}. "
+                        "Tasks must create new documents via derive(), create(), create_external(), or create_root(). "
+                        "The deployment blackboard carries earlier artifacts automatically, so tasks must not forward input documents unchanged."
+                    )
+        return result_docs
 
     @classmethod
     def _task_cache_ttl(cls, execution_ctx: ExecutionContext) -> timedelta | None:
@@ -947,3 +1002,6 @@ class PipelineTask:
                 span_ctx.set_output_preview({"documents": [doc.name for doc in result]})
                 span_ctx._set_output_value(result)
                 return result
+
+
+freeze_document_type_metadata(PipelineTask)

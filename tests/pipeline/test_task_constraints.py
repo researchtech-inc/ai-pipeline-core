@@ -43,9 +43,9 @@ def test_create_root_inside_test_context_succeeds() -> None:
 
 class _SlowTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[LowInputDoc, ...], delay: float) -> tuple[LowOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[LowInputDoc, ...], delay: float) -> tuple[LowOutputDoc, ...]:
         await asyncio.sleep(delay)
-        return (LowOutputDoc.derive(derived_from=(documents[0],), name="slow.txt", content="done"),)
+        return (LowOutputDoc.derive(derived_from=(input_docs[0],), name="slow.txt", content="done"),)
 
 
 @pytest.mark.asyncio
@@ -93,9 +93,9 @@ async def test_collect_tasks_completed_within_deadline() -> None:
 
 class _TimedTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[LowInputDoc, ...], delay: float, label: str) -> tuple[LowOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[LowInputDoc, ...], delay: float, label: str) -> tuple[LowOutputDoc, ...]:
         await asyncio.sleep(delay)
-        return (LowOutputDoc.derive(derived_from=(documents[0],), name=f"{label}.txt", content=label),)
+        return (LowOutputDoc.derive(derived_from=(input_docs[0],), name=f"{label}.txt", content=label),)
 
 
 @pytest.mark.asyncio
@@ -125,7 +125,8 @@ def test_flow_rejects_test_prefix_name() -> None:
     with pytest.raises(TypeError, match="cannot start with 'Test'"):
 
         class TestBadFlow(PipelineFlow):
-            async def run(self, documents: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:
+            async def run(self, input_docs: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()
 
 
@@ -134,16 +135,17 @@ def test_flow_rejects_sync_run() -> None:
     with pytest.raises(TypeError, match="must be async def"):
 
         class SyncFlow(PipelineFlow):
-            def run(self, documents: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]
+            def run(self, input_docs: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]
+                _ = (input_docs, options)
                 return ()
 
 
-def test_flow_rejects_wrong_param_count() -> None:
-    """Flow run() with wrong parameter count is rejected."""
-    with pytest.raises(TypeError, match="must have signature"):
+def test_flow_rejects_missing_named_input() -> None:
+    """Flow run() with no named inputs is rejected."""
+    with pytest.raises(TypeError, match="at least one named input parameter"):
 
         class BadParamFlow(PipelineFlow):
-            async def run(self, documents: tuple[LowInputDoc, ...]) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]
+            async def run(self) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]
                 return ()
 
 
@@ -154,5 +156,6 @@ def test_flow_rejects_low_estimated_minutes() -> None:
         class FastFlow(PipelineFlow):
             estimated_minutes = 0.5
 
-            async def run(self, documents: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:
+            async def run(self, input_docs: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()

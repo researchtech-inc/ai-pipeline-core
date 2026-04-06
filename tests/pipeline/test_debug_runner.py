@@ -27,23 +27,25 @@ class _SimpleTask(PipelineTask):
     """Task that derives an output document."""
 
     @classmethod
-    async def run(cls, documents: tuple[_DebugInputDoc, ...]) -> tuple[_DebugOutputDoc, ...]:
-        return tuple(_DebugOutputDoc.derive(name=f"out-{i}.md", content="result", derived_from=(doc,)) for i, doc in enumerate(documents))
+    async def run(cls, input_docs: tuple[_DebugInputDoc, ...]) -> tuple[_DebugOutputDoc, ...]:
+        return tuple(_DebugOutputDoc.derive(name=f"out-{i}.md", content="result", derived_from=(doc,)) for i, doc in enumerate(input_docs))
 
 
 class _FailingTask(PipelineTask):
     """Task that always fails."""
 
     @classmethod
-    async def run(cls, documents: tuple[_DebugInputDoc, ...]) -> tuple[_DebugOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_DebugInputDoc, ...]) -> tuple[_DebugOutputDoc, ...]:
+        _ = input_docs
         raise RuntimeError("intentional failure")
 
 
 class _SimpleFlow(PipelineFlow):
     """Flow that runs _SimpleTask."""
 
-    async def run(self, documents: tuple[_DebugInputDoc, ...], options: FlowOptions) -> tuple[_DebugOutputDoc, ...]:
-        return await _SimpleTask.run(documents)
+    async def run(self, input_docs: tuple[_DebugInputDoc, ...], options: FlowOptions) -> tuple[_DebugOutputDoc, ...]:
+        _ = options
+        return await _SimpleTask.run(input_docs=input_docs)
 
 
 def _make_input() -> _DebugInputDoc:
@@ -104,8 +106,9 @@ class _NoneReturningTask(PipelineTask):
     """Task that returns None."""
 
     @classmethod
-    async def run(cls, documents: tuple[_DebugInputDoc, ...]) -> None:
-        return None
+    async def run(cls, input_docs: tuple[_DebugInputDoc, ...]) -> None:
+        _ = input_docs
+        return
 
 
 class TestRunTaskDebugEdgeCases:

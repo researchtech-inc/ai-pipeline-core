@@ -38,18 +38,19 @@ class _CountingFailTask(PipelineTask):
     _fail_count = 2
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
         cls._attempt_count += 1
         if cls._attempt_count <= cls._fail_count:
             raise RuntimeError(f"transient failure attempt {cls._attempt_count}")
-        return (_RetryOutputDoc.derive(derived_from=documents, name="out.txt", content="ok"),)
+        return (_RetryOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
 
 class _NonRetriableTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        _ = input_docs
         raise NonRetriableError("fatal: bad config")
 
 
@@ -57,7 +58,8 @@ class _AlwaysFailTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        _ = input_docs
         raise RuntimeError("always fails")
 
 
@@ -69,18 +71,21 @@ class _AlwaysFailTask(PipelineTask):
 class _CountingFailFlow(PipelineFlow):
     """Flow that fails via task, then succeeds when task stops failing."""
 
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
-        return await _CountingFailTask.run(documents)
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = options
+        return await _CountingFailTask.run(input_docs=input_docs)
 
 
 class _NonRetriableFlow(PipelineFlow):
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = (input_docs, options)
         raise NonRetriableError("flow-level non-retriable")
 
 
 class _AlwaysFailFlow(PipelineFlow):
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
-        return await _AlwaysFailTask.run(documents)
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = options
+        return await _AlwaysFailTask.run(input_docs=input_docs)
 
 
 class _ExplicitNoRetryFlow(PipelineFlow):
@@ -88,8 +93,9 @@ class _ExplicitNoRetryFlow(PipelineFlow):
 
     retries = 0
 
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
-        return await _AlwaysFailTask.run(documents)
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = options
+        return await _AlwaysFailTask.run(input_docs=input_docs)
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +271,8 @@ class _BackoffTask(PipelineTask):
     _count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        _ = input_docs
         cls._count += 1
         raise RuntimeError("always fails")
 

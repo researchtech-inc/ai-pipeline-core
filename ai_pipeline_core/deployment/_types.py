@@ -1,10 +1,125 @@
 """Event types and publisher protocols for pipeline lifecycle publishing."""
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from types import MappingProxyType
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from ai_pipeline_core._lifecycle_events import DocumentRef, TaskCompletedEvent, TaskFailedEvent, TaskStartedEvent
+from ai_pipeline_core.documents import Document
+from ai_pipeline_core.pipeline import PipelineFlow
+
+TDocument = TypeVar("TDocument", bound=Document[Any])
+
+
+@dataclass(frozen=True, slots=True)
+class FieldGate:
+    """Gate that checks a field value on the latest typed control document."""
+
+    document_type: type[Document[Any]]
+    field_name: str
+    op: Literal["truthy", "falsy", "eq", "ne"]
+    on_missing: Literal["run", "skip"] = "run"
+    value: Any = None
+
+    def __post_init__(self) -> None:
+        content_type = self.document_type.get_content_type()
+        if content_type is None:
+            raise TypeError(
+                f"FieldGate document_type must be a typed Document subclass, but {self.document_type.__name__} has no content type. "
+                f"Declare it as 'class {self.document_type.__name__}(Document[MyModel]): ...' so .parsed.{self.field_name} is safe."
+            )
+        if self.document_type.content_is_list():
+            raise TypeError(
+                f"FieldGate document_type must wrap a single Pydantic model, but {self.document_type.__name__} is Document[list[{content_type.__name__}]]. "
+                f"Use a control document with a single model so .parsed.{self.field_name} is unambiguous."
+            )
+        if not self.field_name:
+            raise TypeError(
+                f"FieldGate for {self.document_type.__name__} must declare a non-empty field_name. "
+                "Pass the exact model field to inspect, for example FieldGate(MyDecisionDoc, 'should_continue', op='falsy')."
+            )
+        if self.field_name not in content_type.model_fields:
+            available_fields = ", ".join(sorted(content_type.model_fields)) or "(none)"
+            raise TypeError(
+                f"FieldGate field '{self.field_name}' is not defined on {self.document_type.__name__}.parsed ({content_type.__name__}). "
+                f"Available fields: {available_fields}."
+            )
+        if self.op in {"eq", "ne"} and self.value is None:
+            raise TypeError(
+                f"FieldGate op='{self.op}' requires a comparison value. Pass value=... when comparing {self.document_type.__name__}.parsed.{self.field_name}."
+            )
+        if self.op in {"truthy", "falsy"} and self.value is not None:
+            raise TypeError(
+                f"FieldGate op='{self.op}' does not use value=. "
+                f"Remove value=... or switch to op='eq'/'ne' for {self.document_type.__name__}.parsed.{self.field_name}."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class FlowStep:
+    """A single step in a deployment execution plan."""
+
+    flow: PipelineFlow
+    run_if: FieldGate | None = None
+    group: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.flow, PipelineFlow):
+            raise TypeError(
+                f"FlowStep.flow must be a PipelineFlow instance, got {type(self.flow).__name__}. "
+                "Instantiate the flow before putting it in DeploymentPlan(steps=...)."
+            )
+        if self.group is not None and not self.group:
+            raise TypeError("FlowStep.group must be a non-empty string or None.")
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentPlan:
+    """Complete static execution plan for a deployment run."""
+
+    steps: tuple[FlowStep, ...]
+    group_stop_if: Mapping[str, FieldGate] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        normalized_steps = tuple(self.steps)
+        if not normalized_steps:
+            raise ValueError("DeploymentPlan.steps must contain at least one FlowStep.")
+        if any(not isinstance(step, FlowStep) for step in normalized_steps):
+            bad_type = next(type(step).__name__ for step in normalized_steps if not isinstance(step, FlowStep))
+            raise TypeError(f"DeploymentPlan.steps must contain only FlowStep instances, got {bad_type}. Wrap each flow as FlowStep(MyFlow()).")
+        object.__setattr__(self, "steps", normalized_steps)
+
+        raw_group_stop_if = self.group_stop_if
+        normalized_group_stop_if = dict(raw_group_stop_if.items())
+        for group_name, gate in normalized_group_stop_if.items():
+            if not group_name:
+                raise TypeError("DeploymentPlan.group_stop_if keys must be non-empty group names.")
+            if not isinstance(gate, FieldGate):
+                raise TypeError(f"DeploymentPlan.group_stop_if['{group_name}'] must be a FieldGate, got {type(gate).__name__}.")
+        object.__setattr__(self, "group_stop_if", MappingProxyType(normalized_group_stop_if))
+
+
+@dataclass(frozen=True, slots=True)
+class FlowOutputs:
+    """Typed accessor for deployment result assembly."""
+
+    documents: tuple[Document[Any], ...]
+
+    def __init__(self, documents: Sequence[Document[Any]]) -> None:
+        object.__setattr__(self, "documents", tuple(documents))
+
+    def latest(self, document_type: type[TDocument]) -> TDocument | None:
+        """Return the latest document of ``document_type``, or None."""
+        for document in reversed(self.documents):
+            if isinstance(document, document_type):
+                return document
+        return None
+
+    def all(self, document_type: type[TDocument]) -> tuple[TDocument, ...]:
+        """Return all documents of ``document_type`` in accumulation order."""
+        return tuple(document for document in self.documents if isinstance(document, document_type))
 
 
 # Enum
@@ -329,13 +444,17 @@ class _MemoryPublisher:
 
 
 __all__ = [
+    "DeploymentPlan",
     "DocumentRef",
     "ErrorCode",
     "EventType",
+    "FieldGate",
     "FlowCompletedEvent",
     "FlowFailedEvent",
+    "FlowOutputs",
     "FlowSkippedEvent",
     "FlowStartedEvent",
+    "FlowStep",
     "ResultPublisher",
     "RunCompletedEvent",
     "RunFailedEvent",

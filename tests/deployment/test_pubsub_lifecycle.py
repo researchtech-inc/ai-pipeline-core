@@ -46,8 +46,9 @@ class CancellingPubsubFlow(PipelineFlow):
 
     name = "cancelling_pubsub_flow"
 
-    async def run(self, documents: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
+    async def run(self, input_docs: tuple[PubsubInputDoc, ...], options: FlowOptions) -> tuple[PubsubOutputDoc, ...]:
         _flow_executions.append("cancelling_flow")
+        _ = (input_docs, options)
         raise asyncio.CancelledError()
 
 

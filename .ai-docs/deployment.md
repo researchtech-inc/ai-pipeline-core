@@ -1,15 +1,14 @@
 # MODULE: deployment
-# CLASSES: DeploymentResult, FlowAction, FlowDirective, PipelineDeployment, RemoteDeployment
-# DEPENDS: BaseModel, Generic, StrEnum
+# CLASSES: DeploymentResult, PipelineDeployment, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
+# DEPENDS: BaseModel, Generic
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.20.0
+# VERSION: 0.21.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
 
 ```python
-from ai_pipeline_core import DeploymentResult, PipelineDeployment, RemoteDeployment
-from ai_pipeline_core.deployment import FlowAction, FlowDirective
+from ai_pipeline_core import DeploymentPlan, DeploymentResult, FieldGate, FlowOutputs, FlowStep, PipelineDeployment, RemoteDeployment
 ```
 
 ## Public API
@@ -20,20 +19,6 @@ class DeploymentResult(BaseModel):
     success: bool
     error: str | None = None
     model_config = ConfigDict(frozen=True)
-
-
-# Enum
-class FlowAction(StrEnum):
-    """Directive action for dynamic flow control."""
-    CONTINUE = 'continue'
-    SKIP = 'skip'
-
-
-@dataclass(frozen=True, slots=True)
-class FlowDirective:
-    """Flow planning directive returned by plan_next_flow()."""
-    action: FlowAction = FlowAction.CONTINUE
-    reason: str = ''
 
 
 class PipelineDeployment(Generic[TOptions, TResult]):
@@ -73,8 +58,13 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         if build_result_fn is None or getattr(build_result_fn, "__isabstractmethod__", False):
             raise TypeError(f"{cls.__name__} must implement 'build_result' static method")
 
-        if _first_declaring_class(cls, "build_flows") is PipelineDeployment:
-            raise TypeError(f"{cls.__name__} must implement build_flows(options) -> Sequence[PipelineFlow]. Decorator-based `flows = [...]` is removed.")
+        flows_declaring_class = _first_declaring_class(cls, "build_flows")
+        plan_declaring_class = _first_declaring_class(cls, "build_plan")
+        if flows_declaring_class is PipelineDeployment and plan_declaring_class is PipelineDeployment:
+            raise TypeError(
+                f"{cls.__name__} must implement either build_flows(options) -> Sequence[PipelineFlow] "
+                f"or build_plan(options) -> DeploymentPlan. Decorator-based `flows = [...]` is removed."
+            )
 
         # Concurrency limits validation
         cls.concurrency_limits = _validate_concurrency_limits(cls.__name__, getattr(cls, "concurrency_limits", MappingProxyType({})))
@@ -95,6 +85,16 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         """
         return self.build_result(run_id, documents, options)
 
+    def build_plan(self, options: TOptions) -> DeploymentPlan:
+        """Build the deployment execution plan for this run."""
+        flows = tuple(self.build_flows(options))
+        if not flows:
+            raise ValueError(f"{type(self).__name__}.build_flows() returned an empty list. Provide at least one PipelineFlow.")
+        for flow_item in cast(tuple[Any, ...], flows):
+            if not isinstance(flow_item, PipelineFlow):
+                raise TypeError(f"{type(self).__name__}.build_flows() must return PipelineFlow instances, got {type(flow_item).__name__}.")
+        return DeploymentPlan(steps=tuple(FlowStep(flow=flow_instance) for flow_instance in flows))
+
     @staticmethod
     @abstractmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: TOptions) -> TResult:
@@ -105,16 +105,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         to customize partial run results.
         """
         ...
-
-    def plan_next_flow(
-        self,
-        flow_class: type[PipelineFlow],
-        plan: Sequence[PipelineFlow],
-        output_documents: tuple[Document, ...],
-    ) -> FlowDirective:
-        """Optionally skip future instances of a flow class."""
-        _ = (flow_class, plan, output_documents)
-        return FlowDirective()
 
     @final
     async def run(
@@ -390,6 +380,111 @@ Set ``deployment_class`` to enable inline mode (test/local):
             return result
 
 
+@dataclass(frozen=True, slots=True)
+class FieldGate:
+    """Gate that checks a field value on the latest typed control document."""
+    document_type: type[Document[Any]]
+    field_name: str
+    op: Literal['truthy', 'falsy', 'eq', 'ne']
+    on_missing: Literal['run', 'skip'] = 'run'
+    value: Any = None
+
+    def __post_init__(self) -> None:
+        content_type = self.document_type.get_content_type()
+        if content_type is None:
+            raise TypeError(
+                f"FieldGate document_type must be a typed Document subclass, but {self.document_type.__name__} has no content type. "
+                f"Declare it as 'class {self.document_type.__name__}(Document[MyModel]): ...' so .parsed.{self.field_name} is safe."
+            )
+        if self.document_type.content_is_list():
+            raise TypeError(
+                f"FieldGate document_type must wrap a single Pydantic model, but {self.document_type.__name__} is Document[list[{content_type.__name__}]]. "
+                f"Use a control document with a single model so .parsed.{self.field_name} is unambiguous."
+            )
+        if not self.field_name:
+            raise TypeError(
+                f"FieldGate for {self.document_type.__name__} must declare a non-empty field_name. "
+                "Pass the exact model field to inspect, for example FieldGate(MyDecisionDoc, 'should_continue', op='falsy')."
+            )
+        if self.field_name not in content_type.model_fields:
+            available_fields = ", ".join(sorted(content_type.model_fields)) or "(none)"
+            raise TypeError(
+                f"FieldGate field '{self.field_name}' is not defined on {self.document_type.__name__}.parsed ({content_type.__name__}). "
+                f"Available fields: {available_fields}."
+            )
+        if self.op in {"eq", "ne"} and self.value is None:
+            raise TypeError(
+                f"FieldGate op='{self.op}' requires a comparison value. Pass value=... when comparing {self.document_type.__name__}.parsed.{self.field_name}."
+            )
+        if self.op in {"truthy", "falsy"} and self.value is not None:
+            raise TypeError(
+                f"FieldGate op='{self.op}' does not use value=. "
+                f"Remove value=... or switch to op='eq'/'ne' for {self.document_type.__name__}.parsed.{self.field_name}."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class FlowStep:
+    """A single step in a deployment execution plan."""
+    flow: PipelineFlow
+    run_if: FieldGate | None = None
+    group: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.flow, PipelineFlow):
+            raise TypeError(
+                f"FlowStep.flow must be a PipelineFlow instance, got {type(self.flow).__name__}. "
+                "Instantiate the flow before putting it in DeploymentPlan(steps=...)."
+            )
+        if self.group is not None and not self.group:
+            raise TypeError("FlowStep.group must be a non-empty string or None.")
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentPlan:
+    """Complete static execution plan for a deployment run."""
+    steps: tuple[FlowStep, ...]
+    group_stop_if: Mapping[str, FieldGate] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        normalized_steps = tuple(self.steps)
+        if not normalized_steps:
+            raise ValueError("DeploymentPlan.steps must contain at least one FlowStep.")
+        if any(not isinstance(step, FlowStep) for step in normalized_steps):
+            bad_type = next(type(step).__name__ for step in normalized_steps if not isinstance(step, FlowStep))
+            raise TypeError(f"DeploymentPlan.steps must contain only FlowStep instances, got {bad_type}. Wrap each flow as FlowStep(MyFlow()).")
+        object.__setattr__(self, "steps", normalized_steps)
+
+        raw_group_stop_if = self.group_stop_if
+        normalized_group_stop_if = dict(raw_group_stop_if.items())
+        for group_name, gate in normalized_group_stop_if.items():
+            if not group_name:
+                raise TypeError("DeploymentPlan.group_stop_if keys must be non-empty group names.")
+            if not isinstance(gate, FieldGate):
+                raise TypeError(f"DeploymentPlan.group_stop_if['{group_name}'] must be a FieldGate, got {type(gate).__name__}.")
+        object.__setattr__(self, "group_stop_if", MappingProxyType(normalized_group_stop_if))
+
+
+@dataclass(frozen=True, slots=True)
+class FlowOutputs:
+    """Typed accessor for deployment result assembly."""
+    documents: tuple[Document[Any], ...]
+
+    def __init__(self, documents: Sequence[Document[Any]]) -> None:
+        object.__setattr__(self, "documents", tuple(documents))
+
+    def all(self, document_type: type[TDocument]) -> tuple[TDocument, ...]:
+        """Return all documents of ``document_type`` in accumulation order."""
+        return tuple(document for document in self.documents if isinstance(document, document_type))
+
+    def latest(self, document_type: type[TDocument]) -> TDocument | None:
+        """Return the latest document of ``document_type``, or None."""
+        for document in reversed(self.documents):
+            if isinstance(document, document_type):
+                return document
+        return None
+
+
 ```
 
 ## Examples
@@ -408,7 +503,7 @@ def test_format_starts_with_base_run_id(self):
     assert derived.startswith("my-project-")
 ```
 
-**Deployment default flow retries is none** (`tests/deployment/test_flow_retries.py:230`)
+**Deployment default flow retries is none** (`tests/deployment/test_flow_retries.py:236`)
 
 ```python
 def test_deployment_default_flow_retries_is_none(self) -> None:
@@ -416,7 +511,7 @@ def test_deployment_default_flow_retries_is_none(self) -> None:
     assert PipelineDeployment.flow_retry_delay_seconds is None
 ```
 
-**Deployment result data** (`tests/deployment/test_deployment_base.py:161`)
+**Deployment result data** (`tests/deployment/test_deployment_base.py:175`)
 
 ```python
 def test_deployment_result_data(self):
@@ -436,6 +531,19 @@ def test_extracts_remote_deployment_params(self):
     assert len(params) == 2
     assert params[0] is FlowOptions
     assert params[1] is SampleResult
+```
+
+**Field gate on missing run and skip** (`tests/deployment/test_build_plan.py:239`)
+
+```python
+def test_field_gate_on_missing_run_and_skip() -> None:
+    run_gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="run")
+    skip_gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="skip")
+
+    assert _evaluate_field_gate(run_gate, []) is True
+    assert _evaluate_field_gate(skip_gate, []) is False
+    assert _evaluate_field_gate(run_gate, [], context="stop") is False
+    assert _evaluate_field_gate(skip_gate, [], context="stop") is True
 ```
 
 **Two args returned by helper** (`tests/deployment/test_remote_deployment.py:126`)
@@ -490,6 +598,36 @@ def test_accepts_flow_options_subclass(self):
 
 ## Error Examples
 
+**Deployment plan rejects invalid steps** (`tests/deployment/test_build_plan.py:311`)
+
+```python
+def test_deployment_plan_rejects_invalid_steps() -> None:
+    with pytest.raises(ValueError, match="at least one FlowStep"):
+        DeploymentPlan(steps=())
+
+    with pytest.raises(TypeError, match="FlowStep instances"):
+        DeploymentPlan(steps=cast(tuple[FlowStep, ...], (object(),)))
+```
+
+**Flow step rejects invalid inputs** (`tests/deployment/test_build_plan.py:319`)
+
+```python
+def test_flow_step_rejects_invalid_inputs() -> None:
+    with pytest.raises(TypeError, match="PipelineFlow instance"):
+        FlowStep(cast(PipelineFlow, object()))
+
+    with pytest.raises(TypeError, match="non-empty string or None"):
+        FlowStep(_FirstFlow(), group="")
+```
+
+**Field gate rejects untyped document** (`tests/deployment/test_build_plan.py:327`)
+
+```python
+def test_field_gate_rejects_untyped_document() -> None:
+    with pytest.raises(TypeError, match="typed Document subclass"):
+        FieldGate(_UntypedGateDoc, "missing", op="truthy")
+```
+
 **Rejects empty run id** (`tests/deployment/test_remote_deployment.py:515`)
 
 ```python
@@ -535,28 +673,4 @@ def test_rejects_non_deployment_result(self):
 
         class Bad(RemoteDeployment[FlowOptions, NotAResult]):  # type: ignore[type-var]
             pass
-```
-
-**Rejects non flow options** (`tests/deployment/test_remote_deployment.py:137`)
-
-```python
-def test_rejects_non_flow_options(self):
-    class NotFlowOptions(BaseModel):
-        x: int = 1
-
-    with pytest.raises(TypeError, match="FlowOptions subclass"):
-
-        class Bad(RemoteDeployment[NotFlowOptions, SimpleResult]):  # type: ignore[type-var]
-            pass
-```
-
-**Rejects outside execution context** (`tests/deployment/test_remote_deployment.py:500`)
-
-```python
-async def test_rejects_outside_execution_context(self):
-    class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
-        pass
-
-    with pytest.raises(RuntimeError, match="pipeline_test_context"):
-        await Foo().run((), FlowOptions())
 ```

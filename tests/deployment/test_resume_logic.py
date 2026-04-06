@@ -4,10 +4,10 @@ Tests: cache TTL, option/input change invalidation, crash-retry resume, complete
 """
 
 import pytest
+from pydantic import BaseModel
 
-from ai_pipeline_core import DeploymentResult, Document, FlowOptions, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FieldGate, FlowOptions, FlowStep, PipelineDeployment, PipelineFlow, PipelineTask
 from ai_pipeline_core.database._memory import _MemoryDatabase
-from ai_pipeline_core.deployment import FlowAction, FlowDirective
 
 from .conftest import OutputDoc, StageOne, StageTwo, _TestOptions, _TestResult
 
@@ -15,12 +15,20 @@ from .conftest import OutputDoc, StageOne, StageTwo, _TestOptions, _TestResult
 # --- Resume deployments ---
 
 
+class _SkipStageTwoModel(BaseModel):
+    should_run: bool
+
+
+class _SkipStageTwoDoc(Document[_SkipStageTwoModel]):
+    """Typed control document used to force a gated skip."""
+
+
 class ResumeDeployment(PipelineDeployment[_TestOptions, _TestResult]):
     flow_retries = 0
 
-    def build_flows(self, options: _TestOptions):
+    def build_plan(self, options: _TestOptions) -> DeploymentPlan:
         _ = options
-        return [StageOne(), StageTwo()]
+        return DeploymentPlan(steps=(FlowStep(StageOne()), FlowStep(StageTwo())))
 
     @staticmethod
     def build_result(run_id, documents, options):
@@ -29,11 +37,14 @@ class ResumeDeployment(PipelineDeployment[_TestOptions, _TestResult]):
 
 
 class SkipDeployment(ResumeDeployment):
-    def plan_next_flow(self, flow_class, plan, output_documents):
-        _ = (plan, output_documents)
-        if flow_class is StageTwo:
-            return FlowDirective(action=FlowAction.SKIP, reason="skip second")
-        return FlowDirective()
+    def build_plan(self, options: _TestOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(
+            steps=(
+                FlowStep(StageOne()),
+                FlowStep(StageTwo(), run_if=FieldGate(_SkipStageTwoDoc, "should_run", op="truthy", on_missing="skip")),
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -46,7 +57,7 @@ async def test_resume_uses_flow_completion_cache(input_documents):
 
 
 @pytest.mark.asyncio
-async def test_plan_next_flow_can_skip_class(input_documents):
+async def test_build_plan_gate_can_skip_step(input_documents):
     deployment = SkipDeployment()
     result = await deployment.run("skip-run", input_documents, _TestOptions())
 
@@ -105,21 +116,23 @@ class ProduceAllTask(PipelineTask):
 class CrashingFlow(PipelineFlow):
     """Flow with 2 tasks: task 1 succeeds (docs saved), task 2 may crash."""
 
-    async def run(self, documents: tuple[ResumeInputDoc, ...], options: FlowOptions) -> tuple[ResumeOutputDoc, ...]:
+    async def run(self, input_docs: tuple[ResumeInputDoc, ...], options: FlowOptions) -> tuple[ResumeOutputDoc, ...]:
         global _flow_call_count
+        _ = options
         _flow_call_count += 1
-        partial = await SucceedTask.run(documents)
-        remaining = await CrashTask.run(partial)
+        partial = await SucceedTask.run(inputs=input_docs)
+        remaining = await CrashTask.run(docs=partial)
         return partial + remaining
 
 
 class NormalFlow(PipelineFlow):
     """Flow that always succeeds."""
 
-    async def run(self, documents: tuple[ResumeInputDoc, ...], options: FlowOptions) -> tuple[ResumeOutputDoc, ...]:
+    async def run(self, input_docs: tuple[ResumeInputDoc, ...], options: FlowOptions) -> tuple[ResumeOutputDoc, ...]:
         global _flow_call_count
+        _ = options
         _flow_call_count += 1
-        return await ProduceAllTask.run(documents)
+        return await ProduceAllTask.run(inputs=input_docs)
 
 
 class Resume_TestOptions(FlowOptions):
@@ -135,8 +148,9 @@ class CrashingDeployment(PipelineDeployment[Resume_TestOptions, Resume_TestResul
 
     flow_retries = 0
 
-    def build_flows(self, options):
-        return [CrashingFlow()]
+    def build_plan(self, options: Resume_TestOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(CrashingFlow()),))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: Resume_TestOptions) -> Resume_TestResult:
@@ -148,8 +162,9 @@ class NormalDeployment(PipelineDeployment[Resume_TestOptions, Resume_TestResult]
 
     flow_retries = 0
 
-    def build_flows(self, options):
-        return [NormalFlow()]
+    def build_plan(self, options: Resume_TestOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(NormalFlow()),))
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: Resume_TestOptions) -> Resume_TestResult:
@@ -229,8 +244,9 @@ class _OptionedResult(DeploymentResult):
 class _OptionedDeployment(PipelineDeployment[_OptionedOptions, _OptionedResult]):
     flow_retries = 0
 
-    def build_flows(self, options):
-        return [NormalFlow()]
+    def build_plan(self, options: _OptionedOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(steps=(FlowStep(NormalFlow()),))
 
     @staticmethod
     def build_result(run_id, documents, options):

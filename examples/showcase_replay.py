@@ -7,7 +7,7 @@ Usage:
 
 import asyncio
 
-from ai_pipeline_core import DeploymentResult, Document, FlowOptions, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FlowOptions, FlowStep, PipelineDeployment, PipelineFlow, PipelineTask
 from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.replay import execute_span
@@ -27,8 +27,8 @@ class ReplayUppercaseTask(PipelineTask):
     name = "replay_uppercase"
 
     @classmethod
-    async def run(cls, documents: tuple[ReplaySourceDocument, ...]) -> tuple[ReplayOutputDocument, ...]:
-        source = documents[0]
+    async def run(cls, sources: tuple[ReplaySourceDocument, ...]) -> tuple[ReplayOutputDocument, ...]:
+        source = sources[0]
         return (
             ReplayOutputDocument.derive(
                 derived_from=(source,),
@@ -43,11 +43,11 @@ class ReplayFlow(PipelineFlow):
 
     async def run(
         self,
-        documents: tuple[ReplaySourceDocument, ...],
+        sources: tuple[ReplaySourceDocument, ...],
         options: FlowOptions,
     ) -> tuple[ReplayOutputDocument, ...]:
         _ = options
-        return await ReplayUppercaseTask.run(documents)
+        return await ReplayUppercaseTask.run(sources=sources)
 
 
 class ReplayShowcaseResult(DeploymentResult):
@@ -59,9 +59,9 @@ class ReplayShowcaseResult(DeploymentResult):
 class ReplayShowcasePipeline(PipelineDeployment[FlowOptions, ReplayShowcaseResult]):
     """Minimal deployment that records one replayable task span."""
 
-    def build_flows(self, options: FlowOptions) -> list[PipelineFlow]:
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
         _ = options
-        return [ReplayFlow()]
+        return DeploymentPlan(steps=(FlowStep(ReplayFlow()),))
 
     @staticmethod
     def build_result(

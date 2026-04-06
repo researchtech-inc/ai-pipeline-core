@@ -7,13 +7,21 @@ import logging
 import math
 import textwrap
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, ClassVar, cast, get_origin
 
 from prefect import flow as _prefect_flow
 
 from ai_pipeline_core.documents import Document
+from ai_pipeline_core.pipeline._document_type_metadata import _FrozenDocumentTypesMeta, freeze_document_type_metadata
 from ai_pipeline_core.pipeline._task import PipelineTask
-from ai_pipeline_core.pipeline._type_validation import collect_document_types, contains_bare_document, resolve_type_hints
+from ai_pipeline_core.pipeline._type_validation import (
+    collect_document_types,
+    contains_bare_document,
+    resolve_type_hints,
+    unwrap_optional,
+    validate_flow_input_param,
+)
 from ai_pipeline_core.pipeline.options import FlowOptions
 
 logger = logging.getLogger(__name__)
@@ -47,6 +55,150 @@ def _extract_task_info_from_call(node: ast.Call, globals_dict: dict[str, Any]) -
     if isinstance(node.func, ast.Attribute) and node.func.attr == "run" and isinstance(node.func.value, ast.Name):
         return _resolve_task_info(globals_dict, node.func.value.id)
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class _TaskCallBinding:
+    task_class: type[PipelineTask]
+    assigned_names: tuple[str, ...]
+    line_number: int
+    used_later: bool
+
+
+def _resolve_task_class(globals_dict: dict[str, Any], name: str) -> type[PipelineTask] | None:
+    """Resolve ``name`` to a concrete ``PipelineTask`` subclass when possible."""
+    candidate = globals_dict.get(name)
+    if isinstance(candidate, type) and issubclass(candidate, PipelineTask) and candidate is not PipelineTask:
+        return candidate
+    return None
+
+
+def _extract_task_class_from_call(node: ast.Call, globals_dict: dict[str, Any]) -> type[PipelineTask] | None:
+    """Extract the called task class from supported ``Task.run(...)`` patterns."""
+    if isinstance(node.func, ast.Attribute) and node.func.attr == "run" and isinstance(node.func.value, ast.Name):
+        return _resolve_task_class(globals_dict, node.func.value.id)
+    return None
+
+
+def _unwrap_task_call(node: ast.AST) -> ast.Call | None:
+    """Return the call wrapped by ``await`` when the node represents a task dispatch."""
+    if isinstance(node, ast.Await):
+        return node.value if isinstance(node.value, ast.Call) else None
+    return node if isinstance(node, ast.Call) else None
+
+
+def _collect_assigned_names(node: ast.AST) -> tuple[str, ...]:
+    """Collect simple variable names bound by an assignment target."""
+    if isinstance(node, ast.Name):
+        return (node.id,)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        names: list[str] = []
+        for element in node.elts:
+            names.extend(_collect_assigned_names(element))
+        return tuple(names)
+    return ()
+
+
+def _parse_run_source_tree(run_fn: Any) -> ast.Module | None:
+    """Parse ``run_fn`` source into an AST module, or return None when unavailable."""
+    try:
+        source = textwrap.dedent(inspect.getsource(run_fn))
+    except OSError, TypeError:
+        return None
+    try:
+        return ast.parse(source)
+    except SyntaxError:
+        return None
+
+
+def _collect_name_load_lines(tree: ast.Module) -> dict[str, list[int]]:
+    """Map loaded variable names to source line numbers."""
+    load_lines: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            load_lines.setdefault(node.id, []).append(node.lineno)
+    return load_lines
+
+
+def _collect_preliminary_task_bindings(
+    tree: ast.Module,
+    globals_dict: dict[str, Any],
+) -> list[tuple[type[PipelineTask], tuple[str, ...], int]]:
+    """Collect task calls that are assigned or ignored inside ``run()``."""
+    bindings: list[tuple[type[PipelineTask], tuple[str, ...], int]] = []
+    for node in ast.walk(tree):
+        task_call: ast.Call | None = None
+        assigned_names: tuple[str, ...] = ()
+        line_number = 0
+        if isinstance(node, ast.Assign):
+            task_call = _unwrap_task_call(node.value)
+            names: list[str] = []
+            for target in node.targets:
+                names.extend(_collect_assigned_names(target))
+            assigned_names = tuple(names)
+            line_number = node.lineno
+        elif isinstance(node, ast.AnnAssign):
+            task_call = _unwrap_task_call(node.value) if node.value is not None else None
+            assigned_names = _collect_assigned_names(node.target)
+            line_number = node.lineno
+        elif isinstance(node, ast.Expr):
+            task_call = _unwrap_task_call(node.value)
+            line_number = node.lineno
+        if task_call is None:
+            continue
+        task_class = _extract_task_class_from_call(task_call, globals_dict)
+        if task_class is None:
+            continue
+        bindings.append((task_class, assigned_names, line_number))
+    return sorted(bindings, key=lambda item: item[2])
+
+
+def _parse_task_bindings_from_source(run_fn: Any) -> list[_TaskCallBinding]:
+    """Identify task calls whose returned documents are assigned or ignored in ``run()``."""
+    tree = _parse_run_source_tree(run_fn)
+    if tree is None:
+        return []
+
+    globals_dict = getattr(run_fn, "__globals__", {})
+    load_lines = _collect_name_load_lines(tree)
+    preliminary = _collect_preliminary_task_bindings(tree, globals_dict)
+
+    bindings: list[_TaskCallBinding] = []
+    for task_class, assigned_names, line_number in preliminary:
+        used_later = False
+        for assigned_name in assigned_names:
+            if any(load_line > line_number for load_line in load_lines.get(assigned_name, ())):
+                used_later = True
+                break
+        bindings.append(
+            _TaskCallBinding(
+                task_class=task_class,
+                assigned_names=assigned_names,
+                line_number=line_number,
+                used_later=used_later,
+            )
+        )
+    return bindings
+
+
+def _warn_on_unused_task_outputs(flow_name: str, bindings: list[_TaskCallBinding]) -> None:
+    """Warn when a flow dispatches a task result and never uses the returned documents."""
+    for binding in bindings:
+        if binding.used_later:
+            continue
+        output_types = binding.task_class.output_document_types
+        if not output_types:
+            continue
+        output_names = ", ".join(document_type.__name__ for document_type in output_types)
+        logger.warning(
+            "PipelineFlow '%s' calls task '%s' at line %d but never uses its returned document type(s): %s. "
+            "Every task return should either feed another task, drive flow control, or be returned as the phase handoff. "
+            "Use the task result, return it from the flow, or remove the call.",
+            flow_name,
+            binding.task_class.__name__,
+            binding.line_number,
+            output_names,
+        )
 
 
 def _parse_task_graph_from_source(run_fn: Any) -> list[tuple[str, str, float]]:
@@ -89,29 +241,37 @@ def _parse_task_graph_from_source(run_fn: Any) -> list[tuple[str, str, float]]:
     return graph
 
 
-class PipelineFlow:
+class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
     """Base class for pipeline flows.
 
     Flows are the unit of resume, progress tracking, and document hand-off in a deployment.
-    Define ``run`` as an **instance method** (not @classmethod) because flows can carry
+    Define ``run`` as an **instance method** (not ``@classmethod``) because flows can carry
     per-instance configuration passed via ``build_flows()``::
 
-        class TranslateFlow(PipelineFlow):
-            target_language: str = "en"
+        class EvidenceFlow(PipelineFlow):
+            round_number: int
 
-            async def run(self, documents: tuple[SourceDoc, ...], options: FlowOptions) -> tuple[TranslatedDoc, ...]:
-                return await TranslateTask.run(documents, language=self.target_language)
+            async def run(
+                self,
+                planning: PlanningContextDocument,
+                state: EvidenceStateDocument | None,
+                options: ResearchOptions,
+            ) -> tuple[EvidenceDocument, ...]:
+                ...
+
+    Resolution rules:
+    - ``planning: PlanningContextDocument`` -> latest document of that type
+    - ``state: EvidenceStateDocument | None`` -> latest, or ``None`` if absent
+    - ``dossiers: tuple[DossierDocument, ...]`` -> all accumulated documents of that type
+    - ``options: ResearchOptions`` -> the deployment options object
 
     The deployment creates flow instances with constructor kwargs::
 
         def build_flows(self, options):
-            return [TranslateFlow(target_language="fr"), TranslateFlow(target_language="de")]
+            return [EvidenceFlow(round_number=1), EvidenceFlow(round_number=2)]
 
     Each instance runs independently with its own parameters, resume record, and progress.
     Constructor kwargs are captured for replay serialization via ``get_params()``.
-
-    Signature must be exactly ``(self, documents: tuple[DocType, ...], options: FlowOptions)``
-    and is validated at class definition time by ``__init_subclass__``.
     Use ``get_run_id()`` from ``ai_pipeline_core.pipeline`` to access the run ID inside a flow.
     """
 
@@ -120,24 +280,27 @@ class PipelineFlow:
     retries: ClassVar[int | None] = None
     retry_delay_seconds: ClassVar[int | None] = None  # None = use Settings.flow_retry_delay_seconds
     BASE_COST_USD: ClassVar[float] = 0.0
+    max_fan_out: ClassVar[int | None] = None
+    """Maximum expected fan-out for this flow.
+
+    Phase 1 uses this as documentation only. ``collect_tasks()`` still warns at the
+    global threshold of 50 handles and does not yet read this value.
+    """
     _abstract_flow: ClassVar[bool] = False
     _stub: ClassVar[bool] = False
-    input_document_types: ClassVar[list[type[Document]]] = []
-    output_document_types: ClassVar[list[type[Document]]] = []
+    _document_types_frozen: ClassVar[bool] = False
+    input_document_types: ClassVar[tuple[type[Document], ...]] = ()
+    output_document_types: ClassVar[tuple[type[Document], ...]] = ()
     task_graph: ClassVar[list[tuple[str, str, float]]] = []
     _prefect_flow_fn: ClassVar[Any] = None
 
-    async def run(self, documents: tuple[Any, ...], options: Any) -> tuple[Any, ...]:
-        """Execute the flow.
-
-        Subclasses must provide concrete ``tuple[MyDocument, ...]`` and ``FlowOptions``
-        annotations. The base stub stays broad so static type checkers accept
-        narrower overrides; ``__init_subclass__`` enforces the real signature.
-        """
+    async def run(self, **kwargs: Any) -> tuple[Any, ...]:
+        """Execute the flow. Subclasses provide concrete typed annotations."""
         raise NotImplementedError
 
     def __init_subclass__(cls, *, stub: bool = False, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        cls._document_types_frozen = False
         cls._stub = stub
         if cls is PipelineFlow:
             return
@@ -148,6 +311,7 @@ class PipelineFlow:
                     "Use stub=True for placeholder classes awaiting implementation. "
                     "Use _abstract_flow for intermediate base classes meant for override."
                 )
+            freeze_document_type_metadata(cls)
             return
 
         is_stub = stub
@@ -166,10 +330,12 @@ class PipelineFlow:
         cls._validate_class_config()
         run_fn, hints, params = cls._validate_run_signature()
         input_types, output_types = cls._extract_document_types(hints, params)
-        cls.input_document_types = input_types
-        cls.output_document_types = output_types
+        cls.input_document_types = tuple(input_types)
+        cls.output_document_types = tuple(output_types)
         cls.task_graph = cls._parse_task_graph(run_fn)
+        _warn_on_unused_task_outputs(cls.__name__, _parse_task_bindings_from_source(run_fn))
         cls._prefect_flow_fn = cls._build_prefect_flow()
+        freeze_document_type_metadata(cls)
 
         # Register after all validation passes to avoid poisoning the registry on failure
         if not exempt:
@@ -201,7 +367,6 @@ class PipelineFlow:
     def _validate_run_signature(cls) -> tuple[Callable[..., Any], dict[str, Any], list[inspect.Parameter]]:
         run_fn = cls.__dict__.get("run")
         if run_fn is None:
-            # Check for inherited run from a parent subclass (not the base PipelineFlow stub)
             for parent in cls.__mro__[1:]:
                 if parent is PipelineFlow:
                     break
@@ -209,18 +374,24 @@ class PipelineFlow:
                     run_fn = parent.__dict__["run"]
                     break
         if run_fn is None:
-            raise TypeError(f"PipelineFlow '{cls.__name__}' must define async run(self, documents, options) -> tuple[Document, ...].")
+            raise TypeError(f"PipelineFlow '{cls.__name__}' must define async def run(self, ...) -> tuple[Document, ...].")
         if not inspect.iscoroutinefunction(run_fn):
-            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must be async def. Use async operations in flow code and return tuple[Document, ...].")
-
+            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must be async def.")
         sig = inspect.signature(run_fn)
         params = list(sig.parameters.values())
-        if len(params) != 3:
+        if not params or params[0].name != "self":
+            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must be an instance method with 'self' as first parameter.")
+        for parameter in params[1:]:
+            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                raise TypeError(f"PipelineFlow '{cls.__name__}'.run parameter '*{parameter.name}' uses *args. Flow inputs must be explicit named parameters.")
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                raise TypeError(
+                    f"PipelineFlow '{cls.__name__}'.run parameter '**{parameter.name}' uses **kwargs. Flow inputs must be explicit named parameters."
+                )
+        if len(params) < 2:
             raise TypeError(
-                f"PipelineFlow '{cls.__name__}'.run must have signature "
-                f"(self, documents: tuple[DocType, ...], options: FlowOptions) -> tuple[DocType, ...]. "
-                f"Found parameters: {', '.join(p.name for p in params)}. "
-                f"run_id is no longer a parameter — use get_run_id() from ai_pipeline_core.pipeline."
+                f"PipelineFlow '{cls.__name__}'.run must accept at least one named input parameter "
+                "beyond 'self'. Define document inputs as named parameters with Document subclass annotations."
             )
         hints = resolve_type_hints(run_fn)
         return run_fn, hints, params
@@ -231,49 +402,34 @@ class PipelineFlow:
         hints: dict[str, Any],
         params: list[inspect.Parameter],
     ) -> tuple[list[type[Document]], list[type[Document]]]:
-        documents_param = params[1].name
-        documents_annotation = hints.get(documents_param)
-        if documents_annotation is None:
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}'.run is missing type annotation for '{documents_param}'. Use tuple[MyDocument, ...] or tuple[DocA | DocB, ...]."
+        input_types: list[type[Document]] = []
+        for parameter in params[1:]:
+            annotation = hints.get(parameter.name)
+            if annotation is None:
+                raise TypeError(
+                    f"PipelineFlow '{cls.__name__}'.run parameter '{parameter.name}' is missing a type annotation. Annotate every flow input explicitly."
+                )
+            unwrapped = unwrap_optional(annotation)
+            if isinstance(unwrapped, type) and issubclass(unwrapped, FlowOptions):
+                continue
+            input_types.extend(
+                validate_flow_input_param(
+                    annotation,
+                    flow_name=cls.__name__,
+                    parameter_name=parameter.name,
+                )
             )
-        if contains_bare_document(documents_annotation):
-            raise TypeError(f"PipelineFlow '{cls.__name__}' uses bare 'Document' in run() input. Use specific Document subclasses in tuple[...] annotations.")
-        if get_origin(documents_annotation) is not tuple:
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}'.run input must be annotated as "
-                f"tuple[DocumentSubclass, ...] or tuple[DocA | DocB, ...]. "
-                f"Got: {documents_annotation!r}."
-            )
-        input_types = collect_document_types(documents_annotation)
-        if not input_types:
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}'.run input must be annotated as "
-                f"tuple[DocumentSubclass, ...] or tuple[DocA | DocB, ...]. "
-                f"Got: {documents_annotation!r}."
-            )
-
-        options_param = params[2].name
-        options_type = hints.get(options_param)
-        if not (isinstance(options_type, type) and issubclass(options_type, FlowOptions)):
-            raise TypeError(f"PipelineFlow '{cls.__name__}'.run parameter '{options_param}' must be FlowOptions or subclass. Got: {options_type!r}.")
 
         return_annotation = hints.get("return")
         if return_annotation is None:
             raise TypeError(f"PipelineFlow '{cls.__name__}'.run is missing return annotation. Use tuple[MyDocument, ...] or tuple[DocA | DocB, ...].")
         if contains_bare_document(return_annotation):
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}' uses bare 'Document' in run() return type. Use specific Document subclasses in tuple[...] annotations."
-            )
+            raise TypeError(f"PipelineFlow '{cls.__name__}' uses bare 'Document' in run() return type. Use specific Document subclasses.")
         if get_origin(return_annotation) is not tuple:
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...] or tuple[DocA | DocB, ...]. Got: {return_annotation!r}."
-            )
+            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. Got: {return_annotation!r}.")
         output_types = collect_document_types(return_annotation)
         if not output_types:
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...] or tuple[DocA | DocB, ...]. Got: {return_annotation!r}."
-            )
+            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. Got: {return_annotation!r}.")
         overlap = set(input_types) & set(output_types)
         if overlap:
             raise TypeError(
@@ -297,8 +453,9 @@ class PipelineFlow:
         works for multiple instances of the same class (e.g., different constructor kwargs).
         """
 
-        async def _prefect_body(flow_instance: PipelineFlow, documents: tuple[Any, ...], options: Any) -> tuple[Any, ...]:
-            return await flow_instance.run(documents, options)
+        async def _prefect_body(flow_instance: PipelineFlow, **kwargs: Any) -> tuple[Any, ...]:
+            # nosemgrep: no-dict-unpacking-task-flow-call -- framework wrapper forwards validated flow kwargs into the user flow
+            return await flow_instance.run(**kwargs)
 
         return _prefect_flow(
             name=cls.name,
@@ -337,3 +494,6 @@ class PipelineFlow:
     def expected_tasks(cls) -> list[dict[str, Any]]:
         """Return expected task metadata extracted from run() AST."""
         return [{"name": name, "estimated_minutes": minutes} for name, _mode, minutes in cls.task_graph]
+
+
+freeze_document_type_metadata(PipelineFlow)

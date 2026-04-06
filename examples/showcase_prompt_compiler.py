@@ -39,6 +39,8 @@ from ai_pipeline_core.prompt_compiler import (
     render_text,
 )
 
+DISPLAY_PREVIEW_LINE_COUNT = 3
+
 # =============================================================================
 # 1. Document Types — what gets passed as context
 # =============================================================================
@@ -582,7 +584,7 @@ def main() -> None:
     print(f"RiskAssessmentFramework template: {RiskAssessmentFramework.template}")
     content = RiskAssessmentFramework.render()
     print(f"Content ({len(content)} chars, first 3 lines):")
-    for line in content.strip().splitlines()[:3]:
+    for line in content.strip().splitlines()[:DISPLAY_PREVIEW_LINE_COUNT]:
         print(f"  {line}")
 
     # --- Feature: send_spec usage (shown, not executed — requires LLM) ---

@@ -624,11 +624,13 @@ class PlanningFlow(PipelineFlow):
     ) -> tuple["PlanningContextDocument", ...]:
         plan = await WritePlanTask.run(request=request, model=options.planning_model)
         identity = await WriteIdentityTask.run(request=request, plan=plan, model=options.analysis_model)
-        return (PlanningContextDocument.derive(
-            name="planning-context.json",
-            content=PlanningContextModel(plan=plan, identity=identity),
-            derived_from=(request, plan, identity),
-        ),)
+        return (
+            PlanningContextDocument.derive(
+                name="planning-context.json",
+                content=PlanningContextModel(plan=plan, identity=identity),
+                derived_from=(request, plan, identity),
+            ),
+        )
 ```
 
 ### Flow characteristics
@@ -678,10 +680,7 @@ identity = await WriteIdentityTask.run(plan=plan, model=options.analysis_model)
 ### 2. Fan-out dispatch
 
 ```python
-handles = [
-    AnalyzeSourceTask.run(source=source, plan=plan, model=options.analysis_model)
-    for source in sources
-]
+handles = [AnalyzeSourceTask.run(source=source, plan=plan, model=options.analysis_model) for source in sources]
 batch = await collect_tasks(*handles)
 ```
 
@@ -706,10 +705,7 @@ Use a pure module-level function when the flow needs to reshape data before task
 
 ```python
 request_specs = flatten_execution_plans(execution_plans)
-handles = [
-    GenerateRequestTask.run(spec=spec, model=options.fast_model)
-    for spec in request_specs
-]
+handles = [GenerateRequestTask.run(spec=spec, model=options.fast_model) for spec in request_specs]
 ```
 
 ### 6. Parallel groups with separate identities
@@ -1009,10 +1005,7 @@ class ResearchRoundFlow(PipelineFlow):
             model=options.fast_model,
         )
 
-        handles = [
-            GatherEvidenceTask.run(request=request, planning=planning, model=options.analysis_model)
-            for request in requests
-        ]
+        handles = [GatherEvidenceTask.run(request=request, planning=planning, model=options.analysis_model) for request in requests]
         batch = await collect_tasks(*handles)
 
         state = await ConsolidateEvidenceTask.run(

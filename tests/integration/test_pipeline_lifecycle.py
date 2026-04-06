@@ -50,7 +50,7 @@ class LifecycleTask(PipelineTask):
     """Task that emits task, operation, conversation, llm_round, and tool_call spans."""
 
     @classmethod
-    async def run(cls, documents: tuple[LifecycleInputDocument, ...]) -> tuple[LifecycleOutputDocument, ...]:
+    async def run(cls, input_docs: tuple[LifecycleInputDocument, ...]) -> tuple[LifecycleOutputDocument, ...]:
         async with traced_operation("prepare-answer", description="integration traced operation"):
             conv = Conversation(model="test-model", enable_substitutor=False, include_date=False)
             conv = await conv.send(
@@ -60,7 +60,7 @@ class LifecycleTask(PipelineTask):
             )
         return (
             LifecycleOutputDocument.derive(
-                derived_from=(documents[0],),
+                derived_from=(input_docs[0],),
                 name="answer.txt",
                 content=conv.content,
                 description="Lifecycle integration output",
@@ -71,9 +71,9 @@ class LifecycleTask(PipelineTask):
 class LifecycleFlow(PipelineFlow):
     """Single-flow deployment used for end-to-end lifecycle assertions."""
 
-    async def run(self, documents: tuple[LifecycleInputDocument, ...], options: FlowOptions) -> tuple[LifecycleOutputDocument, ...]:
+    async def run(self, input_docs: tuple[LifecycleInputDocument, ...], options: FlowOptions) -> tuple[LifecycleOutputDocument, ...]:
         _ = options
-        return await LifecycleTask.run(documents)
+        return await LifecycleTask.run(input_docs=input_docs)
 
 
 class LifecycleResult(DeploymentResult):

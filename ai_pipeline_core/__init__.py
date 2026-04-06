@@ -19,16 +19,14 @@ if "prefect" in sys.modules and get_current_settings().cloud.enable_orchestratio
 from . import llm
 from ._codec import CodecError, UniversalCodec
 from .database import DatabaseReader
-from .deployment import DeploymentResult, PipelineDeployment
+from .deployment import DeploymentPlan, DeploymentResult, FieldGate, FlowOutputs, FlowStep, PipelineDeployment
 from .deployment.remote import RemoteDeployment
 from .documents import (
     Attachment,
     Document,
     DocumentSha256,
     ensure_extension,
-    find_all,
     find_document,
-    find_latest,
     replace_extension,
     sanitize_url,
 )
@@ -66,7 +64,6 @@ from .pipeline import (
     get_run_id,
     pipeline_concurrency,
     pipeline_test_context,
-    run_tasks_until,
     safe_gather,
     safe_gather_indexed,
     traced_operation,
@@ -92,6 +89,7 @@ __all__ = [
     "CodecError",
     "Conversation",
     "DatabaseReader",
+    "DeploymentPlan",
     "DeploymentResult",
     "Document",
     "DocumentNameError",
@@ -101,7 +99,10 @@ __all__ = [
     "ExperimentOverrides",
     "ExperimentResult",
     "ExternalProvider",
+    "FieldGate",
     "FlowOptions",
+    "FlowOutputs",
+    "FlowStep",
     "Guide",
     "LLMError",
     "LimitKind",
@@ -142,9 +143,7 @@ __all__ = [
     "execute_span",
     "experiment_batch",
     "experiment_span",
-    "find_all",
     "find_document",
-    "find_latest",
     "get_run_id",
     "llm",
     "pipeline_concurrency",
@@ -152,7 +151,6 @@ __all__ = [
     "render_preview",
     "render_text",
     "replace_extension",
-    "run_tasks_until",
     "safe_gather",
     "safe_gather_indexed",
     "sanitize_url",

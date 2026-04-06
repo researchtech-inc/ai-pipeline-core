@@ -1,14 +1,10 @@
-"""Prove single-Document return annotations pass validation but shouldn't.
-
-_task_return_annotation_error accepts bare Document subclass (-> OutputDoc),
-but _normalize_result_documents always wraps single results into a tuple.
-The annotation misleads callers about the actual return type.
-"""
+"""Tests for single-document PipelineTask return annotations."""
 
 # pyright: reportPrivateUsage=false, reportUnusedClass=false
 
 import pytest
 
+from ai_pipeline_core import pipeline_test_context
 from ai_pipeline_core.documents.document import Document
 from ai_pipeline_core.pipeline._task import PipelineTask
 from ai_pipeline_core.pipeline._type_validation import (
@@ -25,51 +21,37 @@ class SDOutputDoc(Document):
     """Output document for single-doc return tests."""
 
 
-# ── Proving tests: PASS on current code, demonstrate the bug ─────────
+class SDSingleReturnTask(PipelineTask):
+    """Returns a single document."""
+
+    @classmethod
+    async def run(cls, input_docs: tuple[SDInputDoc, ...]) -> SDOutputDoc:
+        _ = cls
+        return SDOutputDoc.derive(derived_from=(input_docs[0],), name="out.md", content="x")
 
 
-class TestValidationRejectsSingleDocument:
-    """Prove _task_return_annotation_error rejects bare Document subclass."""
-
-    def test_single_document_annotation_returns_error(self) -> None:
-        """_task_return_annotation_error returns error for bare Document subclass."""
-        error = _task_return_annotation_error(SDOutputDoc)
-        assert error is not None
-        assert "tuple" in error.lower()
-
-    def test_validate_task_return_rejects_single_document(self) -> None:
-        """validate_task_return_annotation raises for -> SDOutputDoc."""
-        with pytest.raises(TypeError, match="must not use bare"):
-            validate_task_return_annotation(SDOutputDoc, task_name="BugTask")
-
-    def test_task_class_with_single_return_rejected(self) -> None:
-        """PipelineTask with -> SDOutputDoc fails __init_subclass__."""
-        with pytest.raises(TypeError, match="must not use bare"):
-
-            class SingleReturnTask(PipelineTask):
-                @classmethod
-                async def run(cls, documents: tuple[SDInputDoc, ...]) -> SDOutputDoc:
-                    _ = cls
-                    return SDOutputDoc.create_root(name="out.md", content="x", reason="test")
+def test_single_document_annotation_is_accepted() -> None:
+    """Bare Document subclasses are valid task return annotations."""
+    assert _task_return_annotation_error(SDOutputDoc) is None
 
 
-# ── xfail tests: should FAIL now, PASS after fix ────────────────────
+def test_validate_task_return_accepts_single_document() -> None:
+    """validate_task_return_annotation accepts -> SDOutputDoc."""
+    output_types = validate_task_return_annotation(SDOutputDoc, task_name="SingleDocTask")
+    assert output_types == [SDOutputDoc]
 
 
-class TestSingleDocAnnotationRejected:
-    """These tests will pass once bare Document return is rejected."""
+def test_task_class_with_single_return_is_accepted() -> None:
+    """PipelineTask with -> SDOutputDoc passes __init_subclass__ validation."""
+    assert SDSingleReturnTask.output_document_types == (SDOutputDoc,)
 
-    def test_bare_document_returns_error(self) -> None:
-        """_task_return_annotation_error rejects single Document."""
-        error = _task_return_annotation_error(SDOutputDoc)
-        assert error is not None
-        assert "tuple" in error.lower()
 
-    def test_task_definition_raises_typeerror(self) -> None:
-        """PipelineTask with -> OutputDoc raises TypeError."""
-        with pytest.raises(TypeError, match="must not use bare"):
-
-            class BadSingleTask(PipelineTask):
-                @classmethod
-                async def run(cls, documents: tuple[SDInputDoc, ...]) -> SDOutputDoc:
-                    _ = cls
+@pytest.mark.asyncio
+async def test_single_document_runtime_normalizes_to_tuple() -> None:
+    """Runtime wraps a bare Document return into a 1-tuple."""
+    source = SDInputDoc.create_root(name="in.md", content="x", reason="test")
+    with pipeline_test_context():
+        result = await SDSingleReturnTask.run((source,))
+    assert isinstance(result, tuple)
+    assert len(result) == 1
+    assert isinstance(result[0], SDOutputDoc)

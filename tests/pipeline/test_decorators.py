@@ -30,7 +30,7 @@ class AltInputDoc(Document):
 
 class EchoTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[InputDoc, ...]) -> tuple[OutputDoc, ...]:
+    async def run(cls, input_docs: tuple[InputDoc, ...]) -> tuple[OutputDoc, ...]:
         _ = cls
         return tuple(
             OutputDoc.derive(
@@ -38,7 +38,7 @@ class EchoTask(PipelineTask):
                 name=f"out_{doc.name}",
                 content=doc.content,
             )
-            for doc in documents
+            for doc in input_docs
         )
 
 
@@ -92,14 +92,16 @@ class TestEstimatedMinutes:
         class MinutesFlow(PipelineFlow):
             estimated_minutes = 30
 
-            async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()
 
         assert MinutesFlow.estimated_minutes == 30
 
     def test_flow_default_estimated_minutes(self):
         class DefaultFlow(PipelineFlow):
-            async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()
 
         assert DefaultFlow.estimated_minutes == 1
@@ -120,7 +122,8 @@ class TestEstimatedMinutes:
             class BadFlow(PipelineFlow):
                 estimated_minutes = 0
 
-                async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                    _ = (input_docs, options)
                     return ()
 
 
@@ -134,21 +137,24 @@ class TestFlowAnnotationExtraction:
 
     def test_extracts_input_types(self):
         class ExtractFlow(PipelineFlow):
-            async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()
 
-        assert ExtractFlow.input_document_types == [InputDoc]
+        assert ExtractFlow.input_document_types == (InputDoc,)
 
     def test_extracts_output_types(self):
         class ExtractFlow(PipelineFlow):
-            async def run(self, documents: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()
 
-        assert ExtractFlow.output_document_types == [OutputDoc]
+        assert ExtractFlow.output_document_types == (OutputDoc,)
 
     def test_extracts_union_input_types(self):
         class UnionFlow(PipelineFlow):
-            async def run(self, documents: tuple[InputDoc | AltInputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(self, input_docs: tuple[InputDoc | AltInputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+                _ = (input_docs, options)
                 return ()
 
         assert set(UnionFlow.input_document_types) == {InputDoc, AltInputDoc}

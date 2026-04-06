@@ -2,11 +2,12 @@
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import time
 from collections.abc import Sequence
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, cast, get_origin
 from uuid import UUID, uuid7
 
 from prefect.context import FlowRunContext as _FlowRunContext
@@ -26,6 +27,13 @@ from ai_pipeline_core.pipeline._execution_context import (
 from ai_pipeline_core.pipeline._flow import PipelineFlow
 from ai_pipeline_core.pipeline._span_types import SpanContext
 from ai_pipeline_core.pipeline._track_span import track_span
+from ai_pipeline_core.pipeline._type_validation import (
+    _unwrap_annotated,
+    collect_document_types,
+    is_optional_annotation,
+    resolve_type_hints,
+    unwrap_optional,
+)
 from ai_pipeline_core.pipeline.options import FlowOptions
 from ai_pipeline_core.settings import settings
 
@@ -83,7 +91,7 @@ async def _reuse_cached_flow_output(
         resumed_docs = await load_documents_from_database(
             database,
             set(expected_output_shas),
-            filter_types=flow_class.output_document_types or None,
+            filter_types=list(flow_class.output_document_types) if flow_class.output_document_types else None,
         )
         resumed_docs_by_sha = {doc.sha256: doc for doc in resumed_docs}
         if len(resumed_docs_by_sha) != len(expected_output_shas) or any(sha not in resumed_docs_by_sha for sha in expected_output_shas):
@@ -124,10 +132,9 @@ def _resolve_flow_retry_delay(flow_class: type[PipelineFlow], deployment_flow_re
 async def _execute_single_flow_attempt(
     flow_class: type[PipelineFlow],
     flow_instance: PipelineFlow,
-    current_docs: list[Document],
-    options: FlowOptions,
+    resolved_kwargs: dict[str, Any],
 ) -> tuple[Document, ...]:
-    """Run the flow once and validate the return value. Raises TypeError on bad return type."""
+    """Run the flow once and validate the return value."""
     if flow_class._stub:
         raise StubNotImplementedError(
             f"PipelineFlow '{flow_class.__name__}' is a stub (_stub = True) and cannot be executed. "
@@ -135,9 +142,20 @@ async def _execute_single_flow_attempt(
         )
     prefect_flow_fn = flow_class._prefect_flow_fn
     if _FlowRunContext.get() is not None and prefect_flow_fn is not None:
-        raw_flow_result = cast(object, await prefect_flow_fn(flow_instance, tuple(current_docs), options))
+        raw_flow_result = cast(
+            object,
+            await prefect_flow_fn(
+                flow_instance,
+                **resolved_kwargs,
+            ),
+        )
     else:
-        raw_flow_result = cast(object, await flow_instance.run(tuple(current_docs), options))
+        raw_flow_result = cast(
+            object,
+            await flow_instance.run(
+                **resolved_kwargs,
+            ),
+        )
     if not isinstance(raw_flow_result, tuple):
         raise TypeError(
             f"PipelineFlow '{flow_class.__name__}' returned {type(raw_flow_result).__name__}. "
@@ -152,7 +170,87 @@ async def _execute_single_flow_attempt(
         )
     if any(not isinstance(document, Document) for document in raw_result_docs):
         raise TypeError(f"PipelineFlow '{flow_class.__name__}' returned non-Document items. run() must return tuple[Document, ...].")
-    return cast(tuple[Document, ...], raw_flow_result)
+    validated_result = cast(tuple[Document, ...], raw_flow_result)
+    input_documents = _documents_from_flow_arguments(resolved_kwargs)
+    if input_documents and validated_result:
+        input_sha256s = frozenset(document.sha256 for document in input_documents)
+        passthrough_documents = [document for document in validated_result if document.sha256 in input_sha256s]
+        if passthrough_documents:
+            passthrough_names = ", ".join(f"'{document.name}'" for document in passthrough_documents)
+            logger.warning(
+                "PipelineFlow '%s' returned input document(s) unchanged: %s. "
+                "Flows are the great filter of phase state: return only the handoff artifacts this phase produced. "
+                "If a phase intentionally returns prior state as the honest phase result, keep it; otherwise remove the passthrough.",
+                flow_class.__name__,
+                passthrough_names,
+            )
+    return validated_result
+
+
+def _matching_documents(docs: list[Document], annotation: Any) -> list[Document]:
+    """Return blackboard documents matching the Document types referenced by ``annotation``."""
+    document_types = collect_document_types(annotation)
+    return [document for document in docs if any(isinstance(document, doc_type) for doc_type in document_types)]
+
+
+def _resolve_flow_arguments(
+    flow_class: type[PipelineFlow],
+    docs: list[Document],
+    options: FlowOptions,
+    *,
+    allow_partial: bool = False,
+) -> dict[str, Any]:
+    """Resolve flow ``run()`` kwargs from the accumulated blackboard."""
+    hints = resolve_type_hints(flow_class.run)
+    parameters = list(inspect.signature(flow_class.run).parameters.values())
+    resolved: dict[str, Any] = {}
+
+    for parameter in parameters[1:]:
+        annotation = hints.get(parameter.name)
+        if annotation is None:
+            continue
+
+        unwrapped = unwrap_optional(annotation)
+        if isinstance(unwrapped, type) and issubclass(unwrapped, FlowOptions):
+            resolved[parameter.name] = options
+            continue
+
+        matching = _matching_documents(docs, annotation)
+        if get_origin(_unwrap_annotated(annotation)) is tuple:
+            resolved[parameter.name] = tuple(matching)
+            continue
+
+        if matching:
+            resolved[parameter.name] = matching[-1]
+            continue
+
+        if is_optional_annotation(annotation):
+            resolved[parameter.name] = None
+            continue
+
+        if allow_partial:
+            continue
+
+        available = ", ".join(sorted({type(document).__name__ for document in docs})) or "(none)"
+        raise TypeError(
+            f"PipelineFlow '{flow_class.__name__}'.run parameter '{parameter.name}' "
+            f"requires {annotation!r} but no matching document was found in the blackboard. "
+            f"Available document types: {available}."
+        )
+
+    return resolved
+
+
+def _documents_from_flow_arguments(arguments: dict[str, Any]) -> tuple[Document, ...]:
+    """Collect the document inputs referenced by resolved flow kwargs."""
+    collected: list[Document] = []
+    for value in arguments.values():
+        if isinstance(value, Document):
+            collected.append(value)
+            continue
+        if isinstance(value, tuple):
+            collected.extend(item for item in value if isinstance(item, Document))
+    return _deduplicate_documents_by_sha256(collected)
 
 
 async def _run_flow_with_retries(
@@ -160,8 +258,7 @@ async def _run_flow_with_retries(
     flow_instance: PipelineFlow,
     flow_class: type[PipelineFlow],
     flow_name: str,
-    current_docs: list[Document],
-    options: FlowOptions,
+    resolved_kwargs: dict[str, Any],
     current_exec_ctx: ExecutionContext | None,
     active_handles_before: set[object],
     step: int,
@@ -191,7 +288,7 @@ async def _run_flow_with_retries(
                 span_id=attempt_span_id,
             ) as attempt_ctx:
                 attempt_ctx.set_meta(attempt=flow_attempt, max_attempts=flow_attempts)
-                return await _execute_single_flow_attempt(flow_class, flow_instance, current_docs, options)
+                return await _execute_single_flow_attempt(flow_class, flow_instance, resolved_kwargs)
         except NonRetriableError, TypeError, asyncio.CancelledError:
             raise
         except Exception as attempt_exc:
@@ -266,17 +363,20 @@ async def _execute_flow_with_context(
         if flow_exec_ctx is not None:
             flow_scope.enter_context(set_execution_context(flow_exec_ctx))
         flow_scope.enter_context(set_task_context(TaskContext(scope_kind="flow", task_class_name=flow_class.__name__)))
+        resolved_kwargs = _resolve_flow_arguments(flow_class, current_docs, options)
+        input_documents = _documents_from_flow_arguments(resolved_kwargs)
         flow_target = f"instance_method:{flow_class.__module__}:{flow_class.__qualname__}.run"
         flow_receiver = {"mode": "constructor_args", "value": flow_instance.get_params()}
-        flow_input = {"documents": tuple(current_docs), "options": options}
+        flow_input = dict(resolved_kwargs)
         flow_input_preview = {
             "flow_class": flow_class.__name__,
             "flow_options": flow_options_payload,
-            "input_documents": [document.name for document in current_docs],
+            "input_documents": [document.name for document in input_documents],
+            "input_parameters": tuple(resolved_kwargs),
         }
         flow_started_at = time.monotonic()
 
-        input_doc_sha256s = tuple(doc.sha256 for doc in current_docs)
+        input_doc_sha256s = tuple(doc.sha256 for doc in input_documents)
         deployment_span_id_str = str(deployment_span_id)
 
         async with track_span(
@@ -333,8 +433,7 @@ async def _execute_flow_with_context(
                     flow_instance=flow_instance,
                     flow_class=flow_class,
                     flow_name=flow_name,
-                    current_docs=current_docs,
-                    options=options,
+                    resolved_kwargs=resolved_kwargs,
                     current_exec_ctx=current_exec_ctx,
                     active_handles_before=active_handles_before,
                     step=step,
@@ -439,26 +538,46 @@ def _deduplicate_documents_by_sha256(documents: Sequence[Document]) -> tuple[Doc
     return tuple(deduped.values())
 
 
+def _required_flow_input_types(flow_cls: type[PipelineFlow]) -> list[type[Document]]:
+    """Return required singleton document input types for a flow."""
+    hints = resolve_type_hints(flow_cls.run)
+    parameters = list(inspect.signature(flow_cls.run).parameters.values())
+    required: list[type[Document]] = []
+    for parameter in parameters[1:]:
+        annotation = hints.get(parameter.name)
+        if annotation is None:
+            continue
+        unwrapped = unwrap_optional(annotation)
+        if isinstance(unwrapped, type) and issubclass(unwrapped, FlowOptions):
+            continue
+        if is_optional_annotation(annotation):
+            continue
+        if get_origin(_unwrap_annotated(annotation)) is tuple:
+            continue
+        required.extend(collect_document_types(annotation))
+    return required
+
+
 def _validate_flow_chain(deployment_name: str, flows: Sequence[PipelineFlow]) -> None:
     """Validate that each flow's input types are satisfiable by preceding flows' outputs."""
     type_pool: set[type[Document]] = set()
 
     for index, flow_instance in enumerate(flows):
         flow_cls = type(flow_instance)
-        input_types = flow_cls.input_document_types
+        required_input_types = _required_flow_input_types(flow_cls)
         output_types = flow_cls.output_document_types
         flow_name = flow_instance.name
 
         if index == 0:
-            type_pool.update(input_types)
-        elif input_types:
-            any_satisfied = any(any(issubclass(available, required) for available in type_pool) for required in input_types)
-            if not any_satisfied:
-                input_names = sorted(document_type.__name__ for document_type in input_types)
+            type_pool.update(required_input_types)
+        elif required_input_types:
+            missing_required_types = [required for required in required_input_types if not any(issubclass(available, required) for available in type_pool)]
+            if missing_required_types:
+                input_names = sorted(document_type.__name__ for document_type in missing_required_types)
                 pool_names = sorted(document_type.__name__ for document_type in type_pool) if type_pool else ["(empty)"]
                 raise TypeError(
                     f"{deployment_name}: flow '{flow_name}' (step {index + 1}) requires input types "
-                    f"{input_names} but none are produced by preceding flows. "
+                    f"{input_names} but they are not all produced by preceding flows. "
                     f"Available types: {pool_names}"
                 )
 

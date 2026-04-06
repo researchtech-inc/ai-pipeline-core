@@ -7,7 +7,7 @@ This document describes how to build correctly on top of `ai-pipeline-core` from
 ## 1. Core Architectural Rules
 
 ### Deployment owns branching
-A `PipelineDeployment` decides the maximum execution graph up front. `build_flows()` should construct every flow that could run based only on options known before execution. Runtime decisions belong in `plan_next_flow()`, driven by small typed control documents emitted by prior flows.
+A `PipelineDeployment` decides the maximum execution graph up front. `build_plan()` should construct every flow that could run based only on options known before execution. Runtime decisions belong in `FieldGate` and `group_stop_if`, driven by small typed control documents emitted by prior flows.
 
 Why:
 - The full possible execution path is visible before the run starts.
@@ -42,26 +42,24 @@ Why:
 
 ## 2. Deployments
 
-## 2.1 `build_flows()`: Pre-build the maximum path
+## 2.1 `build_plan()`: Pre-build the maximum path
 
-`build_flows()` should use only deployment options and static mode selection. It should not inspect prior outputs or guess how the run will evolve.
+`build_plan()` should use only deployment options and static mode selection. It should not inspect prior outputs or guess how the run will evolve.
 
 ### Correct pattern
 
 ```python
 class ExampleDeployment(PipelineDeployment[ExampleOptions, ExampleResult]):
-    def build_flows(self, options: ExampleOptions) -> Sequence[PipelineFlow]:
-        flows: list[PipelineFlow] = [PlanningFlow()]
+    def build_plan(self, options: ExampleOptions) -> DeploymentPlan:
+        steps: list[FlowStep] = [FlowStep(PlanningFlow())]
         for round_number in range(1, options.max_loops + 1):
-            flows.extend(
-                [
-                    EvidenceGatheringFlow(round_number=round_number),
-                    AnalysisFlow(round_number=round_number),
-                    FinalizationFlow(round_number=round_number),
-                ]
-            )
-        flows.append(SynthesisFlow())
-        return flows
+            steps.extend([
+                FlowStep(EvidenceGatheringFlow(round_number=round_number), group="loop"),
+                FlowStep(AnalysisFlow(round_number=round_number), group="loop"),
+                FlowStep(FinalizationFlow(round_number=round_number), group="loop"),
+            ])
+        steps.append(FlowStep(SynthesisFlow()))
+        return DeploymentPlan(steps=tuple(steps))
 ```
 
 ### What belongs here
@@ -79,7 +77,7 @@ class ExampleDeployment(PipelineDeployment[ExampleOptions, ExampleResult]):
 
 ---
 
-## 2.2 `plan_next_flow()`: Runtime gating via control documents
+## 2.2 `FieldGate` and `group_stop_if`: Runtime gating via control documents
 
 Runtime branching should be driven by one or more small typed control documents. Do not reverse-engineer broad state to decide whether to skip a flow.
 
@@ -92,20 +90,23 @@ class LoopDecisionModel(BaseModel):
     mode: str
     stop_reason: str
 
+
 class LoopDecisionDocument(Document[LoopDecisionModel]):
     """Returned by the round-finalization flow."""
 
-def plan_next_flow(
-    self,
-    flow_class: type[PipelineFlow],
-    plan: Sequence[PipelineFlow],
-    output_documents: tuple[Document, ...],
-) -> FlowDirective:
-    decision = find_latest(output_documents, LoopDecisionDocument)
-    if decision is not None and not decision.parsed.should_continue:
-        if issubclass(flow_class, ResearchRoundFlow):
-            return FlowDirective(action=FlowAction.SKIP, reason=decision.parsed.stop_reason)
-    return FlowDirective()
+
+def build_plan(self, options: ExampleOptions) -> DeploymentPlan:
+    return DeploymentPlan(
+        steps=(
+            FlowStep(PlanningFlow()),
+            FlowStep(ResearchRoundFlow(round_number=1), group="loop"),
+            FlowStep(ResearchRoundFlow(round_number=2), group="loop"),
+            FlowStep(SynthesisFlow()),
+        ),
+        group_stop_if={
+            "loop": FieldGate(LoopDecisionDocument, "should_continue", op="falsy", on_missing="run"),
+        },
+    )
 ```
 
 ### Why this matters
@@ -124,8 +125,9 @@ The deployment result should be assembled from a small final set of output docum
 ```python
 @staticmethod
 def build_result(run_id: str, documents: tuple[Document, ...], options: ExampleOptions) -> ExampleResult:
-    report = find_latest(documents, FinalReportDocument)
-    companion = find_latest(documents, JsonCompanionDocument)
+    outputs = FlowOutputs(documents)
+    report = outputs.latest(FinalReportDocument)
+    companion = outputs.latest(JsonCompanionDocument)
     return ExampleResult(
         success=report is not None,
         report_markdown=report.text if report is not None else None,
@@ -211,6 +213,7 @@ class PlanningContextModel(BaseModel):
     policy: DecisionPolicyModel
     acquisition_plan: EvidenceAcquisitionPlanModel
 
+
 class PlanningContextDocument(Document[PlanningContextModel]):
     """Phase 1 outputs bundled for downstream flows."""
 ```
@@ -237,7 +240,7 @@ Examples:
 - `ReconciliationModeDocument`
 - `CorrectionDecisionDocument`
 
-Do not overload broader state documents to drive `plan_next_flow()`.
+Do not overload broader state documents to drive `FieldGate` or `group_stop_if`.
 
 ---
 
@@ -309,8 +312,7 @@ class GroupSynthesisTask(PipelineTask):
         group_id: str,
         round_number: int,
         model: str,
-    ) -> tuple[GroupReportDocument]:
-        ...
+    ) -> tuple[GroupReportDocument]: ...
 ```
 
 ### Why

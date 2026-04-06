@@ -41,6 +41,7 @@ __all__ = [
     "_RunContext",
     "_TaskDocumentContext",
     "add_cost",
+    "assert_not_inside_task",
     "get_execution_context",
     "get_run_id",
     "get_sinks",
@@ -95,6 +96,17 @@ def get_task_context() -> TaskContext | None:
 def set_task_context(ctx: TaskContext) -> Token[TaskContext | None]:
     """Set the task context for the current scope."""
     return _task_context.set(ctx)
+
+
+def assert_not_inside_task(task_name: str) -> None:
+    """Raise when a task is dispatched from inside another task body."""
+    ctx = get_task_context()
+    if ctx is not None and ctx.scope_kind == "task":
+        raise RuntimeError(
+            f"PipelineTask '{task_name}' cannot be called from inside another task ('{ctx.task_class_name}'). "
+            "Tasks must be called from flows, not nested inside other tasks. "
+            "Move the inner task call to the parent flow's run() method."
+        )
 
 
 # --- Task document lifecycle tracking ---

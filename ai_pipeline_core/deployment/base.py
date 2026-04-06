@@ -10,14 +10,14 @@ creating unified, type-safe pipeline deployments with:
 import asyncio
 import contextlib
 import logging
+import time as _time_mod
 from abc import abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import timedelta
-from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, ClassVar, Generic, TypeVar, cast, final
+from typing import Any, ClassVar, Generic, Literal, TypeVar, cast, final
 from uuid import UUID, uuid7
 
 from prefect import get_client, runtime
@@ -57,8 +57,10 @@ from ai_pipeline_core.settings import settings
 from ._cli import run_cli_for_deployment
 from ._deployment_runtime import (
     _deduplicate_documents_by_sha256,
+    _documents_from_flow_arguments,
     _execute_flow_with_context,
     _first_declaring_class,
+    _resolve_flow_arguments,
     _reuse_cached_flow_output,
     _safe_uuid,
     _validate_flow_chain,
@@ -79,7 +81,11 @@ from ._helpers import (
 )
 from ._prefect import build_prefect_flow
 from ._types import (
+    DeploymentPlan,
+    FieldGate,
+    FlowOutputs,
     FlowSkippedEvent,
+    FlowStep,
     ResultPublisher,
     RunCompletedEvent,
     RunFailedEvent,
@@ -105,29 +111,14 @@ TResult = TypeVar("TResult", bound=DeploymentResult, default=DeploymentResult)
 _LABEL_RUN_ID = "pipeline.run_id"
 
 
-class FlowAction(StrEnum):
-    """Directive action for dynamic flow control."""
-
-    CONTINUE = "continue"
-    SKIP = "skip"
-
-
-@dataclass(frozen=True, slots=True)
-class FlowDirective:
-    """Flow planning directive returned by plan_next_flow()."""
-
-    action: FlowAction = FlowAction.CONTINUE
-    reason: str = ""
-
-
 async def _record_nonexecuted_flow(
     *,
     flow_instance: PipelineFlow,
     flow_class: type[PipelineFlow],
     flow_name: str,
-    current_docs: list[Document],
+    available_docs: list[Document],
+    resolved_kwargs: dict[str, Any],
     flow_options_payload: dict[str, Any],
-    options: FlowOptions,
     expected_tasks: list[dict[str, Any]],
     step: int,
     total_steps: int,
@@ -146,6 +137,7 @@ async def _record_nonexecuted_flow(
     cache_source_span_id: str = "",
     output_documents: tuple[Document, ...] = (),
 ) -> None:
+    input_documents = _documents_from_flow_arguments(resolved_kwargs)
     flow_target = f"instance_method:{flow_class.__module__}:{flow_class.__qualname__}.run"
     async with track_span(
         kind=SpanKind.FLOW,
@@ -154,12 +146,14 @@ async def _record_nonexecuted_flow(
         sinks=get_sinks(),
         parent_span_id=deployment_span_id,
         encode_receiver={"mode": "constructor_args", "value": flow_instance.get_params()},
-        encode_input={"documents": tuple(current_docs), "options": options},
+        encode_input=resolved_kwargs,
         db=database,
         input_preview={
             "flow_class": flow_class.__name__,
             "flow_options": flow_options_payload,
-            "input_documents": [document.name for document in current_docs],
+            "input_documents": [document.name for document in input_documents],
+            "input_parameters": tuple(resolved_kwargs),
+            "available_documents": [document.name for document in available_docs],
         },
     ) as flow_span_ctx:
         flow_span_ctx.set_status(status)
@@ -186,25 +180,13 @@ async def _record_nonexecuted_flow(
                 status=str(status),
                 reason=publish_reason,
                 parent_span_id=str(deployment_span_id),
-                input_document_sha256s=tuple(doc.sha256 for doc in current_docs),
+                input_document_sha256s=tuple(doc.sha256 for doc in input_documents),
             )
         )
         record_lifecycle_event(lifecycle_event, lifecycle_message, **lifecycle_fields)
         if output_documents:
             flow_span_ctx.set_output_preview({"documents": [document.name for document in output_documents]})
             flow_span_ctx._set_output_value(output_documents)
-
-
-def _select_flow_input_documents(flow_class: type[PipelineFlow], accumulated_docs: list[Document]) -> list[Document]:
-    input_types = flow_class.input_document_types
-    if not input_types:
-        return list(accumulated_docs)
-    input_type_set = set(input_types)
-    return [
-        document
-        for document in accumulated_docs
-        if type(document) in input_type_set or any(issubclass(type(document), candidate) for candidate in input_type_set)
-    ]
 
 
 async def _load_deployment_cost_totals(
@@ -220,6 +202,113 @@ async def _load_deployment_cost_totals(
     except Exception as exc:
         logger.warning("Deployment cost totals query failed for %s: %s", deployment_span_id, exc)
         return CostTotals()
+
+
+_MISSING_FIELD_VALUE = object()
+
+
+def _missing_gate_result(gate: FieldGate, *, context: Literal["run", "stop"]) -> bool:
+    """Resolve FieldGate.on_missing semantics for run vs stop contexts."""
+    if context == "run":
+        return gate.on_missing == "run"
+    return gate.on_missing == "skip"
+
+
+def _evaluate_field_gate(
+    gate: FieldGate,
+    docs: list[Document],
+    *,
+    context: Literal["run", "stop"] = "run",
+) -> bool:
+    """Evaluate a FieldGate against the latest matching control document."""
+    result = _missing_gate_result(gate, context=context)
+    latest_match: Document[Any] | None = None
+    for document in reversed(docs):
+        if isinstance(document, gate.document_type):
+            latest_match = document
+            break
+
+    if latest_match is not None:
+        parsed: Any | None = None
+        try:
+            parsed = latest_match.parsed
+        except Exception as exc:
+            logger.warning(
+                "FieldGate could not parse '%s' (%s) for %s.%s with op=%s. Treating the document as missing because .parsed failed: %s",
+                latest_match.name,
+                type(latest_match).__name__,
+                gate.document_type.__name__,
+                gate.field_name,
+                gate.op,
+                exc,
+            )
+        if parsed is not None:
+            value = getattr(parsed, gate.field_name, _MISSING_FIELD_VALUE)
+            if value is not _MISSING_FIELD_VALUE:
+                if gate.op == "truthy":
+                    result = bool(value)
+                elif gate.op == "falsy":
+                    result = not bool(value)
+                elif gate.op == "eq":
+                    result = value == gate.value
+                elif gate.op == "ne":
+                    result = value != gate.value
+                else:
+                    result = True
+    return result
+
+
+def _gate_reason(gate: FieldGate) -> str:
+    if gate.op in {"eq", "ne"}:
+        return f"{gate.document_type.__name__}.{gate.field_name} {gate.op} {gate.value!r}"
+    return f"{gate.document_type.__name__}.{gate.field_name} {gate.op}"
+
+
+def _apply_group_stop_gates(plan: DeploymentPlan, accumulated_docs: list[Document], stopped_groups: set[str]) -> None:
+    """Mark groups as stopped when their group_stop_if gate passes."""
+    for group_name, stop_gate in plan.group_stop_if.items():
+        if group_name in stopped_groups:
+            continue
+        if _evaluate_field_gate(stop_gate, accumulated_docs, context="stop"):
+            stopped_groups.add(group_name)
+
+
+def _later_consumed_document_types(plan: DeploymentPlan, step_index: int) -> set[type[Document]]:
+    """Return document types consumed by later flow inputs or gate evaluation."""
+    consumed: set[type[Document]] = set()
+    later_steps = plan.steps[step_index + 1 :]
+    for later_step in later_steps:
+        consumed.update(type(later_step.flow).input_document_types)
+        if later_step.run_if is not None:
+            consumed.add(later_step.run_if.document_type)
+    remaining_groups = {step.group for step in later_steps if step.group is not None}
+    for group_name, stop_gate in plan.group_stop_if.items():
+        if group_name in remaining_groups:
+            consumed.add(stop_gate.document_type)
+    return consumed
+
+
+def _warn_on_unused_flow_outputs(deployment_name: str, plan: DeploymentPlan) -> None:
+    """Warn when a non-terminal flow returns document types that nothing later consumes."""
+    total_steps = len(plan.steps)
+    for index, flow_step in enumerate(plan.steps[:-1]):
+        produced_types = type(flow_step.flow).output_document_types
+        if not produced_types:
+            continue
+        later_consumed = _later_consumed_document_types(plan, index)
+        unused_types = [document_type for document_type in produced_types if not any(issubclass(document_type, consumed) for consumed in later_consumed)]
+        if not unused_types:
+            continue
+        unused_names = ", ".join(document_type.__name__ for document_type in unused_types)
+        logger.warning(
+            "PipelineDeployment '%s' flow '%s' (step %d/%d) returns document type(s) that no downstream flow or gate consumes: %s. "
+            "Flows should return only phase handoff artifacts. Remove the unused type, keep it task-local, or consume it in a later flow or gate.",
+            deployment_name,
+            flow_step.flow.name,
+            index + 1,
+            total_steps,
+            unused_names,
+        )
 
 
 class PipelineDeployment(Generic[TOptions, TResult]):
@@ -263,8 +352,13 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         if build_result_fn is None or getattr(build_result_fn, "__isabstractmethod__", False):
             raise TypeError(f"{cls.__name__} must implement 'build_result' static method")
 
-        if _first_declaring_class(cls, "build_flows") is PipelineDeployment:
-            raise TypeError(f"{cls.__name__} must implement build_flows(options) -> Sequence[PipelineFlow]. Decorator-based `flows = [...]` is removed.")
+        flows_declaring_class = _first_declaring_class(cls, "build_flows")
+        plan_declaring_class = _first_declaring_class(cls, "build_plan")
+        if flows_declaring_class is PipelineDeployment and plan_declaring_class is PipelineDeployment:
+            raise TypeError(
+                f"{cls.__name__} must implement either build_flows(options) -> Sequence[PipelineFlow] "
+                f"or build_plan(options) -> DeploymentPlan. Decorator-based `flows = [...]` is removed."
+            )
 
         # Concurrency limits validation
         cls.concurrency_limits = _validate_concurrency_limits(cls.__name__, getattr(cls, "concurrency_limits", MappingProxyType({})))
@@ -273,15 +367,15 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         """Build flow instances for this run."""
         raise NotImplementedError(f"{type(self).__name__}.build_flows() must return a sequence of PipelineFlow.")
 
-    def plan_next_flow(
-        self,
-        flow_class: type[PipelineFlow],
-        plan: Sequence[PipelineFlow],
-        output_documents: tuple[Document, ...],
-    ) -> FlowDirective:
-        """Optionally skip future instances of a flow class."""
-        _ = (flow_class, plan, output_documents)
-        return FlowDirective()
+    def build_plan(self, options: TOptions) -> DeploymentPlan:
+        """Build the deployment execution plan for this run."""
+        flows = tuple(self.build_flows(options))
+        if not flows:
+            raise ValueError(f"{type(self).__name__}.build_flows() returned an empty list. Provide at least one PipelineFlow.")
+        for flow_item in cast(tuple[Any, ...], flows):
+            if not isinstance(flow_item, PipelineFlow):
+                raise TypeError(f"{type(self).__name__}.build_flows() must return PipelineFlow instances, got {type(flow_item).__name__}.")
+        return DeploymentPlan(steps=tuple(FlowStep(flow=flow_instance) for flow_instance in flows))
 
     @staticmethod
     @abstractmethod
@@ -413,15 +507,17 @@ class PipelineDeployment(Generic[TOptions, TResult]):
 
         if publisher is None:
             publisher = _NoopPublisher()
-        flows = self.build_flows(options)
-        if not flows:
-            raise ValueError(f"{type(self).__name__}.build_flows() returned an empty list. Provide at least one PipelineFlow.")
-        for flow_item in cast(Sequence[Any], flows):
-            if not isinstance(flow_item, PipelineFlow):
-                raise TypeError(f"{type(self).__name__}.build_flows() must return PipelineFlow instances, got {type(flow_item).__name__}.")
+        plan = self.build_plan(options)
+        if not isinstance(plan, DeploymentPlan):
+            raise TypeError(
+                f"{type(self).__name__}.build_plan() must return DeploymentPlan, got {type(plan).__name__}. "
+                "Wrap each flow as FlowStep(...) and return DeploymentPlan(steps=...)."
+            )
+        flows = [step.flow for step in plan.steps]
         _validate_flow_chain(type(self).__name__, flows)
+        _warn_on_unused_flow_outputs(type(self).__name__, plan)
 
-        total_steps = len(flows)
+        total_steps = len(plan.steps)
 
         if end_step is None:
             end_step = total_steps
@@ -448,14 +544,14 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         input_fingerprint = _compute_input_fingerprint(input_docs, options)
         flow_plan = [
             {
-                "name": flow_instance.name,
-                "flow_class": type(flow_instance).__name__,
+                "name": flow_step.flow.name,
+                "flow_class": type(flow_step.flow).__name__,
                 "step": idx + 1,
-                "estimated_minutes": flow_instance.estimated_minutes,
-                "params": flow_instance.get_params(),
-                "expected_tasks": type(flow_instance).expected_tasks(),
+                "estimated_minutes": flow_step.flow.estimated_minutes,
+                "params": flow_step.flow.get_params(),
+                "expected_tasks": type(flow_step.flow).expected_tasks(),
             }
-            for idx, flow_instance in enumerate(flows)
+            for idx, flow_step in enumerate(plan.steps)
         ]
 
         # Common event fields for this deployment
@@ -536,7 +632,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 return await self._run_tracked_deployment(
                     run_id=run_id,
                     publisher=publisher,
-                    flows=flows,
+                    plan=plan,
                     options=options,
                     input_docs=input_docs,
                     input_fingerprint=input_fingerprint,
@@ -567,7 +663,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         *,
         run_id: str,
         publisher: ResultPublisher,
-        flows: Sequence[PipelineFlow],
+        plan: DeploymentPlan,
         options: TOptions,
         input_docs: list[Document],
         input_fingerprint: str,
@@ -584,8 +680,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         deployment_span_ctx: Any,
         flow_run_id: str,
     ) -> TResult:
-        import time as _time_mod
-
         heartbeat_task: asyncio.Task[None] | None = None
         failed_published = False
         deployment_start_mono = _time_mod.monotonic()
@@ -617,36 +711,40 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             heartbeat_task = asyncio.create_task(_heartbeat_loop(publisher, run_id, root_deployment_id=root_id_str, span_id=deployment_span_id_str))
             await _ensure_concurrency_limits(self.concurrency_limits)
 
-            flow_minutes = tuple(flow_instance.estimated_minutes for flow_instance in flows)
+            flow_minutes = tuple(flow_step.flow.estimated_minutes for flow_step in plan.steps)
             accumulated_docs: list[Document] = list(_deduplicate_documents_by_sha256(input_docs))
-            skipped_classes: set[type[PipelineFlow]] = set()
+            stopped_groups: set[str] = set()
             last_flow_output_sha256s: tuple[str, ...] = ()
             previous_output_documents: tuple[Document, ...] = ()
+            _apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
 
             for i in range(start_step - 1, end_step):
                 step = i + 1
-                flow_instance = flows[i]
+                flow_step = plan.steps[i]
+                flow_instance = flow_step.flow
                 flow_class = type(flow_instance)
                 flow_name = flow_instance.name
                 flow_run_id = str(runtime.flow_run.get_id() or "") if runtime.flow_run else flow_run_id  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
                 flow_params = flow_instance.get_params()
                 expected_tasks = flow_class.expected_tasks()
                 flow_options_payload = options.model_dump(mode="json")
-                current_docs = _select_flow_input_documents(flow_class, accumulated_docs)
+                blackboard_before_flow = list(accumulated_docs)
+                resolved_flow_kwargs = _resolve_flow_arguments(flow_class, blackboard_before_flow, options, allow_partial=True)
 
-                if flow_class in skipped_classes:
+                if flow_step.group is not None and flow_step.group in stopped_groups:
+                    previous_output_documents = ()
                     await _record_nonexecuted_flow(
                         flow_instance=flow_instance,
                         flow_class=flow_class,
                         flow_name=flow_name,
-                        current_docs=current_docs,
+                        available_docs=blackboard_before_flow,
+                        resolved_kwargs=resolved_flow_kwargs,
                         flow_options_payload=flow_options_payload,
-                        options=options,
                         expected_tasks=expected_tasks,
                         step=step,
                         total_steps=total_steps,
                         status=SpanStatus.SKIPPED,
-                        publish_reason="skipped",
+                        publish_reason=f"group '{flow_step.group}' stopped",
                         lifecycle_event="flow.skipped",
                         lifecycle_message=f"Skipped flow {flow_name}",
                         lifecycle_fields={
@@ -654,7 +752,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                             "flow_class": flow_class.__name__,
                             "step": step,
                             "total_steps": total_steps,
-                            "reason": "skipped by plan_next_flow",
+                            "reason": f"group '{flow_step.group}' stopped",
                         },
                         publisher=publisher,
                         run_id=run_id,
@@ -663,25 +761,22 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                         deployment_span_id=deployment_span_id,
                         database=database,
                     )
-                    previous_output_documents = ()
                     continue
 
-                directive = self.plan_next_flow(flow_class, flows, previous_output_documents)
-                if directive.action is FlowAction.SKIP:
-                    skipped_classes.add(flow_class)
+                if flow_step.run_if is not None and not _evaluate_field_gate(flow_step.run_if, accumulated_docs):
                     previous_output_documents = ()
                     await _record_nonexecuted_flow(
                         flow_instance=flow_instance,
                         flow_class=flow_class,
                         flow_name=flow_name,
-                        current_docs=current_docs,
+                        available_docs=blackboard_before_flow,
+                        resolved_kwargs=resolved_flow_kwargs,
                         flow_options_payload=flow_options_payload,
-                        options=options,
                         expected_tasks=expected_tasks,
                         step=step,
                         total_steps=total_steps,
                         status=SpanStatus.SKIPPED,
-                        publish_reason=directive.reason or "skipped",
+                        publish_reason=f"run_if gate did not pass: {_gate_reason(flow_step.run_if)}",
                         lifecycle_event="flow.skipped",
                         lifecycle_message=f"Skipped flow {flow_name}",
                         lifecycle_fields={
@@ -689,7 +784,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                             "flow_class": flow_class.__name__,
                             "step": step,
                             "total_steps": total_steps,
-                            "reason": directive.reason or "skipped",
+                            "reason": f"run_if gate did not pass: {_gate_reason(flow_step.run_if)}",
                         },
                         publisher=publisher,
                         run_id=run_id,
@@ -722,13 +817,14 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 if cached_result is not None:
                     cached_span, previous_output_documents, accumulated_docs = cached_result
                     last_flow_output_sha256s = cached_span.output_document_shas
+                    _apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
                     await _record_nonexecuted_flow(
                         flow_instance=flow_instance,
                         flow_class=flow_class,
                         flow_name=flow_name,
-                        current_docs=current_docs,
+                        available_docs=blackboard_before_flow,
+                        resolved_kwargs=resolved_flow_kwargs,
                         flow_options_payload=flow_options_payload,
-                        options=options,
                         expected_tasks=expected_tasks,
                         step=step,
                         total_steps=total_steps,
@@ -787,7 +883,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     flow_instance=flow_instance,
                     flow_class=flow_class,
                     flow_name=flow_name,
-                    current_docs=current_docs,
+                    current_docs=blackboard_before_flow,
                     options=options,
                     flow_exec_ctx=flow_exec_ctx,
                     current_exec_ctx=current_exec_ctx,
@@ -828,6 +924,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 last_flow_output_sha256s = tuple(document.sha256 for document in validated_docs)
                 previous_output_documents = tuple(validated_docs)
                 accumulated_docs = list(_deduplicate_documents_by_sha256([*accumulated_docs, *validated_docs]))
+                _apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
 
             all_docs = _deduplicate_documents_by_sha256(accumulated_docs)
             result = self._build_run_result(
@@ -982,8 +1079,10 @@ class PipelineDeployment(Generic[TOptions, TResult]):
 
 
 __all__ = [
+    "DeploymentPlan",
     "DeploymentResult",
-    "FlowAction",
-    "FlowDirective",
+    "FieldGate",
+    "FlowOutputs",
+    "FlowStep",
     "PipelineDeployment",
 ]

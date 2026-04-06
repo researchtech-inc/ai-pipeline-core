@@ -60,16 +60,16 @@ class _ToMiddleTask(PipelineTask):
     """Task that transforms input to middle document."""
 
     @classmethod
-    async def run(cls, documents: tuple[_EventInput, ...]) -> tuple[_EventMiddle, ...]:
-        return (_EventMiddle.derive(derived_from=documents, name="middle.md", content="middle"),)
+    async def run(cls, input_docs: tuple[_EventInput, ...]) -> tuple[_EventMiddle, ...]:
+        return (_EventMiddle.derive(derived_from=input_docs, name="middle.md", content="middle"),)
 
 
 class _ToOutputTask(PipelineTask):
     """Task that transforms middle to output document."""
 
     @classmethod
-    async def run(cls, documents: tuple[_EventMiddle, ...]) -> tuple[_EventOutput, ...]:
-        return (_EventOutput.derive(derived_from=documents, name="out.md", content="done"),)
+    async def run(cls, middle_docs: tuple[_EventMiddle, ...]) -> tuple[_EventOutput, ...]:
+        return (_EventOutput.derive(derived_from=middle_docs, name="out.md", content="done"),)
 
 
 class _FailingTask(PipelineTask):
@@ -78,7 +78,8 @@ class _FailingTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_EventInput, ...]) -> tuple[_EventOutput, ...]:
+    async def run(cls, input_docs: tuple[_EventInput, ...]) -> tuple[_EventOutput, ...]:
+        _ = input_docs
         raise RuntimeError("deliberate task failure")
 
 
@@ -90,22 +91,25 @@ class _FailingTask(PipelineTask):
 class _TaskFlow(PipelineFlow):
     """Flow that uses a PipelineTask."""
 
-    async def run(self, documents: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventMiddle, ...]:
-        return await _ToMiddleTask.run(documents)
+    async def run(self, input_docs: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventMiddle, ...]:
+        _ = options
+        return await _ToMiddleTask.run(input_docs=input_docs)
 
 
 class _SecondTaskFlow(PipelineFlow):
     """Second flow that uses a PipelineTask."""
 
-    async def run(self, documents: tuple[_EventMiddle, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
-        return await _ToOutputTask.run(documents)
+    async def run(self, middle_docs: tuple[_EventMiddle, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+        _ = options
+        return await _ToOutputTask.run(middle_docs=middle_docs)
 
 
 class _FailingTaskFlow(PipelineFlow):
     """Flow that contains a failing task."""
 
-    async def run(self, documents: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
-        return await _FailingTask.run(documents)
+    async def run(self, input_docs: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+        _ = options
+        return await _FailingTask.run(input_docs=input_docs)
 
 
 class _DirectFailingFlow(PipelineFlow):
@@ -113,23 +117,26 @@ class _DirectFailingFlow(PipelineFlow):
 
     retries = 0
 
-    async def run(self, documents: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+    async def run(self, input_docs: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+        _ = (input_docs, options)
         raise RuntimeError("deliberate flow failure")
 
 
 class _NoTaskFlow(PipelineFlow):
     """Flow that returns documents without calling PipelineTasks."""
 
-    async def run(self, documents: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
-        return (_EventOutput.derive(derived_from=documents, name="notask.md", content="done"),)
+    async def run(self, input_docs: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+        _ = options
+        return (_EventOutput.derive(derived_from=input_docs, name="notask.md", content="done"),)
 
 
 class _SlowFlow(PipelineFlow):
     """Flow that sleeps to guarantee heartbeat firing."""
 
-    async def run(self, documents: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+    async def run(self, input_docs: tuple[_EventInput, ...], options: FlowOptions) -> tuple[_EventOutput, ...]:
+        _ = options
         await asyncio.sleep(0.05)
-        return (_EventOutput.derive(derived_from=documents, name="slow.md", content="done"),)
+        return (_EventOutput.derive(derived_from=input_docs, name="slow.md", content="done"),)
 
 
 # ---------------------------------------------------------------------------

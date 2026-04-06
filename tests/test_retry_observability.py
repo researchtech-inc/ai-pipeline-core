@@ -155,11 +155,11 @@ class _FailOnceTask(PipelineTask):
     attempt_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
         cls.attempt_count += 1
         if cls.attempt_count == 1:
             raise RuntimeError("transient failure")
-        return (_RetryOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+        return (_RetryOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 class _AlwaysFailTask(PipelineTask):
@@ -167,7 +167,8 @@ class _AlwaysFailTask(PipelineTask):
     retry_delay_seconds = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        _ = input_docs
         raise RuntimeError("always fails")
 
 
@@ -175,8 +176,8 @@ class _NoRetryTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
-        return (_RetryOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        return (_RetryOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 class _NonRetriableFailTask(PipelineTask):
@@ -184,7 +185,8 @@ class _NonRetriableFailTask(PipelineTask):
     retry_delay_seconds = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        _ = input_docs
         from ai_pipeline_core._base_exceptions import NonRetriableError
 
         raise NonRetriableError("non-retriable")
@@ -193,15 +195,17 @@ class _NonRetriableFailTask(PipelineTask):
 class _FailOnceFlow(PipelineFlow):
     _attempt_count = 0
 
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = options
         _FailOnceFlow._attempt_count += 1
         if _FailOnceFlow._attempt_count == 1:
             raise RuntimeError("flow transient failure")
-        return tuple(_RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok") for i, doc in enumerate(documents))
+        return tuple(_RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok") for i, doc in enumerate(input_docs))
 
 
 class _AlwaysFailFlow(PipelineFlow):
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = (input_docs, options)
         raise RuntimeError("flow always fails")
 
 
@@ -209,23 +213,25 @@ class _NoRetryFailTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+        _ = input_docs
         raise RuntimeError("no-retry failure")
 
 
 class _NoRetryFlow(PipelineFlow):
-    async def run(self, documents: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
-        return tuple(_RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok") for i, doc in enumerate(documents))
+    async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
+        _ = options
+        return tuple(_RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok") for i, doc in enumerate(input_docs))
 
 
 class _NoRetryConvTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
         conv = Conversation(model="test-model", enable_substitutor=False)
         conv = await conv.send("hello", purpose="test")
-        return (_RetryOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content=conv.content),)
+        return (_RetryOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content=conv.content),)
 
 
 class _RetryWithConversationTask(PipelineTask):
@@ -234,13 +240,13 @@ class _RetryWithConversationTask(PipelineTask):
     attempt_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[_RetryInputDoc, ...]) -> tuple[_RetryOutputDoc, ...]:
         cls.attempt_count += 1
         conv = Conversation(model="test-model", enable_substitutor=False)
         conv = await conv.send(f"attempt-{cls.attempt_count}", purpose=f"attempt-{cls.attempt_count}")
         if cls.attempt_count == 1:
             raise RuntimeError("retry me")
-        return (_RetryOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content=conv.content),)
+        return (_RetryOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content=conv.content),)
 
 
 # ===========================================================================
@@ -908,7 +914,7 @@ class TestReplayExclusion:
 class TestFlowRetryAttemptSpans:
     @pytest.mark.asyncio
     async def test_flow_retry_success_creates_attempt_spans(self) -> None:
-        from ai_pipeline_core.deployment._deployment_runtime import _run_flow_with_retries
+        from ai_pipeline_core.deployment._deployment_runtime import _resolve_flow_arguments, _run_flow_with_retries
 
         _FailOnceFlow._attempt_count = 0
         database = _MemoryDatabase()
@@ -921,8 +927,7 @@ class TestFlowRetryAttemptSpans:
                 flow_instance=flow,
                 flow_class=_FailOnceFlow,
                 flow_name="FailOnceFlow",
-                current_docs=[_make_input()],
-                options=FlowOptions(),
+                resolved_kwargs=_resolve_flow_arguments(_FailOnceFlow, [_make_input()], FlowOptions()),
                 current_exec_ctx=ctx,
                 active_handles_before=set(),
                 step=1,
@@ -950,7 +955,7 @@ class TestFlowRetryAttemptSpans:
 
     @pytest.mark.asyncio
     async def test_flow_all_attempts_fail_records_all_errors(self) -> None:
-        from ai_pipeline_core.deployment._deployment_runtime import _run_flow_with_retries
+        from ai_pipeline_core.deployment._deployment_runtime import _resolve_flow_arguments, _run_flow_with_retries
 
         database = _MemoryDatabase()
         ctx = _make_context(database)
@@ -963,8 +968,7 @@ class TestFlowRetryAttemptSpans:
                     flow_instance=flow,
                     flow_class=_AlwaysFailFlow,
                     flow_name="AlwaysFailFlow",
-                    current_docs=[_make_input()],
-                    options=FlowOptions(),
+                    resolved_kwargs=_resolve_flow_arguments(_AlwaysFailFlow, [_make_input()], FlowOptions()),
                     current_exec_ctx=ctx,
                     active_handles_before=set(),
                     step=1,
@@ -983,7 +987,7 @@ class TestFlowRetryAttemptSpans:
     @pytest.mark.asyncio
     async def test_no_retry_flow_failure_creates_failed_attempt_span(self) -> None:
         """A retries=0 flow that fails emits a failed ATTEMPT span but no retry_errors on the FLOW span."""
-        from ai_pipeline_core.deployment._deployment_runtime import _run_flow_with_retries
+        from ai_pipeline_core.deployment._deployment_runtime import _resolve_flow_arguments, _run_flow_with_retries
 
         database = _MemoryDatabase()
         ctx = _make_context(database)
@@ -995,8 +999,7 @@ class TestFlowRetryAttemptSpans:
                     flow_instance=_AlwaysFailFlow(),
                     flow_class=_AlwaysFailFlow,
                     flow_name="AlwaysFailFlow",
-                    current_docs=[_make_input()],
-                    options=FlowOptions(),
+                    resolved_kwargs=_resolve_flow_arguments(_AlwaysFailFlow, [_make_input()], FlowOptions()),
                     current_exec_ctx=ctx,
                     active_handles_before=set(),
                     step=1,
@@ -1018,7 +1021,7 @@ class TestFlowRetryAttemptSpans:
     @pytest.mark.asyncio
     async def test_flow_single_attempt_span_even_without_retries(self) -> None:
         """Flows with retries=0 still emit one ATTEMPT span for uniform tree structure."""
-        from ai_pipeline_core.deployment._deployment_runtime import _run_flow_with_retries
+        from ai_pipeline_core.deployment._deployment_runtime import _resolve_flow_arguments, _run_flow_with_retries
 
         database = _MemoryDatabase()
         ctx = _make_context(database)
@@ -1029,8 +1032,7 @@ class TestFlowRetryAttemptSpans:
                 flow_instance=_NoRetryFlow(),
                 flow_class=_NoRetryFlow,
                 flow_name="NoRetryFlow",
-                current_docs=[_make_input()],
-                options=FlowOptions(),
+                resolved_kwargs=_resolve_flow_arguments(_NoRetryFlow, [_make_input()], FlowOptions()),
                 current_exec_ctx=ctx,
                 active_handles_before=set(),
                 step=1,
@@ -1049,7 +1051,7 @@ class TestFlowRetryAttemptSpans:
     @pytest.mark.asyncio
     async def test_failed_flow_attempt_span_has_error_json(self) -> None:
         """Failed flow ATTEMPT spans must carry error_json with the exception details."""
-        from ai_pipeline_core.deployment._deployment_runtime import _run_flow_with_retries
+        from ai_pipeline_core.deployment._deployment_runtime import _resolve_flow_arguments, _run_flow_with_retries
 
         database = _MemoryDatabase()
         ctx = _make_context(database)
@@ -1062,8 +1064,7 @@ class TestFlowRetryAttemptSpans:
                     flow_instance=flow,
                     flow_class=_AlwaysFailFlow,
                     flow_name="AlwaysFailFlow",
-                    current_docs=[_make_input()],
-                    options=FlowOptions(),
+                    resolved_kwargs=_resolve_flow_arguments(_AlwaysFailFlow, [_make_input()], FlowOptions()),
                     current_exec_ctx=ctx,
                     active_handles_before=set(),
                     step=1,

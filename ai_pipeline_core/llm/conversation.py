@@ -28,7 +28,7 @@ from ai_pipeline_core._token_estimates import (
 )
 from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.documents import Document
-from ai_pipeline_core.pipeline._execution_context import get_execution_context, get_sinks
+from ai_pipeline_core.pipeline._execution_context import get_execution_context, get_sinks, get_task_context
 from ai_pipeline_core.pipeline._track_span import track_span
 from ai_pipeline_core.prompt_compiler.render import _RESULT_CLOSE, _extract_result, _render_multi_line_messages, render_text
 from ai_pipeline_core.prompt_compiler.spec import PromptSpec
@@ -562,6 +562,13 @@ class Conversation(BaseModel, Generic[T]):
         ``response_format`` accepts ``type[BaseModel]``, ``list[type[BaseModel]]``, or ``None``.
         For list types, wraps in a single-field object model before the LLM call and unwraps after.
         """
+        task_ctx = get_task_context()
+        if task_ctx is not None and task_ctx.scope_kind == "flow":
+            raise RuntimeError(
+                "Conversation.send()/send_structured()/send_spec() called from flow scope without a task. "
+                "LLM calls must happen inside a PipelineTask, not directly in PipelineFlow.run(). "
+                "Create a task for the LLM interaction and call it from the flow."
+            )
         if tool_choice is not None and not tools:
             raise ValueError(f"tool_choice='{tool_choice}' requires tools= to be provided. Pass a list of Tool instances with tools=[...].")
 

@@ -2,10 +2,12 @@
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
+import ai_pipeline_core.prompt_compiler.cli as prompt_cli
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.prompt_compiler.cli import (
     _SKIP_DIRS,
@@ -577,6 +579,30 @@ def test_main_compile_removes_stale_files(tmp_path: Path, capsys: pytest.Capture
     ret = main(["compile", "--root", str(tmp_path)])
     assert ret == 0
     assert not stale_file.exists()
+
+
+def test_main_compile_tolerates_concurrent_output_dir_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compile tolerates another process deleting .prompts/ during cleanup."""
+    prompts_dir = tmp_path / ".prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "stale.md").write_text("stale", encoding="utf-8")
+
+    real_rmtree = prompt_cli.shutil.rmtree
+
+    def disappearing_rmtree(path: Path, *args: Any, **kwargs: Any) -> None:
+        real_rmtree(path, *args, **kwargs)
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(prompt_cli.shutil, "rmtree", disappearing_rmtree)
+
+    ret = main(["compile", "--root", str(tmp_path)])
+
+    assert ret == 0
+    assert prompts_dir.is_dir()
+    assert not (prompts_dir / "stale.md").exists()
 
 
 def test_main_compile_idempotent(capsys: pytest.CaptureFixture[str]) -> None:

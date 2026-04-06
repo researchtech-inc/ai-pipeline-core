@@ -25,27 +25,50 @@ class _DocDerived(_DocA):
 
 
 class _FlowAtoB(PipelineFlow):
-    async def run(self, documents: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocB, ...]:
+    async def run(self, doc_as: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocB, ...]:
+        _ = (doc_as, options)
         return ()
 
 
 class _FlowBtoC(PipelineFlow):
-    async def run(self, documents: tuple[_DocB, ...], options: FlowOptions) -> tuple[_DocC, ...]:
+    async def run(self, doc_bs: tuple[_DocB, ...], options: FlowOptions) -> tuple[_DocC, ...]:
+        _ = (doc_bs, options)
         return ()
 
 
 class _FlowCtoA(PipelineFlow):
-    async def run(self, documents: tuple[_DocC, ...], options: FlowOptions) -> tuple[_DocA, ...]:
+    async def run(self, doc_c: _DocC, options: FlowOptions) -> tuple[_DocA, ...]:
+        _ = (doc_c, options)
         return ()
 
 
 class _FlowDerivedOutput(PipelineFlow):
-    async def run(self, documents: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocDerived, ...]:
+    async def run(self, doc_as: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocDerived, ...]:
+        _ = (doc_as, options)
         return ()
 
 
 class _FlowBaseInput(PipelineFlow):
-    async def run(self, documents: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocC, ...]:
+    async def run(self, doc_a: _DocA, options: FlowOptions) -> tuple[_DocC, ...]:
+        _ = (doc_a, options)
+        return ()
+
+
+class _RequiredFirstFlowAtoB(PipelineFlow):
+    async def run(self, doc_a: _DocA, options: FlowOptions) -> tuple[_DocB, ...]:
+        _ = (doc_a, options)
+        return ()
+
+
+class _FirstFlowOptionalInput(PipelineFlow):
+    async def run(self, maybe_c: _DocC | None, options: FlowOptions) -> tuple[_DocB, ...]:
+        _ = (maybe_c, options)
+        return ()
+
+
+class _FirstFlowCollectionInput(PipelineFlow):
+    async def run(self, all_cs: tuple[_DocC, ...], options: FlowOptions) -> tuple[_DocB, ...]:
+        _ = (all_cs, options)
         return ()
 
 
@@ -68,10 +91,9 @@ def test_type_pool_accumulates_across_flows() -> None:
     _validate_flow_chain("test", [_FlowAtoB(), _FlowBtoC(), _FlowCtoA()])
 
 
-def test_first_flow_inputs_added_to_pool() -> None:
-    # FlowAtoB adds DocA (its input) to pool, then outputs DocB
-    # FlowBaseInput needs DocA → DocA is in pool from first flow's input
-    _validate_flow_chain("test", [_FlowAtoB(), _FlowBaseInput()])
+def test_first_flow_required_singleton_inputs_added_to_pool() -> None:
+    # Required singleton inputs on the first flow are guaranteed deployment inputs.
+    _validate_flow_chain("test", [_RequiredFirstFlowAtoB(), _FlowBaseInput()])
 
 
 def test_subclass_output_satisfies_parent_input() -> None:
@@ -89,3 +111,13 @@ def test_error_message_includes_available_types() -> None:
         _validate_flow_chain("test-deploy", [_FlowAtoB(), _FlowCtoA()])
     assert "test-deploy" in str(exc_info.value)
     assert "_DocC" in str(exc_info.value)
+
+
+def test_first_flow_optional_input_does_not_satisfy_later_required_singleton() -> None:
+    with pytest.raises(TypeError, match="requires input types"):
+        _validate_flow_chain("test", [_FirstFlowOptionalInput(), _FlowCtoA()])
+
+
+def test_first_flow_collection_input_does_not_satisfy_later_required_singleton() -> None:
+    with pytest.raises(TypeError, match="requires input types"):
+        _validate_flow_chain("test", [_FirstFlowCollectionInput(), _FlowCtoA()])

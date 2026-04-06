@@ -6,7 +6,10 @@ __all__ = [
     "contains_bare_document",
     "flatten_union",
     "is_already_traced",
+    "is_optional_annotation",
     "resolve_type_hints",
+    "unwrap_optional",
+    "validate_flow_input_param",
     "validate_task_argument_value",
     "validate_task_input_annotation",
     "validate_task_return_annotation",
@@ -86,6 +89,22 @@ def flatten_union(tp: Any) -> list[Any]:
     for arg in get_args(unwrapped):
         flattened.extend(flatten_union(arg))
     return flattened
+
+
+def unwrap_optional(annotation: Any) -> Any:
+    """Unwrap ``Optional[X]`` / ``X | None`` to ``X``."""
+    if _is_union_annotation(annotation):
+        non_none_members = [member for member in flatten_union(annotation) if not _is_none_type(member)]
+        if len(non_none_members) == 1:
+            return non_none_members[0]
+    return annotation
+
+
+def is_optional_annotation(annotation: Any) -> bool:
+    """Check whether an annotation is ``Optional[X]`` / ``X | None``."""
+    if not _is_union_annotation(annotation):
+        return False
+    return any(_is_none_type(member) for member in flatten_union(annotation))
 
 
 def contains_bare_document(tp: Any) -> bool:
@@ -251,6 +270,10 @@ def _input_dict_annotation_error(annotation: Any) -> str | None:
 
 
 def _unsupported_input_annotation_error(annotation: Any) -> str:
+    if annotation is list:
+        return "uses bare 'list' without a type parameter. Use list[str], list[int], or tuple[DocumentSubclass, ...] instead."
+    if annotation is dict:
+        return "uses bare 'dict' without a type parameter. Use dict[str, ValueType] instead."
     return (
         f"uses unsupported input annotation {annotation!r}. Use scalars, Enums, Conversation, specific Document subclasses, "
         "frozen BaseModel subclasses, or list/tuple/dict[str, ...] containers of those types."
@@ -283,6 +306,60 @@ def validate_task_input_annotation(annotation: Any, *, task_name: str, parameter
     if error := _task_input_annotation_error(annotation):
         raise TypeError(f"PipelineTask '{task_name}'.run parameter '{parameter_name}' {error}")
     return collect_document_types(annotation)
+
+
+def validate_flow_input_param(
+    annotation: Any,
+    *,
+    flow_name: str,
+    parameter_name: str,
+) -> list[type[Document]]:
+    """Validate a single ``PipelineFlow.run()`` input parameter annotation."""
+    unwrapped = _unwrap_annotated(annotation)
+    if contains_bare_document(unwrapped):
+        raise TypeError(f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses bare 'Document'. Use a specific Document subclass.")
+    if unwrapped is Any:
+        raise TypeError(f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses 'Any'. Use a specific Document subclass or FlowOptions subclass.")
+    optional_member = unwrap_optional(unwrapped)
+    if optional_member is not unwrapped:
+        if _is_document_subclass(optional_member):
+            return [optional_member]
+        raise TypeError(
+            f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' "
+            f"has annotation {annotation!r}. Optional flow inputs must use "
+            "Optional[DocumentSubclass] / DocumentSubclass | None."
+        )
+    if _is_document_subclass(unwrapped):
+        return [unwrapped]
+
+    if get_origin(unwrapped) is tuple:
+        args = get_args(unwrapped)
+        if len(args) != 2 or args[1] is not Ellipsis:
+            raise TypeError(
+                f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' "
+                f"has annotation {annotation!r}. Flow document collections must use "
+                "tuple[DocumentSubclass, ...] or tuple[DocA | DocB, ...]."
+            )
+        member_annotation = _unwrap_annotated(args[0])
+        if contains_bare_document(member_annotation):
+            raise TypeError(
+                f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses bare 'Document' in a tuple collection. Use specific Document subclasses."
+            )
+        member_types = collect_document_types(member_annotation)
+        if not member_types or any(not _is_document_subclass(branch) for branch in flatten_union(member_annotation)):
+            raise TypeError(
+                f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' "
+                f"has annotation {annotation!r}. Flow document collections must contain only "
+                "specific Document subclasses."
+            )
+        return member_types
+
+    raise TypeError(
+        f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' "
+        f"has annotation {annotation!r} which is not a supported flow input shape. "
+        "Use DocumentSubclass, Optional[DocumentSubclass], tuple[DocumentSubclass, ...], "
+        "tuple[DocA | DocB, ...], or a FlowOptions subclass."
+    )
 
 
 def _document_collection_error(annotation: Any) -> str | None:
@@ -324,10 +401,7 @@ def _task_return_annotation_error(annotation: Any) -> str | None:
     if _is_none_type(unwrapped):
         return None
     if _is_document_subclass(unwrapped):
-        return (
-            f"must not use bare '{unwrapped.__name__}' as return type — the framework normalizes all returns to "
-            f"tuple[Document, ...]. Use 'tuple[{unwrapped.__name__}, ...]' to match the actual runtime return type."
-        )
+        return None
     if _is_union_annotation(unwrapped):
         return _union_annotation_error(unwrapped, _task_return_annotation_error)
 
@@ -335,7 +409,7 @@ def _task_return_annotation_error(annotation: Any) -> str | None:
     handler = {list: _return_list_annotation_error, tuple: _return_tuple_annotation_error}.get(origin)
     if handler is not None:
         return handler(unwrapped)
-    return "must return None, list[Document], tuple[Document, ...], or unions of those shapes."
+    return "must return a specific Document subclass, None, list[DocumentSubclass], tuple[DocumentSubclass, ...], or unions of those shapes."
 
 
 def validate_task_return_annotation(annotation: Any, *, task_name: str) -> list[type[Document]]:
@@ -344,7 +418,10 @@ def validate_task_return_annotation(annotation: Any, *, task_name: str) -> list[
         raise TypeError(f"PipelineTask '{task_name}'.run {error}")
     output_types = collect_document_types(annotation)
     if not output_types and _unwrap_annotated(annotation) is not type(None):
-        raise TypeError(f"PipelineTask '{task_name}'.run must return None, list[Document], tuple[Document, ...], or unions of those shapes.")
+        raise TypeError(
+            f"PipelineTask '{task_name}'.run must return a specific Document subclass, None, "
+            "list[DocumentSubclass], tuple[DocumentSubclass, ...], or unions of those shapes."
+        )
     return output_types
 
 

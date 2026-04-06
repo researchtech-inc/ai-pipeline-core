@@ -224,7 +224,7 @@ The `check` command runs three validations:
 | Target | Warn | Error |
 |--------|------|-------|
 | Module guides | 40KB | — (warning only) |
-| README.md | 40KB | 45KB |
+| README.md | 40KB | 47KB |
 
 If a guide is too large:
 - Move private helpers to `_`-prefixed functions

@@ -279,6 +279,14 @@ def _cmd_render(args: argparse.Namespace) -> int:
 _PROMPTS_DIR = ".prompts"
 
 
+def _remove_tree_if_present(path: Path) -> None:
+    """Remove a directory tree, tolerating concurrent deletion by another process."""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        return
+
+
 def _cmd_compile(args: argparse.Namespace) -> int:
     """Discover, list, and compile all specs to .prompts/ directory as markdown files."""
     _ensure_importable(args.root)
@@ -287,8 +295,8 @@ def _cmd_compile(args: argparse.Namespace) -> int:
     # Clean output directory before writing (removes stale files even when no specs found)
     out_dir = args.root / _PROMPTS_DIR
     if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir()
+        _remove_tree_if_present(out_dir)
+    out_dir.mkdir(exist_ok=True)
 
     if not specs:
         print("No PromptSpec subclasses found.")

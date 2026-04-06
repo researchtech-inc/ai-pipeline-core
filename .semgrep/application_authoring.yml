@@ -1,0 +1,71 @@
+rules:
+  - id: no-application-hard-coded-slicing-in-flow-task
+    patterns:
+      - pattern: $SEQ[:$N]
+      - metavariable-regex:
+          metavariable: $N
+          regex: "^[0-9]+$"
+    message: >
+      Hard-coded slice [:N] inside application flow/task code silently discards
+      artifacts. Use an explicit helper with a named constant and document why
+      dropping data is correct.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "ai_pipeline_core/**"
+        - "tests/**"
+
+  - id: no-application-nested-loops-in-flow-run
+    patterns:
+      - pattern-inside: |
+          async def run(self, ...):
+              ...
+      - pattern-either:
+          - pattern: |
+              for $A in $A_ITEMS:
+                  ...
+                  for $B in $B_ITEMS:
+                      ...
+          - pattern: |
+              for $A in $A_ITEMS:
+                  ...
+                  for $B in $B_ITEMS:
+                      ...
+                      for $C in $C_ITEMS:
+                          ...
+    message: >
+      Nested loops inside PipelineFlow.run() usually hide N^2/N^3 orchestration.
+      Pre-index data, move heavy work into tasks, or document a small fixed bound.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "ai_pipeline_core/**"
+        - "tests/**"
+
+  - id: no-application-dict-unpacking-task-run
+    patterns:
+      - pattern-either:
+          - pattern: $TASK.run(**$KWARGS)
+          - pattern: await $TASK.run(**$KWARGS)
+      - metavariable-regex:
+          metavariable: $TASK
+          regex: ".*Task$"
+      - pattern-either:
+          - pattern-inside: |
+              async def run(self, ...):
+                  ...
+          - pattern-inside: |
+              @classmethod
+              async def run(cls, ...):
+                  ...
+    message: >
+      Do not unpack dicts into task calls. Pass named arguments explicitly so the
+      type checker can verify the flow/task contract.
+    severity: ERROR
+    languages: [python]
+    paths:
+      exclude:
+        - "ai_pipeline_core/**"
+        - "tests/**"

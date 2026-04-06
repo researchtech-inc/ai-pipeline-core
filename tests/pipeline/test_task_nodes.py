@@ -44,38 +44,39 @@ class _SimpleTask(PipelineTask):
     expected_cost = 0.25
 
     @classmethod
-    async def run(cls, documents: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
-        return (_NodeOutDoc.derive(derived_from=tuple(documents), name="out.txt", content="output"),)
+    async def run(cls, input_docs: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+        return (_NodeOutDoc.derive(derived_from=input_docs, name="out.txt", content="output"),)
 
 
 class _FailingTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+    async def run(cls, input_docs: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+        _ = input_docs
         raise ValueError("deliberate task failure")
 
 
 class _NestedChildTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
-        return (_NodeOutDoc.derive(derived_from=tuple(documents), name="child.txt", content="child"),)
+    async def run(cls, input_docs: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+        return (_NodeOutDoc.derive(derived_from=input_docs, name="child.txt", content="child"),)
 
 
 class _NestedParentTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
-        return await _NestedChildTask.run(documents)
+    async def run(cls, input_docs: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+        return await _NestedChildTask.run(input_docs=input_docs)
 
 
 class _SummaryTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+    async def run(cls, input_docs: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
         return (
             _NodeOutDoc.derive(
                 name="summary.txt",
                 content="output",
-                derived_from=(documents[0],),
+                derived_from=(input_docs[0],),
                 summary="Persist this summary",
             ),
         )
@@ -144,7 +145,7 @@ async def test_successful_task_creates_completed_task_span_with_description_and_
     assert task_span.parent_span_id == ctx.flow_span_id
     assert task_span.input_document_shas == (input_doc.sha256,)
     assert task_span.output_document_shas == (result[0].sha256,)
-    assert "documents=[input.txt]" in task_span.description
+    assert "input_docs=[input.txt]" in task_span.description
 
     receiver_payload = json.loads(task_span.receiver_json)
     meta_payload = json.loads(task_span.meta_json)
@@ -152,7 +153,7 @@ async def test_successful_task_creates_completed_task_span_with_description_and_
     assert task_span.target == f"classmethod:{_SimpleTask.__module__}:{_SimpleTask.__qualname__}.run"
     assert receiver_payload["value"]["task_class"]["path"] == f"{_SimpleTask.__module__}:{_SimpleTask.__qualname__}"
     assert meta_payload["attempt"] == 0
-    assert input_payload["documents"]["items"][0]["sha256"] == input_doc.sha256
+    assert input_payload["input_docs"]["items"][0]["sha256"] == input_doc.sha256
 
 
 @pytest.mark.asyncio
@@ -207,20 +208,17 @@ async def test_failed_task_creates_failed_task_span_with_full_error_message() ->
 
 
 @pytest.mark.asyncio
-async def test_nested_tasks_form_parent_child_task_span_hierarchy() -> None:
+async def test_nested_task_call_is_rejected_before_child_task_span() -> None:
     database = _RecordingSpanDatabase()
     with set_execution_context(_make_context_with_db(database)):
-        await _NestedParentTask.run((_make_input(),))
+        with pytest.raises(RuntimeError, match="cannot be called from inside another task"):
+            await _NestedParentTask.run((_make_input(),))
 
     task_spans = sorted(
         (span for span in database._spans.values() if span.kind == SpanKind.TASK),
         key=lambda span: span.sequence_no,
     )
-    assert len(task_spans) == 2
-    parent_span, child_span = task_spans
-    # Child task parents to the ATTEMPT span wrapping the parent task's execution
-    attempt_span = next(span for span in database._spans.values() if span.kind == SpanKind.ATTEMPT and span.parent_span_id == parent_span.span_id)
-    assert child_span.parent_span_id == attempt_span.span_id
+    assert len(task_spans) == 1
 
 
 @pytest.mark.asyncio
@@ -262,8 +260,8 @@ class _ConfiguredTask(PipelineTask):
     retry_delay_seconds = 5
 
     @classmethod
-    async def run(cls, documents: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
-        return (_NodeOutDoc.derive(derived_from=documents, name="configured.txt", content="ok"),)
+    async def run(cls, input_docs: tuple[_NodeInDoc, ...]) -> tuple[_NodeOutDoc, ...]:
+        return (_NodeOutDoc.derive(derived_from=input_docs, name="configured.txt", content="ok"),)
 
 
 @pytest.mark.asyncio

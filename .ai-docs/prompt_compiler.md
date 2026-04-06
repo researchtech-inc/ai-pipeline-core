@@ -2,7 +2,7 @@
 # CLASSES: Role, Rule, OutputRule, Guide, PromptSpec
 # DEPENDS: BaseModel, Role
 # PURPOSE: Prompt compiler for type-safe, validated prompt specifications.
-# VERSION: 0.20.0
+# VERSION: 0.21.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -347,7 +347,7 @@ def ListField(*, description: str, **kwargs: Any) -> Any:
 
 ## Examples
 
-**Main render** (`tests/prompt_compiler/test_cli.py:315`)
+**Main render** (`tests/prompt_compiler/test_cli.py:317`)
 
 ```python
 def test_main_render(capsys: pytest.CaptureFixture[str]) -> None:
@@ -358,7 +358,7 @@ def test_main_render(capsys: pytest.CaptureFixture[str]) -> None:
     assert "# Task" in out
 ```
 
-**Main compile finds specs** (`tests/prompt_compiler/test_cli.py:343`)
+**Main compile finds specs** (`tests/prompt_compiler/test_cli.py:345`)
 
 ```python
 def test_main_compile_finds_specs(capsys: pytest.CaptureFixture[str]) -> None:
@@ -369,7 +369,7 @@ def test_main_compile_finds_specs(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Name" in out  # table header
 ```
 
-**Main inspect minimal spec** (`tests/prompt_compiler/test_cli.py:363`)
+**Main inspect minimal spec** (`tests/prompt_compiler/test_cli.py:365`)
 
 ```python
 class CliRole(Role):
@@ -535,7 +535,7 @@ def test_mixed_field_types_coexist() -> None:
     assert field_names == ["feedback", "finding", "findings"]
 ```
 
-**Main compile empty dir** (`tests/prompt_compiler/test_cli.py:351`)
+**Main compile empty dir** (`tests/prompt_compiler/test_cli.py:353`)
 
 ```python
 def test_main_compile_empty_dir(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -544,7 +544,7 @@ def test_main_compile_empty_dir(tmp_path: Path, capsys: pytest.CaptureFixture[st
     capsys.readouterr()  # Consume output; we only verify it doesn't crash
 ```
 
-**Main inspect basemodel output** (`tests/prompt_compiler/test_cli.py:425`)
+**Main inspect basemodel output** (`tests/prompt_compiler/test_cli.py:427`)
 
 ```python
 def test_main_inspect_basemodel_output(capsys: pytest.CaptureFixture[str]) -> None:

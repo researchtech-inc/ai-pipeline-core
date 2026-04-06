@@ -33,50 +33,55 @@ class WireOutputDoc(Document):
 
 class WireToMiddleTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[WireInputDoc, ...]) -> tuple[WireMiddleDoc, ...]:
-        return (WireMiddleDoc.derive(derived_from=(documents[0],), name="middle.txt", content="m"),)
+    async def run(cls, input_docs: tuple[WireInputDoc, ...]) -> tuple[WireMiddleDoc, ...]:
+        return (WireMiddleDoc.derive(derived_from=(input_docs[0],), name="middle.txt", content="m"),)
 
 
 class WireToOutputTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[WireMiddleDoc, ...]) -> tuple[WireOutputDoc, ...]:
-        return (WireOutputDoc.derive(derived_from=(documents[0],), name="output.txt", content="o"),)
+    async def run(cls, middle_docs: tuple[WireMiddleDoc, ...]) -> tuple[WireOutputDoc, ...]:
+        return (WireOutputDoc.derive(derived_from=(middle_docs[0],), name="output.txt", content="o"),)
 
 
 class WireFailingTask(PipelineTask):
     retries = 0
 
     @classmethod
-    async def run(cls, documents: tuple[WireMiddleDoc, ...]) -> tuple[WireOutputDoc, ...]:
+    async def run(cls, middle_docs: tuple[WireMiddleDoc, ...]) -> tuple[WireOutputDoc, ...]:
+        _ = middle_docs
         raise RuntimeError("deliberate test failure")
 
 
 class WireConversationTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[WireInputDoc, ...]) -> tuple[WireOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[WireInputDoc, ...]) -> tuple[WireOutputDoc, ...]:
         conv = Conversation(model="test-model", enable_substitutor=False)
         conv = await conv.send("hello", purpose="wire-llm")
-        return (WireOutputDoc.derive(derived_from=(documents[0],), name="output.txt", content=conv.content),)
+        return (WireOutputDoc.derive(derived_from=(input_docs[0],), name="output.txt", content=conv.content),)
 
 
 class WireFlowOne(PipelineFlow):
-    async def run(self, documents: tuple[WireInputDoc, ...], options: FlowOptions) -> tuple[WireMiddleDoc, ...]:
-        return await WireToMiddleTask.run(documents)
+    async def run(self, input_docs: tuple[WireInputDoc, ...], options: FlowOptions) -> tuple[WireMiddleDoc, ...]:
+        _ = options
+        return await WireToMiddleTask.run(input_docs=input_docs)
 
 
 class WireFlowTwo(PipelineFlow):
-    async def run(self, documents: tuple[WireMiddleDoc, ...], options: FlowOptions) -> tuple[WireOutputDoc, ...]:
-        return await WireToOutputTask.run(documents)
+    async def run(self, middle_docs: tuple[WireMiddleDoc, ...], options: FlowOptions) -> tuple[WireOutputDoc, ...]:
+        _ = options
+        return await WireToOutputTask.run(middle_docs=middle_docs)
 
 
 class WireFailingFlowTwo(PipelineFlow):
-    async def run(self, documents: tuple[WireMiddleDoc, ...], options: FlowOptions) -> tuple[WireOutputDoc, ...]:
-        return await WireFailingTask.run(documents)
+    async def run(self, middle_docs: tuple[WireMiddleDoc, ...], options: FlowOptions) -> tuple[WireOutputDoc, ...]:
+        _ = options
+        return await WireFailingTask.run(middle_docs=middle_docs)
 
 
 class WireConversationFlow(PipelineFlow):
-    async def run(self, documents: tuple[WireInputDoc, ...], options: FlowOptions) -> tuple[WireOutputDoc, ...]:
-        return await WireConversationTask.run(documents)
+    async def run(self, input_docs: tuple[WireInputDoc, ...], options: FlowOptions) -> tuple[WireOutputDoc, ...]:
+        _ = options
+        return await WireConversationTask.run(input_docs=input_docs)
 
 
 class WireResult(DeploymentResult):

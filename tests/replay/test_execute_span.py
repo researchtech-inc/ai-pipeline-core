@@ -40,8 +40,8 @@ class ExecuteInstanceMethod:
     def __init__(self, prefix: str) -> None:
         self.prefix = prefix
 
-    async def run(self, documents: tuple[ReplayTextDocument, ...], options: ReplayFlowOptions) -> str:
-        return f"{self.prefix}:{documents[0].name}:{options.replay_label}"
+    async def run(self, replay_docs: tuple[ReplayTextDocument, ...], options: ReplayFlowOptions) -> str:
+        return f"{self.prefix}:{replay_docs[0].name}:{options.replay_label}"
 
 
 class ExecuteCacheableTask(PipelineTask):
@@ -88,7 +88,7 @@ async def test_execute_span_replays_all_adapter_kinds(
         target=f"instance_method:{__name__}:ExecuteInstanceMethod.run",
         receiver_mode="constructor_args",
         receiver_value={"prefix": "instance"},
-        input_value={"documents": (sample_text_doc,), "options": ReplayFlowOptions(replay_label="deep")},
+        input_value={"replay_docs": (sample_text_doc,), "options": ReplayFlowOptions(replay_label="deep")},
     )
     decoded_span = make_span(
         kind="conversation",

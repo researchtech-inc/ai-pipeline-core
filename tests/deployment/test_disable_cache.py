@@ -24,8 +24,9 @@ class _CacheOutputDoc(Document):
 class _CacheTestFlow(PipelineFlow):
     """Flow for cache testing."""
 
-    async def run(self, documents: tuple[_CacheInputDoc, ...], options: FlowOptions) -> tuple[_CacheOutputDoc, ...]:
-        return (_CacheOutputDoc.derive(derived_from=documents, name="out.txt", content="cached"),)
+    async def run(self, input_docs: tuple[_CacheInputDoc, ...], options: FlowOptions) -> tuple[_CacheOutputDoc, ...]:
+        _ = options
+        return (_CacheOutputDoc.derive(derived_from=input_docs, name="out.txt", content="cached"),)
 
 
 class TestDisableCacheReuse:

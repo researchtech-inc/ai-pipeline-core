@@ -73,8 +73,8 @@ class _CancelOnFirstAttempt(PipelineTask):
     attempt_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
-        _ = documents
+    async def run(cls, input_docs: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
+        _ = input_docs
         cls.attempt_count += 1
         raise asyncio.CancelledError("externally cancelled")
 
@@ -86,17 +86,17 @@ class _TimeoutWithRetry(PipelineTask):
     attempt_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
         cls.attempt_count += 1
         if cls.attempt_count == 1:
             await asyncio.sleep(10)
-        return (EdgeOutputDoc.derive(derived_from=(documents[0],), name="out.txt", content="ok"),)
+        return (EdgeOutputDoc.derive(derived_from=(input_docs[0],), name="out.txt", content="ok"),)
 
 
 class _InstantTask(PipelineTask):
     @classmethod
-    async def run(cls, documents: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
-        return (EdgeOutputDoc.derive(derived_from=(documents[0],), name="instant.txt", content="done"),)
+    async def run(cls, input_docs: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
+        return (EdgeOutputDoc.derive(derived_from=(input_docs[0],), name="instant.txt", content="done"),)
 
 
 class _RetryWithConversationTask(PipelineTask):
@@ -105,13 +105,13 @@ class _RetryWithConversationTask(PipelineTask):
     attempt_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
         cls.attempt_count += 1
         conv = Conversation(model="test-model", enable_substitutor=False)
         conv = await conv.send(f"attempt-{cls.attempt_count}", purpose=f"attempt-{cls.attempt_count}")
         if cls.attempt_count == 1:
             raise RuntimeError("retry me")
-        return (EdgeOutputDoc.derive(derived_from=(documents[0],), name="retried.txt", content=conv.content),)
+        return (EdgeOutputDoc.derive(derived_from=(input_docs[0],), name="retried.txt", content=conv.content),)
 
 
 def _make_input() -> EdgeInputDoc:
@@ -217,9 +217,9 @@ class _RetryLeakTask(PipelineTask):
     attempt_count = 0
 
     @classmethod
-    async def run(cls, documents: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
+    async def run(cls, input_docs: tuple[EdgeInputDoc, ...]) -> tuple[EdgeOutputDoc, ...]:
         cls.attempt_count += 1
-        result = EdgeOutputDoc.derive(derived_from=documents, name=f"attempt-{cls.attempt_count}.txt", content="ok")
+        result = EdgeOutputDoc.derive(derived_from=input_docs, name=f"attempt-{cls.attempt_count}.txt", content="ok")
         if cls.attempt_count == 1:
             raise RuntimeError("retry once")
         return (result,)

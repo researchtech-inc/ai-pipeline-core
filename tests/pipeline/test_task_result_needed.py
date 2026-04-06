@@ -29,8 +29,8 @@ class TestTaskReturnConstraint:
 
             class BadReturnTask(PipelineTask):
                 @classmethod
-                async def run(cls, documents: tuple[TRInputDoc, ...]) -> dict:  # type: ignore[override]
-                    _ = cls
+                async def run(cls, input_docs: tuple[TRInputDoc, ...]) -> dict:  # type: ignore[override]
+                    _ = (cls, input_docs)
                     return {"metadata": "value"}
 
     def test_task_returning_basemodel_rejected(self) -> None:
@@ -44,8 +44,8 @@ class TestTaskReturnConstraint:
 
             class MetaReturnTask(PipelineTask):
                 @classmethod
-                async def run(cls, documents: tuple[TRInputDoc, ...]) -> TaskMeta:  # type: ignore[override]
-                    _ = cls
+                async def run(cls, input_docs: tuple[TRInputDoc, ...]) -> TaskMeta:  # type: ignore[override]
+                    _ = (cls, input_docs)
                     return TaskMeta(cost=0.5)
 
 
