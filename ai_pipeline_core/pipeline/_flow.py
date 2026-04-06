@@ -430,13 +430,6 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
         output_types = collect_document_types(return_annotation)
         if not output_types:
             raise TypeError(f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. Got: {return_annotation!r}.")
-        overlap = set(input_types) & set(output_types)
-        if overlap:
-            raise TypeError(
-                f"PipelineFlow '{cls.__name__}' has overlapping input/output document types "
-                f"({', '.join(sorted(t.__name__ for t in overlap))}). "
-                "A flow must not both consume and produce the same document type."
-            )
         return input_types, output_types
 
     @classmethod

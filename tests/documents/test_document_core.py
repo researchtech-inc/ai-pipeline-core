@@ -162,10 +162,6 @@ class _VisibleTestDoc(Document):
     publicly_visible = True
 
 
-class _DerivedTestDoc(ConcreteTestDocument):
-    """Document subclass used to test visibility inheritance."""
-
-
 class TestPubliclyVisibleClassVar:
     def test_default_is_false(self):
         assert ConcreteTestDocument.publicly_visible is False
@@ -175,12 +171,16 @@ class TestPubliclyVisibleClassVar:
         # Base class unaffected
         assert ConcreteTestDocument.publicly_visible is False
 
-    def test_inherited_default(self):
-        assert _DerivedTestDoc.publicly_visible is False
-
     def test_not_a_model_field(self):
         """publicly_visible is a ClassVar, not a Pydantic field."""
         assert "publicly_visible" not in ConcreteTestDocument.model_fields
+
+    def test_rejects_document_subclass_inheritance(self):
+        """Document subclasses cannot be further subclassed."""
+        with pytest.raises(TypeError, match="only one level of inheritance"):
+
+            class _DerivedTestDoc(ConcreteTestDocument):
+                """Should be rejected."""
 
 
 class TestDocumentProperties:

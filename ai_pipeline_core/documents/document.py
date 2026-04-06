@@ -331,6 +331,21 @@ class Document[TContent: BaseModel = Any](BaseModel):
         # Extract content type from generic parameter.
         _extract_content_type(cls)
 
+        # Single-level inheritance: Document subclasses cannot be further subclassed.
+        # This prevents AI agents from creating bypass hierarchies like PreviousLoopDocument(LoopDocument)
+        # to circumvent return discipline checks. Every document type must inherit directly from Document.
+        concrete_doc_parents = [
+            base for base in cls.__bases__ if base is not Document and isinstance(base, type) and issubclass(base, Document) and "[" not in base.__name__
+        ]
+        if concrete_doc_parents:
+            parent_name = concrete_doc_parents[0].__name__
+            raise TypeError(
+                f"Document subclass '{cls.__name__}' inherits from '{parent_name}', which is already a Document subclass. "
+                f"Document allows only one level of inheritance. "
+                f"Define '{cls.__name__}' as a direct Document subclass instead: "
+                f"class {cls.__name__}(Document): ... or class {cls.__name__}(Document[MyModel]): ..."
+            )
+
         if cls.__name__.startswith("Test"):
             raise TypeError(
                 f"Document subclass '{cls.__name__}' cannot start with 'Test' prefix. "

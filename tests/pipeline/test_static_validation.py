@@ -737,14 +737,16 @@ class TestFlowAnnotationValidation:
                     _ = (label, options)
                     return ()
 
-    def test_rejects_overlapping_input_output_types(self):
-        """Flow that consumes and produces the same Document type is rejected."""
-        with pytest.raises(TypeError, match="overlapping input/output"):
+    def test_accepts_overlapping_input_output_types(self):
+        """Flow that consumes and produces the same Document type is valid — needed for loops."""
 
-            class BadFlow(PipelineFlow):
-                async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[AlphaDocument, ...]:
-                    _ = (input_docs, options)
-                    return ()
+        class LoopFlow(PipelineFlow):
+            async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[AlphaDocument, ...]:
+                _ = (input_docs, options)
+                return ()
+
+        assert AlphaDocument in LoopFlow.input_document_types
+        assert AlphaDocument in LoopFlow.output_document_types
 
     def test_rejects_missing_task_annotation(self):
         """Task with no return annotation is rejected."""

@@ -23,10 +23,6 @@ class TypedSelfDoc(Document[SelfReturnModel]):
     """Typed document for Self return testing."""
 
 
-class GrandchildSelfDoc(TypedSelfDoc):
-    """Grandchild — tests Self through two inheritance levels."""
-
-
 class TestCreateRootReturnsSelf:
     """create_root() returns the concrete subclass at runtime."""
 
@@ -48,11 +44,10 @@ class TestDeriveReturnsSelf:
         derived = PlainSelfDoc.derive(name="derived.txt", content="derived", derived_from=(source,))
         assert type(derived) is PlainSelfDoc
 
-    def test_grandchild_returns_grandchild(self) -> None:
-        source = GrandchildSelfDoc.create_root(name="source.json", content=SelfReturnModel(value=1), reason="test")
-        derived = GrandchildSelfDoc.derive(name="child.json", content=SelfReturnModel(value=2), derived_from=(source,))
-        assert type(derived) is GrandchildSelfDoc
-        assert type(derived) is not TypedSelfDoc
+    def test_typed_document_returns_typed_subclass(self) -> None:
+        source = TypedSelfDoc.create_root(name="source.json", content=SelfReturnModel(value=1), reason="test")
+        derived = TypedSelfDoc.derive(name="child.json", content=SelfReturnModel(value=2), derived_from=(source,))
+        assert type(derived) is TypedSelfDoc
 
 
 class TestCreateReturnsSelf:

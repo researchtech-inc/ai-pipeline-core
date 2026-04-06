@@ -68,8 +68,8 @@ class _PassthroughBaseDoc(Document):
     """Base type used to prove flow passthrough warnings."""
 
 
-class _PassthroughDerivedDoc(_PassthroughBaseDoc):
-    """Derived type used as both input instance and output type."""
+class _PassthroughDerivedDoc(Document):
+    """Direct document type used as the passthrough output instance."""
 
 
 class _PlanResult(DeploymentResult):
@@ -134,9 +134,13 @@ class _ConsumesOriginalInputFlow(PipelineFlow):
 
 
 class _PassthroughWarningFlow(PipelineFlow):
-    async def run(self, source: _PassthroughBaseDoc, options: FlowOptions) -> tuple[_PassthroughDerivedDoc, ...]:
+    async def run(
+        self,
+        sources: tuple[_PassthroughBaseDoc | _PassthroughDerivedDoc, ...],
+        options: FlowOptions,
+    ) -> tuple[_PassthroughDerivedDoc, ...]:
         _ = options
-        return (cast(_PassthroughDerivedDoc, source),)
+        return cast(tuple[_PassthroughDerivedDoc, ...], sources)
 
 
 class _DefaultPlanDeployment(PipelineDeployment[FlowOptions, _PlanResult]):
@@ -283,7 +287,7 @@ async def test_flow_returning_unchanged_input_logs_warning(caplog: pytest.LogCap
     result = await _execute_single_flow_attempt(
         type(flow),
         flow,
-        {"source": source, "options": FlowOptions()},
+        {"sources": (source,), "options": FlowOptions()},
     )
 
     assert result == (source,)

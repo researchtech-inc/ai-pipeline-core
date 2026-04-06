@@ -1,5 +1,7 @@
 """Tests for task return discipline."""
 
+import logging
+
 import pytest
 
 from ai_pipeline_core import Document, PipelineTask, pipeline_test_context
@@ -22,6 +24,15 @@ class _PassthroughTask(PipelineTask):
         return doc
 
 
+class _NewInstanceTask(PipelineTask):
+    """Takes an input type and returns a NEW instance of the same type."""
+
+    @classmethod
+    async def run(cls, doc: _RDInput) -> _RDInput:
+        _ = cls
+        return _RDInput.derive(derived_from=(doc,), name="updated.txt", content="updated content")
+
+
 class _DeriveTask(PipelineTask):
     """Derives new documents from the input."""
 
@@ -40,11 +51,27 @@ class _NoneTask(PipelineTask):
 
 
 @pytest.mark.asyncio
-async def test_returning_input_document_raises() -> None:
+async def test_returning_input_document_warns(caplog: pytest.LogCaptureFixture) -> None:
+    """Returning the exact same instance (same SHA256) produces a warning, not an error."""
     source = _RDInput.create_root(name="test.txt", content="hello", reason="test")
     with pipeline_test_context():
-        with pytest.raises(TypeError, match="returned input document\\(s\\) unchanged"):
-            await _PassthroughTask.run((source,))
+        with caplog.at_level(logging.WARNING):
+            result = await _PassthroughTask.run((source,))
+    assert len(result) == 1
+    assert "returned input document(s) unchanged" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_new_instance_same_type_allowed() -> None:
+    """Returning a NEW document of the same type as input is valid — needed for loops."""
+    source = _RDInput.create_root(name="test.txt", content="hello", reason="test")
+    with pipeline_test_context():
+        result_tuple = await _NewInstanceTask.run(source)  # pyright: ignore[reportAssignmentType] — runtime normalizes single-doc to tuple
+    # Single-doc return is normalized to a 1-tuple by the framework
+    assert len(result_tuple) == 1
+    doc = result_tuple[0]  # pyright: ignore[reportIndexIssue]
+    assert isinstance(doc, _RDInput)
+    assert doc.sha256 != source.sha256
 
 
 @pytest.mark.asyncio

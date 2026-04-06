@@ -20,8 +20,8 @@ class _DocC(Document):
     """Type C."""
 
 
-class _DocDerived(_DocA):
-    """Subclass of DocA."""
+class _DocD(Document):
+    """Type D."""
 
 
 class _FlowAtoB(PipelineFlow):
@@ -42,8 +42,8 @@ class _FlowCtoA(PipelineFlow):
         return ()
 
 
-class _FlowDerivedOutput(PipelineFlow):
-    async def run(self, doc_as: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocDerived, ...]:
+class _FlowUnionOutput(PipelineFlow):
+    async def run(self, doc_as: tuple[_DocA, ...], options: FlowOptions) -> tuple[_DocA | _DocD, ...]:
         _ = (doc_as, options)
         return ()
 
@@ -96,10 +96,10 @@ def test_first_flow_required_singleton_inputs_added_to_pool() -> None:
     _validate_flow_chain("test", [_RequiredFirstFlowAtoB(), _FlowBaseInput()])
 
 
-def test_subclass_output_satisfies_parent_input() -> None:
-    # FlowDerivedOutput outputs DocDerived (subclass of DocA)
-    # FlowBaseInput needs DocA → DocDerived satisfies via issubclass
-    _validate_flow_chain("test", [_FlowDerivedOutput(), _FlowBaseInput()])
+def test_union_output_member_satisfies_downstream_input() -> None:
+    # FlowUnionOutput may produce DocA or DocD.
+    # FlowBaseInput needs DocA, so the chain remains satisfiable.
+    _validate_flow_chain("test", [_FlowUnionOutput(), _FlowBaseInput()])
 
 
 def test_empty_flow_list() -> None:

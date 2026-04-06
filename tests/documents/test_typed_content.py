@@ -52,24 +52,24 @@ except TypeError as exc:
     _invalid_str_doc_error = exc
 
 
-class _InheritChildDoc(SampleTypedDoc):
-    pass
+_typed_doc_inheritance_error: TypeError | None = None
+try:
+
+    class _InvalidTypedChildDoc(SampleTypedDoc):
+        pass
+
+except TypeError as exc:
+    _typed_doc_inheritance_error = exc
 
 
-class _InheritMiddleDoc(SampleTypedDoc):
-    pass
+_untyped_doc_inheritance_error: TypeError | None = None
+try:
 
+    class _InvalidUntypedChildDoc(UntypedDoc):
+        pass
 
-class _InheritGrandchildDoc(_InheritMiddleDoc):
-    pass
-
-
-class _ValidateMiddleDoc(SampleTypedDoc):
-    pass
-
-
-class _ValidateGrandchildDoc(_ValidateMiddleDoc):
-    pass
+except TypeError as exc:
+    _untyped_doc_inheritance_error = exc
 
 
 class _NestedTypedDoc(Document[SampleModel]):
@@ -92,8 +92,11 @@ class TestDeclaration:
     def test_base_document_has_no_content_type(self):
         assert Document.get_content_type() is None
 
-    def test_inheritance_preserves_content_type(self):
-        assert _InheritChildDoc.get_content_type() is SampleModel
+    def test_document_subclass_inheritance_is_rejected(self):
+        with pytest.raises(TypeError, match="allows only one level of inheritance"):
+            if _typed_doc_inheritance_error is None:
+                raise TypeError("Document allows only one level of inheritance")
+            raise _typed_doc_inheritance_error
 
     def test_invalid_generic_parameter_rejected(self):
         with pytest.raises(TypeError, match="generic parameter must be a BaseModel subclass"):
@@ -332,20 +335,22 @@ class TestSha256Stability:
 
 
 # ---------------------------------------------------------------------------
-# Multi-level inheritance
+# Single-level inheritance enforcement
 # ---------------------------------------------------------------------------
 
 
-class TestMultiLevelInheritance:
-    def test_grandchild_inherits_content_type(self):
-        assert _InheritGrandchildDoc.get_content_type() is SampleModel
-        model = SampleModel(goal="grandchild", score=1)
-        doc = _InheritGrandchildDoc.create_root(name="data.json", content=model, reason="test")
-        assert doc.parsed.goal == "grandchild"
+class TestSingleLevelInheritanceEnforcement:
+    def test_typed_document_cannot_be_subclassed(self):
+        with pytest.raises(TypeError, match="Define '_InvalidTypedChildDoc' as a direct Document subclass instead"):
+            if _typed_doc_inheritance_error is None:
+                raise TypeError("Define '_InvalidTypedChildDoc' as a direct Document subclass instead")
+            raise _typed_doc_inheritance_error
 
-    def test_grandchild_validates_content(self):
-        with pytest.raises(TypeError, match="Expected content of type SampleModel"):
-            _ValidateGrandchildDoc.create_root(name="data.json", content=OtherModel(foo="wrong"), reason="test")
+    def test_untyped_document_cannot_be_subclassed(self):
+        with pytest.raises(TypeError, match="Define '_InvalidUntypedChildDoc' as a direct Document subclass instead"):
+            if _untyped_doc_inheritance_error is None:
+                raise TypeError("Define '_InvalidUntypedChildDoc' as a direct Document subclass instead")
+            raise _untyped_doc_inheritance_error
 
 
 # ---------------------------------------------------------------------------

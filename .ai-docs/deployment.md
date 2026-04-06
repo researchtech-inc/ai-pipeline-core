@@ -2,7 +2,7 @@
 # CLASSES: DeploymentResult, PipelineDeployment, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
 # DEPENDS: BaseModel, Generic
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.21.0
+# VERSION: 0.21.1
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -533,7 +533,7 @@ def test_extracts_remote_deployment_params(self):
     assert params[1] is SampleResult
 ```
 
-**Field gate on missing run and skip** (`tests/deployment/test_build_plan.py:239`)
+**Field gate on missing run and skip** (`tests/deployment/test_build_plan.py:243`)
 
 ```python
 def test_field_gate_on_missing_run_and_skip() -> None:
@@ -598,7 +598,7 @@ def test_accepts_flow_options_subclass(self):
 
 ## Error Examples
 
-**Deployment plan rejects invalid steps** (`tests/deployment/test_build_plan.py:311`)
+**Deployment plan rejects invalid steps** (`tests/deployment/test_build_plan.py:315`)
 
 ```python
 def test_deployment_plan_rejects_invalid_steps() -> None:
@@ -609,7 +609,7 @@ def test_deployment_plan_rejects_invalid_steps() -> None:
         DeploymentPlan(steps=cast(tuple[FlowStep, ...], (object(),)))
 ```
 
-**Flow step rejects invalid inputs** (`tests/deployment/test_build_plan.py:319`)
+**Flow step rejects invalid inputs** (`tests/deployment/test_build_plan.py:323`)
 
 ```python
 def test_flow_step_rejects_invalid_inputs() -> None:
@@ -620,7 +620,7 @@ def test_flow_step_rejects_invalid_inputs() -> None:
         FlowStep(_FirstFlow(), group="")
 ```
 
-**Field gate rejects untyped document** (`tests/deployment/test_build_plan.py:327`)
+**Field gate rejects untyped document** (`tests/deployment/test_build_plan.py:331`)
 
 ```python
 def test_field_gate_rejects_untyped_document() -> None:

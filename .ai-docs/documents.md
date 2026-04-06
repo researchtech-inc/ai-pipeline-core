@@ -2,7 +2,7 @@
 # CLASSES: Attachment, Document, DocumentValidationError, DocumentSizeError, DocumentNameError
 # DEPENDS: BaseModel, Exception
 # PURPOSE: Document system for AI pipeline flows.
-# VERSION: 0.21.0
+# VERSION: 0.21.1
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -499,6 +499,21 @@ class Document(BaseModel):
 
         # Extract content type from generic parameter.
         _extract_content_type(cls)
+
+        # Single-level inheritance: Document subclasses cannot be further subclassed.
+        # This prevents AI agents from creating bypass hierarchies like PreviousLoopDocument(LoopDocument)
+        # to circumvent return discipline checks. Every document type must inherit directly from Document.
+        concrete_doc_parents = [
+            base for base in cls.__bases__ if base is not Document and isinstance(base, type) and issubclass(base, Document) and "[" not in base.__name__
+        ]
+        if concrete_doc_parents:
+            parent_name = concrete_doc_parents[0].__name__
+            raise TypeError(
+                f"Document subclass '{cls.__name__}' inherits from '{parent_name}', which is already a Document subclass. "
+                f"Document allows only one level of inheritance. "
+                f"Define '{cls.__name__}' as a direct Document subclass instead: "
+                f"class {cls.__name__}(Document): ... or class {cls.__name__}(Document[MyModel]): ..."
+            )
 
         if cls.__name__.startswith("Test"):
             raise TypeError(
@@ -1022,6 +1037,16 @@ def test_document_list_rejects_list_str() -> None:
             """Bad."""
 ```
 
+**Document subclass inheritance is rejected** (`tests/documents/test_typed_content.py:95`)
+
+```python
+def test_document_subclass_inheritance_is_rejected(self):
+    with pytest.raises(TypeError, match="allows only one level of inheritance"):
+        if _typed_doc_inheritance_error is None:
+            raise TypeError("Document allows only one level of inheritance")
+        raise _typed_doc_inheritance_error
+```
+
 **Cannot instantiate document** (`tests/documents/test_document_core.py:138`)
 
 ```python
@@ -1038,16 +1063,4 @@ def test_document_list_rejects_non_structured_extension() -> None:
     items = [ItemModel(name="a", value=1)]
     with pytest.raises(ValueError):
         ListDoc.create_root(name="items.txt", content=items, reason="test")
-```
-
-**Document list rejects wrong item type** (`tests/documents/test_document_list_content.py:61`)
-
-```python
-def test_document_list_rejects_wrong_item_type() -> None:
-    class OtherModel(BaseModel):
-        x: str
-
-    items = [OtherModel(x="nope")]
-    with pytest.raises(TypeError, match="expected ItemModel"):
-        ListDoc.create_root(name="items.json", content=items, reason="test")
 ```

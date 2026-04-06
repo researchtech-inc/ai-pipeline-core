@@ -499,10 +499,12 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                 passthrough_docs = [document for document in result_docs if document.sha256 in input_sha256s]
                 if passthrough_docs:
                     passthrough_names = ", ".join(f"'{document.name}'" for document in passthrough_docs)
-                    raise TypeError(
-                        f"PipelineTask '{cls.__name__}' returned input document(s) unchanged: {passthrough_names}. "
-                        "Tasks must create new documents via derive(), create(), create_external(), or create_root(). "
-                        "The deployment blackboard carries earlier artifacts automatically, so tasks must not forward input documents unchanged."
+                    logger.warning(
+                        "PipelineTask '%s' returned input document(s) unchanged: %s. "
+                        "Tasks should create new documents via derive(), create(), create_external(), or create_root(). "
+                        "The deployment blackboard carries earlier artifacts automatically, so tasks should not forward input documents unchanged.",
+                        cls.__name__,
+                        passthrough_names,
                     )
         return result_docs
 
