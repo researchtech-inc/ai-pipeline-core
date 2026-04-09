@@ -1,8 +1,8 @@
 # MODULE: deployment
-# CLASSES: DeploymentResult, PipelineDeployment, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
-# DEPENDS: BaseModel, Generic
+# CLASSES: DeploymentResult, PipelineDeployment, RemoteDeploymentError, RemoteDeploymentNotFoundError, RemoteDeploymentSubmissionError, RemoteDeploymentPollingError, RemoteDeploymentExecutionError, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
+# DEPENDS: BaseModel, Generic, RuntimeError
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.21.2
+# VERSION: 0.21.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -180,6 +180,21 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         return result
 
 
+class RemoteDeploymentError(RuntimeError):
+    """Base error for remote deployment submission, polling, and execution failures."""
+
+class RemoteDeploymentNotFoundError(RemoteDeploymentError):
+    """Raised when a remote deployment cannot be found on any configured Prefect server."""
+
+class RemoteDeploymentSubmissionError(RemoteDeploymentError):
+    """Raised when remote flow-run creation fails before a flow run can be polled."""
+
+class RemoteDeploymentPollingError(RemoteDeploymentError):
+    """Raised when polling a created remote flow run fails repeatedly."""
+
+class RemoteDeploymentExecutionError(RemoteDeploymentError):
+    """Raised when a remote flow run reaches a non-successful terminal state."""
+
 class RemoteDeployment(Generic[TOptions, TResult]):
     """Typed client for calling a remote PipelineDeployment via Prefect.
 
@@ -269,43 +284,39 @@ Set ``deployment_class`` to enable inline mode (test/local):
         task_start = time.monotonic()
         resolved_root_id = root_deployment_id or deployment_id or subtask_span_id
 
-        async with track_span(
-            SpanKind.TASK,
-            task_name,
-            "",
-            sinks=get_sinks(),
-            span_id=subtask_span_id,
-            parent_span_id=parent_span_id,
-            encode_input={"documents": tuple(documents), "options": options},
-            db=database,
-            input_preview={"deployment": self.name, "document_count": len(documents)},
-        ) as span_ctx:
-            span_ctx.set_meta(
-                deployment_name=deployment_name,
-                remote_mode="inline" if use_inline else "prefect",
-                sequence_no=sequence_no,
-            )
-            if publisher is not None and flow_frame is not None:
-                try:
-                    await publisher.publish_task_started(
-                        TaskStartedEvent(
-                            run_id=run_id,
-                            span_id=str(subtask_span_id),
-                            root_deployment_id=str(resolved_root_id),
-                            parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
-                            flow_name=flow_name,
-                            step=flow_step,
-                            total_steps=total_steps,
-                            status=str(SpanStatus.RUNNING),
-                            task_name=task_name,
-                            task_class=type(self).__name__,
-                            parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
-                            input_document_sha256s=input_sha256s,
-                        )
-                    )
-                except (OSError, RuntimeError, ValueError, TypeError) as exc:
-                    logger.warning("Remote task started event publish failed for '%s': %s", task_name, exc)
-            try:
+        result: Any | None = None
+        try:
+            async with track_span(
+                SpanKind.TASK,
+                task_name,
+                "",
+                sinks=get_sinks(),
+                span_id=subtask_span_id,
+                parent_span_id=parent_span_id,
+                encode_input={"documents": tuple(documents), "options": options},
+                db=database,
+                input_preview={"deployment": self.name, "document_count": len(documents)},
+            ) as span_ctx:
+                span_ctx.set_meta(
+                    deployment_name=deployment_name,
+                    remote_mode="inline" if use_inline else "prefect",
+                    sequence_no=sequence_no,
+                )
+                await _publish_remote_task_started(
+                    publisher=publisher,
+                    flow_frame=flow_frame,
+                    run_id=run_id,
+                    subtask_span_id=subtask_span_id,
+                    resolved_root_id=resolved_root_id,
+                    parent_deployment_task_id=parent_deployment_task_id,
+                    flow_name=flow_name,
+                    flow_step=flow_step,
+                    total_steps=total_steps,
+                    task_name=task_name,
+                    task_class_name=type(self).__name__,
+                    parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
+                    input_sha256s=input_sha256s,
+                )
                 if use_inline:
                     logger.warning(
                         "RemoteDeployment '%s' is falling back to inline execution because %s. "
@@ -332,53 +343,52 @@ Set ``deployment_class`` to enable inline mode (test/local):
                         parent_deployment_task_id=subtask_span_id,
                         parent_execution_id=exec_ctx.execution_id if exec_ctx else None,
                     )
-            except (Exception, asyncio.CancelledError) as exc:
-                if publisher is not None and flow_frame is not None:
-                    try:
-                        await publisher.publish_task_failed(
-                            TaskFailedEvent(
-                                run_id=run_id,
-                                span_id=str(subtask_span_id),
-                                root_deployment_id=str(resolved_root_id),
-                                parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
-                                flow_name=flow_name,
-                                step=flow_step,
-                                total_steps=total_steps,
-                                status=str(SpanStatus.FAILED),
-                                task_name=task_name,
-                                task_class=type(self).__name__,
-                                error_message=str(exc),
-                                parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
-                                input_document_sha256s=input_sha256s,
-                            )
-                        )
-                    except (OSError, RuntimeError, ValueError, TypeError) as pub_exc:
-                        logger.warning("Remote task failed event publish failed for '%s': %s", task_name, pub_exc)
-                raise
-            if publisher is not None and flow_frame is not None:
-                try:
-                    await publisher.publish_task_completed(
-                        TaskCompletedEvent(
-                            run_id=run_id,
-                            span_id=str(subtask_span_id),
-                            root_deployment_id=str(resolved_root_id),
-                            parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
-                            flow_name=flow_name,
-                            step=flow_step,
-                            total_steps=total_steps,
-                            status=str(SpanStatus.COMPLETED),
-                            task_name=task_name,
-                            task_class=type(self).__name__,
-                            duration_ms=int((time.monotonic() - task_start) * 1000),
-                            parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
-                            input_document_sha256s=input_sha256s,
-                        )
-                    )
-                except (OSError, RuntimeError, ValueError, TypeError) as pub_exc:
-                    logger.warning("Remote task completed event publish failed for '%s': %s", task_name, pub_exc)
-            span_ctx.set_output_preview(result.model_dump(mode="json"))
-            span_ctx._set_output_value(result)
-            return result
+                span_ctx.set_output_preview(result.model_dump(mode="json"))
+                span_ctx._set_output_value(result)
+        except (Exception, asyncio.CancelledError) as task_failure:
+            await _publish_remote_task_terminal(
+                publisher=publisher,
+                flow_frame=flow_frame,
+                event=TaskFailedEvent(
+                    run_id=run_id,
+                    span_id=str(subtask_span_id),
+                    root_deployment_id=str(resolved_root_id),
+                    parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
+                    flow_name=flow_name,
+                    step=flow_step,
+                    total_steps=total_steps,
+                    status=str(SpanStatus.FAILED),
+                    task_name=task_name,
+                    task_class=type(self).__name__,
+                    error_message=str(task_failure),
+                    parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
+                    input_document_sha256s=input_sha256s,
+                ),
+                terminal_kind="failed",
+            )
+            raise
+        assert result is not None
+        await _publish_remote_task_terminal(
+            publisher=publisher,
+            flow_frame=flow_frame,
+            event=TaskCompletedEvent(
+                run_id=run_id,
+                span_id=str(subtask_span_id),
+                root_deployment_id=str(resolved_root_id),
+                parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
+                flow_name=flow_name,
+                step=flow_step,
+                total_steps=total_steps,
+                status=str(SpanStatus.COMPLETED),
+                task_name=task_name,
+                task_class=type(self).__name__,
+                duration_ms=int((time.monotonic() - task_start) * 1000),
+                parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
+                input_document_sha256s=input_sha256s,
+            ),
+            terminal_kind="completed",
+        )
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -512,7 +522,7 @@ def test_deployment_default_flow_retries_is_none(self) -> None:
     assert PipelineDeployment.flow_retry_delay_seconds is None
 ```
 
-**Deployment result data** (`tests/deployment/test_deployment_base.py:175`)
+**Deployment result data** (`tests/deployment/test_deployment_base.py:176`)
 
 ```python
 def test_deployment_result_data(self):

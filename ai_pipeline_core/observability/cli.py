@@ -13,7 +13,9 @@ from ai_pipeline_core.database.clickhouse._backend import ClickHouseDatabase
 from ai_pipeline_core.database.filesystem._backend import FilesystemDatabase
 from ai_pipeline_core.database.snapshot._download import download_deployment
 from ai_pipeline_core.database.snapshot._spans import build_span_tree_view
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.logger._types import LogRecord
+from ai_pipeline_core.observability._recovery import recover_orphaned_spans
 from ai_pipeline_core.observability._tree_render import format_span_overview_lines, format_span_tree_lines
 from ai_pipeline_core.settings import settings
 
@@ -39,7 +41,8 @@ def _resolve_connection(args: argparse.Namespace) -> _TraceDatabase:
     """Resolve CLI connection parameters."""
     if getattr(args, "db_path", None):
         base_path = Path(args.db_path).resolve()
-        return FilesystemDatabase(base_path, read_only=True)
+        read_only = getattr(args, "command", None) != "recover"
+        return FilesystemDatabase(base_path, read_only=read_only)
 
     if not settings.clickhouse_host:
         raise SystemExit("ClickHouse is not configured. Set CLICKHOUSE_HOST or use --db-path with a FilesystemDatabase snapshot.")
@@ -245,8 +248,22 @@ async def _show_doc_async(database: _TraceDatabase, sha256: str) -> int:
     return 0
 
 
+async def _recover_orphans_async(database: _TraceDatabase, max_age_minutes: int) -> int:
+    try:
+        recovered = await recover_orphaned_spans(
+            database,
+            max_age_minutes=max_age_minutes,
+            limit=1000,
+        )
+    finally:
+        await database.shutdown()
+    print(f"Recovered {len(recovered)} orphaned run(s).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the ai-trace CLI."""
+    setup_logging()
     db_parent = argparse.ArgumentParser(add_help=False)
     db_parent.add_argument("--db-path", type=str, default=None, help="Use a FilesystemDatabase snapshot instead of ClickHouse")
 
@@ -273,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
     doc_parser = subparsers.add_parser("doc", parents=[db_parent], help="Show a single document by SHA256")
     doc_parser.add_argument("sha256", help="Document SHA256 identifier")
 
+    recover_parser = subparsers.add_parser("recover", parents=[db_parent], help="Mark orphaned running deployments as failed")
+    recover_parser.add_argument("--max-age-minutes", type=int, default=settings.orphan_span_max_age_minutes)
+
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
@@ -292,6 +312,8 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_show_docs_async(database, args.identifier))
         if args.command == "doc":
             return asyncio.run(_show_doc_async(database, args.sha256))
+        if args.command == "recover":
+            return asyncio.run(_recover_orphans_async(database, args.max_age_minutes))
     except SystemExit:
         raise
     except Exception as exc:

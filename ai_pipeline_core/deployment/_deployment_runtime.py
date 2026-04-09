@@ -379,56 +379,52 @@ async def _execute_flow_with_context(
         input_doc_sha256s = tuple(doc.sha256 for doc in input_documents)
         deployment_span_id_str = str(deployment_span_id)
 
-        async with track_span(
-            SpanKind.FLOW,
-            flow_name,
-            flow_target,
-            sinks=get_sinks(),
-            span_id=flow_span_id,
-            parent_span_id=deployment_span_id,
-            encode_receiver=flow_receiver,
-            encode_input=flow_input,
-            db=database,
-            input_preview=flow_input_preview,
-        ) as span_ctx:
-            if flow_class.BASE_COST_USD > 0:
-                span_ctx._add_cost(flow_class.BASE_COST_USD)
-            span_ctx.set_meta(
-                step=step,
-                total_steps=total_steps,
-                estimated_minutes=flow_instance.estimated_minutes,
-                expected_tasks=expected_tasks,
-                cache_hit=False,
-                cache_key=flow_cache_key,
-                flow_retries=_resolve_flow_retries(flow_class, deployment_flow_retries),
-                flow_retry_delay_seconds=_resolve_flow_retry_delay(flow_class, deployment_flow_retry_delay_seconds),
-            )
-            await publisher.publish_flow_started(
-                FlowStartedEvent(
-                    run_id=run_id,
-                    span_id=str(flow_span_id),
-                    root_deployment_id=root_id_str,
-                    parent_deployment_task_id=parent_task_id_str,
-                    flow_name=flow_name,
-                    flow_class=flow_class.__name__,
+        validated_docs: tuple[Document, ...] = ()
+        try:
+            async with track_span(
+                SpanKind.FLOW,
+                flow_name,
+                flow_target,
+                sinks=get_sinks(),
+                span_id=flow_span_id,
+                parent_span_id=deployment_span_id,
+                encode_receiver=flow_receiver,
+                encode_input=flow_input,
+                db=database,
+                input_preview=flow_input_preview,
+            ) as span_ctx:
+                if flow_class.BASE_COST_USD > 0:
+                    span_ctx._add_cost(flow_class.BASE_COST_USD)
+                span_ctx.set_meta(
                     step=step,
                     total_steps=total_steps,
-                    status=str(SpanStatus.RUNNING),
+                    estimated_minutes=flow_instance.estimated_minutes,
                     expected_tasks=expected_tasks,
-                    flow_params=flow_instance.get_params(),
-                    parent_span_id=deployment_span_id_str,
-                    input_document_sha256s=input_doc_sha256s,
+                    cache_hit=False,
+                    cache_key=flow_cache_key,
+                    flow_retries=_resolve_flow_retries(flow_class, deployment_flow_retries),
+                    flow_retry_delay_seconds=_resolve_flow_retry_delay(flow_class, deployment_flow_retry_delay_seconds),
                 )
-            )
-            record_lifecycle_event(
-                "flow.started",
-                f"Starting flow {flow_name}",
-                flow_name=flow_name,
-                flow_class=flow_class.__name__,
-                step=step,
-                total_steps=total_steps,
-            )
-            try:
+                try:
+                    await publisher.publish_flow_started(
+                        FlowStartedEvent(
+                            run_id=run_id,
+                            span_id=str(flow_span_id),
+                            root_deployment_id=root_id_str,
+                            parent_deployment_task_id=parent_task_id_str,
+                            flow_name=flow_name,
+                            flow_class=flow_class.__name__,
+                            step=step,
+                            total_steps=total_steps,
+                            status=str(SpanStatus.RUNNING),
+                            expected_tasks=expected_tasks,
+                            flow_params=flow_instance.get_params(),
+                            parent_span_id=deployment_span_id_str,
+                            input_document_sha256s=input_doc_sha256s,
+                        )
+                    )
+                except _PUBLISH_EXCEPTIONS as publish_error:
+                    logger.warning("Failed to publish flow.started event: %s", publish_error)
                 validated_docs = await _run_flow_with_retries(
                     flow_instance=flow_instance,
                     flow_class=flow_class,
@@ -442,63 +438,47 @@ async def _execute_flow_with_context(
                     deployment_flow_retry_delay_seconds=deployment_flow_retry_delay_seconds,
                     parent_span_ctx=span_ctx,
                 )
-            except (Exception, asyncio.CancelledError) as flow_exc:
-                record_lifecycle_event(
-                    "flow.failed",
-                    f"Flow {flow_name} failed",
-                    flow_name=flow_name,
-                    flow_class=flow_class.__name__,
-                    step=step,
-                    total_steps=total_steps,
-                    error_type=type(flow_exc).__name__,
-                    error_message=str(flow_exc),
-                )
-                if current_exec_ctx is not None:
-                    await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=active_handles_before)
-                try:
-                    await publisher.publish_flow_failed(
-                        FlowFailedEvent(
-                            run_id=run_id,
-                            span_id=str(flow_span_id),
-                            root_deployment_id=root_id_str,
-                            parent_deployment_task_id=parent_task_id_str,
-                            flow_name=flow_name,
-                            flow_class=flow_class.__name__,
-                            step=step,
-                            total_steps=total_steps,
-                            status=str(SpanStatus.FAILED),
-                            error_message=str(flow_exc),
-                            parent_span_id=deployment_span_id_str,
-                            input_document_sha256s=input_doc_sha256s,
-                        )
+                span_ctx.set_output_preview({"documents": [document.name for document in validated_docs]})
+                span_ctx._set_output_value(validated_docs)
+        except (Exception, asyncio.CancelledError) as flow_exc:
+            if current_exec_ctx is not None:
+                await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=active_handles_before)
+            flow_error_message = str(flow_exc)
+            try:
+                await publisher.publish_flow_failed(
+                    FlowFailedEvent(
+                        run_id=run_id,
+                        span_id=str(flow_span_id),
+                        root_deployment_id=root_id_str,
+                        parent_deployment_task_id=parent_task_id_str,
+                        flow_name=flow_name,
+                        flow_class=flow_class.__name__,
+                        step=step,
+                        total_steps=total_steps,
+                        status=str(SpanStatus.FAILED),
+                        error_message=flow_error_message,
+                        parent_span_id=deployment_span_id_str,
+                        input_document_sha256s=input_doc_sha256s,
                     )
-                except _PUBLISH_EXCEPTIONS as publish_error:
-                    logger.warning("Failed to publish flow.failed event: %s", publish_error)
-                raise
-
-            flow_duration_ms = int((time.monotonic() - flow_started_at) * 1000)
-            record_lifecycle_event(
-                "flow.completed",
-                f"Completed flow {flow_name}",
-                flow_name=flow_name,
-                flow_class=flow_class.__name__,
-                step=step,
-                total_steps=total_steps,
-                duration_ms=flow_duration_ms,
-                output_count=len(validated_docs),
-            )
-            output_refs = tuple(
-                DocumentRef(
-                    sha256=doc.sha256,
-                    class_name=type(doc).__name__,
-                    name=doc.name,
-                    summary=doc.summary,
-                    publicly_visible=getattr(type(doc), "publicly_visible", False),
-                    derived_from=tuple(doc.derived_from),
-                    triggered_by=tuple(doc.triggered_by),
                 )
-                for doc in validated_docs
+            except _PUBLISH_EXCEPTIONS as publish_error:
+                logger.warning("Failed to publish flow.failed event: %s", publish_error)
+            raise
+
+        flow_duration_ms = int((time.monotonic() - flow_started_at) * 1000)
+        output_refs = tuple(
+            DocumentRef(
+                sha256=doc.sha256,
+                class_name=type(doc).__name__,
+                name=doc.name,
+                summary=doc.summary,
+                publicly_visible=getattr(type(doc), "publicly_visible", False),
+                derived_from=tuple(doc.derived_from),
+                triggered_by=tuple(doc.triggered_by),
             )
+            for doc in validated_docs
+        )
+        try:
             await publisher.publish_flow_completed(
                 FlowCompletedEvent(
                     run_id=run_id,
@@ -516,10 +496,9 @@ async def _execute_flow_with_context(
                     input_document_sha256s=input_doc_sha256s,
                 )
             )
-            span_ctx.set_output_preview({"documents": [document.name for document in validated_docs]})
-            span_ctx._set_output_value(validated_docs)
-            logger.info("[%d/%d] Completed: %s", step, total_steps, flow_name)
-            return validated_docs
+        except _PUBLISH_EXCEPTIONS as publish_error:
+            logger.warning("Failed to publish flow.completed event: %s", publish_error)
+        return validated_docs
 
 
 def _safe_uuid(value: str) -> UUID | None:

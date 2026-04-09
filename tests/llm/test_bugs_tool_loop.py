@@ -56,7 +56,7 @@ def _make_context(database: _MemoryDatabase) -> ExecutionContext:
         limits=MappingProxyType({}),
         limits_status=_SharedStatus(),
         database=database,
-        sinks=build_runtime_sinks(database=database, settings_obj=settings),
+        sinks=build_runtime_sinks(database=database, settings_obj=settings).span_sinks,
         deployment_id=deployment_id,
         root_deployment_id=deployment_id,
         deployment_name="tool-loop-bug-test",

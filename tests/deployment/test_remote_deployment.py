@@ -466,7 +466,7 @@ class TestInlineModeDetection:
 
         with pipeline_test_context(run_id="project") as ctx:
             ctx.database = database
-            ctx.sinks = build_runtime_sinks(database=database, settings_obj=settings)
+            ctx.sinks = build_runtime_sinks(database=database, settings_obj=settings).span_sinks
             ctx.deployment_id = uuid7()
             ctx.root_deployment_id = ctx.deployment_id
             ctx.current_span_id = ctx.deployment_id

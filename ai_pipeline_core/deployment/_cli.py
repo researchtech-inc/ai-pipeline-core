@@ -18,6 +18,7 @@ from pydantic_settings import BaseSettings, CliPositionalArg, SettingsConfigDict
 
 from ai_pipeline_core.database._factory import Database
 from ai_pipeline_core.documents import Document
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.pipeline.options import FlowOptions
 from ai_pipeline_core.settings import settings
 
@@ -44,6 +45,7 @@ def run_cli_for_deployment(
     cli_mixin: type[BaseSettings] | None = None,
 ) -> None:
     """Execute pipeline from CLI arguments with --start/--end step control."""
+    setup_logging()
     if len(sys.argv) == 1:
         sys.argv.append("--help")
 

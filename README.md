@@ -28,7 +28,7 @@ This framework is the foundation of AI projects at [research.tech](https://resea
 - **Observability**: Database-backed execution DAGs, logs, replay payloads, and `ai-trace` download support
 - **Prompt Compiler**: Type-safe prompt specifications replacing Jinja2 templates — typed Python classes for roles, rules, guides, and output formats with definition-time validation and a CLI tool for inspection
 - **Replay**: Capture and re-execute any LLM conversation, pipeline task, or flow from recorded span JSON files or database-backed runs with document resolution via SHA256 references
-- **Deployment**: Unified pipeline execution for local, CLI, and production environments with per-flow resume and remote deployment support
+- **Deployment**: Unified pipeline execution for local, CLI, and production environments with per-flow resume, idempotent remote Prefect submissions, and framework-specific remote error handling
 
 ## Installation
 
@@ -63,7 +63,7 @@ dev = [
 ]
 ```
 
-To pin to a specific version, append `@v0.20.0` (or a commit hash) before `#subdirectory`:
+To pin to a specific version, append `@v0.21.3` (or a commit hash) before `#subdirectory`:
 
 ```toml
 "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.20.0#subdirectory=tools/dev-cli"

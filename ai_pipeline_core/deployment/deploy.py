@@ -39,6 +39,7 @@ from prefect.deployments.runner import RunnerDeployment
 from prefect.flows import load_flow_from_entrypoint
 from prefect_gcp.cloud_storage import GcpCredentials, GcsBucket  # pyright: ignore[reportMissingTypeStubs]
 
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.settings import settings
 
 __all__ = [
@@ -406,6 +407,7 @@ class _Deployer:
 
 def _main() -> None:
     """Command-line interface for deployment script."""
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="Deploy Prefect flows with bundled wheels (offline install)",
         formatter_class=argparse.RawDescriptionHelpFormatter,

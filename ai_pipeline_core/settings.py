@@ -69,6 +69,9 @@ class Settings(BaseSettings):
 
     # Laminar tracing (set LMNR_PROJECT_API_KEY to enable)
     lmnr_project_api_key: str = ""
+    sentry_dsn: str = ""
+    log_format: str = "text"
+    orphan_span_max_age_minutes: int = 120
 
     # Retry defaults (used when class-level retries/retry_delay_seconds is None)
     task_retries: int = 0
@@ -85,6 +88,7 @@ class Settings(BaseSettings):
         "task_retry_delay_seconds",
         "flow_retry_delay_seconds",
         "conversation_retry_delay_seconds",
+        "orphan_span_max_age_minutes",
     )
     @classmethod
     def _validate_non_negative(cls, v: int) -> int:

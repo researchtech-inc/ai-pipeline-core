@@ -1,7 +1,7 @@
 # MODULE: settings
 # CLASSES: Settings
 # DEPENDS: BaseSettings
-# VERSION: 0.21.2
+# VERSION: 0.21.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     pubsub_project_id: str = ""
     pubsub_topic_id: str = ""
     lmnr_project_api_key: str = ""
+    sentry_dsn: str = ""
+    log_format: str = "text"
+    orphan_span_max_age_minutes: int = 120
     task_retries: int = 0
     task_retry_delay_seconds: int = 30
     flow_retries: int = 0

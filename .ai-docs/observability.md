@@ -1,6 +1,6 @@
 # MODULE: observability
 # PURPOSE: Observability system for AI pipelines.
-# VERSION: 0.21.2
+# VERSION: 0.21.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Functions
@@ -8,6 +8,7 @@
 ```python
 def main(argv: list[str] | None = None) -> int:
     """Run the ai-trace CLI."""
+    setup_logging()
     db_parent = argparse.ArgumentParser(add_help=False)
     db_parent.add_argument("--db-path", type=str, default=None, help="Use a FilesystemDatabase snapshot instead of ClickHouse")
 
@@ -34,6 +35,9 @@ def main(argv: list[str] | None = None) -> int:
     doc_parser = subparsers.add_parser("doc", parents=[db_parent], help="Show a single document by SHA256")
     doc_parser.add_argument("sha256", help="Document SHA256 identifier")
 
+    recover_parser = subparsers.add_parser("recover", parents=[db_parent], help="Mark orphaned running deployments as failed")
+    recover_parser.add_argument("--max-age-minutes", type=int, default=settings.orphan_span_max_age_minutes)
+
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
@@ -53,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_show_docs_async(database, args.identifier))
         if args.command == "doc":
             return asyncio.run(_show_doc_async(database, args.sha256))
+        if args.command == "recover":
+            return asyncio.run(_recover_orphans_async(database, args.max_age_minutes))
     except SystemExit:
         raise
     except Exception as exc:
@@ -64,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
 
 ## Examples
 
-**Main download command writes span summary artifacts** (`tests/observability/test_trace_cli_spans.py:251`)
+**Main download command writes span summary artifacts** (`tests/observability/test_trace_cli_spans.py:261`)
 
 ```python
 def test_main_download_command_writes_span_summary_artifacts(
@@ -83,7 +89,7 @@ def test_main_download_command_writes_span_summary_artifacts(
     assert (output_dir / "logs.jsonl").exists()
 ```
 
-**Main show command reads span snapshot** (`tests/observability/test_trace_cli_spans.py:239`)
+**Main show command reads span snapshot** (`tests/observability/test_trace_cli_spans.py:249`)
 
 ```python
 def test_main_show_command_reads_span_snapshot(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -99,7 +105,7 @@ def test_main_show_command_reads_span_snapshot(self, tmp_path: Path, capsys: pyt
     assert '"rounds": 1' in output
 ```
 
-**No laminar span calls remain** (`tests/observability/test_laminar_sink.py:407`)
+**No laminar span calls remain** (`tests/observability/test_laminar_sink.py:406`)
 
 ```python
 def test_no_laminar_span_calls_remain() -> None:
@@ -121,8 +127,7 @@ def test_no_laminar_span_calls_remain() -> None:
 def test_build_runtime_sinks_includes_laminar_sink_when_key_is_set() -> None:
     sinks = build_runtime_sinks(database=None, settings_obj=Settings(lmnr_project_api_key="secret"))
 
-    assert len(sinks) == 1
-    assert isinstance(sinks[0], LaminarSpanSink)
+    assert any(isinstance(sink, LaminarSpanSink) for sink in sinks.span_sinks)
 ```
 
 **Db path returns span filesystem database** (`tests/observability/test_trace_cli_spans.py:203`)
@@ -130,11 +135,12 @@ def test_build_runtime_sinks_includes_laminar_sink_when_key_is_set() -> None:
 ```python
 def test_db_path_returns_span_filesystem_database(self, tmp_path: Path) -> None:
     FilesystemDatabase(tmp_path)
-    args = type("Args", (), {"db_path": str(tmp_path)})()
+    args = type("Args", (), {"command": "show", "db_path": str(tmp_path)})()
 
     database = _resolve_connection(args)
 
     assert isinstance(database, FilesystemDatabase)
+    assert database.read_only is True
 ```
 
 **Different key after failure uses error level** (`tests/observability/test_laminar_log_levels.py:28`)

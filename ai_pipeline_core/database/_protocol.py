@@ -1,6 +1,6 @@
 """Database read/write protocols for the span-based schema."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -99,6 +99,15 @@ class DatabaseReader(Protocol):
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
         """List deployment spans for an exact run_id ordered by newest start time first."""
+        ...
+
+    async def list_orphaned_deployment_roots(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 1000,
+    ) -> list[SpanRecord]:
+        """List root deployment spans still marked running after the given cutoff."""
         ...
 
     async def get_cached_completion(

@@ -10,6 +10,7 @@ from ai_pipeline_core._lifecycle_events import DocumentRef, TaskCompletedEvent, 
 from ai_pipeline_core.database._json_helpers import parse_json_object
 from ai_pipeline_core.database._protocol import DatabaseReader
 from ai_pipeline_core.database._types import DocumentRecord, SpanKind, SpanRecord, SpanStatus
+from ai_pipeline_core.observability._recovery import _CRASH_ERROR_TYPE
 
 from ._event_serialization import event_to_payload
 from ._types import (
@@ -26,7 +27,9 @@ from ._types import (
 
 __all__ = [
     "_ReconstructedEvent",
+    "_filter_after_cursor",
     "_reconstruct_lifecycle_events",
+    "reconstructed_event_cursor",
 ]
 
 _LIFECYCLE_KINDS = {SpanKind.DEPLOYMENT, SpanKind.FLOW, SpanKind.TASK}
@@ -45,6 +48,7 @@ class _ReconstructedEvent:
     span_id: str
     timestamp: datetime
     data: dict[str, Any]
+    cursor: str
 
 
 def _parse_meta(span: SpanRecord) -> dict[str, Any]:
@@ -120,6 +124,35 @@ def _sort_key(event: _ReconstructedEvent) -> tuple[datetime, int, int, str]:
     return (event.timestamp, kind_priority, phase_priority, event.span_id)
 
 
+def reconstructed_event_cursor(event: _ReconstructedEvent) -> str:
+    """Encode the stable cursor for one reconstructed lifecycle event."""
+    timestamp, kind_priority, phase_priority, span_id = _sort_key(event)
+    return f"{timestamp.isoformat()}|{kind_priority}|{phase_priority}|{span_id}"
+
+
+def _parse_cursor(after_cursor: str) -> tuple[datetime, int, int, str]:
+    try:
+        timestamp_text, kind_text, phase_text, span_id = after_cursor.split("|", maxsplit=3)
+        return (
+            datetime.fromisoformat(timestamp_text),
+            int(kind_text),
+            int(phase_text),
+            span_id,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Invalid lifecycle after_cursor. Expected '{{timestamp_iso}}|{{kind_priority}}|{{phase_priority}}|{{span_id}}', got {after_cursor!r}."
+        ) from exc
+
+
+def _filter_after_cursor(events: list[_ReconstructedEvent], after_cursor: str | None) -> list[_ReconstructedEvent]:
+    """Return only events that sort strictly after the given cursor."""
+    if after_cursor is None:
+        return events
+    cursor_key = _parse_cursor(after_cursor)
+    return [event for event in events if _sort_key(event) > cursor_key]
+
+
 def _reconstruct_deployment_events(
     span: SpanRecord,
     meta: dict[str, Any],
@@ -148,6 +181,7 @@ def _reconstruct_deployment_events(
             span_id=span_id_str,
             timestamp=span.started_at,
             data=event_to_payload(started_event),
+            cursor="",
         )
     )
 
@@ -173,10 +207,13 @@ def _reconstruct_deployment_events(
                         parent_span_id=str(span.parent_span_id) if span.parent_span_id else "",
                     )
                 ),
+                cursor="",
             )
         )
     elif span.status == SpanStatus.FAILED:
         error_code_str = meta.get("error_code", "unknown")
+        if span.error_type == _CRASH_ERROR_TYPE:
+            error_code_str = ErrorCode.CRASHED
         try:
             error_code = ErrorCode(error_code_str)
         except ValueError:
@@ -201,6 +238,7 @@ def _reconstruct_deployment_events(
                         parent_span_id=str(span.parent_span_id) if span.parent_span_id else "",
                     )
                 ),
+                cursor="",
             )
         )
 
@@ -243,6 +281,7 @@ def _reconstruct_flow_events(
                         input_document_sha256s=span.input_document_shas,
                     )
                 ),
+                cursor="",
             )
         )
         return events
@@ -269,6 +308,7 @@ def _reconstruct_flow_events(
             span_id=span_id_str,
             timestamp=span.started_at,
             data=event_to_payload(started_event),
+            cursor="",
         )
     )
 
@@ -295,6 +335,7 @@ def _reconstruct_flow_events(
                         input_document_sha256s=span.input_document_shas,
                     )
                 ),
+                cursor="",
             )
         )
     elif span.status == SpanStatus.FAILED:
@@ -319,6 +360,7 @@ def _reconstruct_flow_events(
                         input_document_sha256s=span.input_document_shas,
                     )
                 ),
+                cursor="",
             )
         )
 
@@ -368,6 +410,7 @@ def _reconstruct_task_events(
                         input_document_sha256s=span.input_document_shas,
                     )
                 ),
+                cursor="",
             )
         )
 
@@ -395,6 +438,7 @@ def _reconstruct_task_events(
                         input_document_sha256s=span.input_document_shas,
                     )
                 ),
+                cursor="",
             )
         )
     elif span.status == SpanStatus.FAILED:
@@ -420,6 +464,7 @@ def _reconstruct_task_events(
                         input_document_sha256s=span.input_document_shas,
                     )
                 ),
+                cursor="",
             )
         )
 
@@ -482,4 +527,13 @@ async def _reconstruct_lifecycle_events(
             events.extend(_reconstruct_task_events(span, meta, parent_task_id_str, flow_span=flow_span, flow_meta=flow_meta, doc_map=doc_map))
 
     events.sort(key=_sort_key)
-    return events
+    return [
+        _ReconstructedEvent(
+            event_type=event.event_type,
+            span_id=event.span_id,
+            timestamp=event.timestamp,
+            data=event.data,
+            cursor=reconstructed_event_cursor(event),
+        )
+        for event in events
+    ]

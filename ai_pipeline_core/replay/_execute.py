@@ -219,7 +219,7 @@ async def _execute_span_internal(
         source_span_id=span.span_id,
         database=sink_db,
         publisher=_NoopPublisher(),
-        sinks=build_runtime_sinks(database=sink_db, settings_obj=settings),
+        sinks=build_runtime_sinks(database=sink_db, settings_obj=settings).span_sinks,
     )
 
     callable_obj = resolve_callable(replay_target, decoded_receiver)

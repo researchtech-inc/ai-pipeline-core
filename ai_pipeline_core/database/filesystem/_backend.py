@@ -554,6 +554,20 @@ class FilesystemDatabase:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
         return sorted(matches, key=deployment_sort_key, reverse=True)
 
+    def _list_orphaned_deployment_roots_sync(self, older_than: datetime, limit: int) -> list[SpanRecord]:
+        if limit <= 0:
+            return []
+        matches = [
+            span
+            for span in self._spans.values()
+            if span.kind == SpanKind.DEPLOYMENT
+            and span.span_id == span.root_deployment_id
+            and span.status == SpanStatus.RUNNING
+            and span.started_at is not None
+            and span.started_at < older_than
+        ]
+        return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+
     def _get_cached_completion_sync(self, cache_key: str, max_age: timedelta | None) -> SpanRecord | None:
         now = datetime.now(UTC)
         matches: list[SpanRecord] = []
@@ -740,6 +754,14 @@ class FilesystemDatabase:
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
         return await self._run(self._list_deployments_by_run_id_sync, run_id)
+
+    async def list_orphaned_deployment_roots(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 1000,
+    ) -> list[SpanRecord]:
+        return await self._run(self._list_orphaned_deployment_roots_sync, older_than, limit)
 
     async def get_cached_completion(
         self,

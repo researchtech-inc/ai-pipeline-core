@@ -2,7 +2,7 @@
 # CLASSES: LimitKind, PipelineLimit, FlowOptions, PipelineFlow, TaskHandle, TaskBatch, PipelineTask
 # DEPENDS: BaseModel, StrEnum
 # PURPOSE: Pipeline framework primitives.
-# VERSION: 0.21.2
+# VERSION: 0.21.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -470,6 +470,10 @@ def pipeline_test_context(
     Yields:
         The active execution context for the test scope.
     """
+    from ai_pipeline_core.logger._logging_config import setup_logging  # noqa: PLC0415
+
+    if not logging.getLogger().handlers:
+        setup_logging()
     deployment_id = uuid4()
     ctx = ExecutionContext(
         run_id=run_id,
@@ -677,7 +681,7 @@ async def test_collect_tasks_on_dispatched_handle_list() -> None:
     assert batch.incomplete == []
 ```
 
-**Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:133`)
+**Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:134`)
 
 ```python
 def test_get_run_id_returns_run_id_from_context() -> None:
@@ -714,7 +718,7 @@ def test_invalid_name_pattern(self):
         _validate_concurrency_limits("TestDeploy", {"bad name!": PipelineLimit(10)})
 ```
 
-**Get run id outside context raises** (`tests/pipeline/test_execution_context.py:138`)
+**Get run id outside context raises** (`tests/pipeline/test_execution_context.py:139`)
 
 ```python
 def test_get_run_id_outside_context_raises() -> None:

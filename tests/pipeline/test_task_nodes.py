@@ -15,6 +15,7 @@ from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._handler import ExecutionLogHandler
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.pipeline import PipelineTask
 from ai_pipeline_core.pipeline._execution_context import ExecutionContext, FlowFrame, set_execution_context
 from ai_pipeline_core.pipeline._runtime_sinks import build_runtime_sinks
@@ -114,7 +115,7 @@ def _make_context_with_db(
         limits=MappingProxyType({}),
         limits_status=_SharedStatus(),
         database=db,
-        sinks=build_runtime_sinks(database=db, settings_obj=settings),
+        sinks=build_runtime_sinks(database=db, settings_obj=settings).span_sinks,
         deployment_id=resolved_deployment_id,
         root_deployment_id=resolved_deployment_id,
         deployment_name="test-pipeline",
@@ -168,6 +169,7 @@ async def test_successful_task_detail_omits_remote_child_deployment_id() -> None
 
 @pytest.mark.asyncio
 async def test_task_completion_includes_log_summary_and_prunes_buffer_state() -> None:
+    setup_logging(level="INFO")
     root_logger = logging.getLogger()
     handler = next((item for item in root_logger.handlers if isinstance(item, ExecutionLogHandler)), None)
     added_handler = False

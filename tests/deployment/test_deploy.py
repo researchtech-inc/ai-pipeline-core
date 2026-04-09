@@ -409,7 +409,8 @@ class TestInstallScript:
 class TestUvValidation:
     """Deployer must fail early if uv is not available."""
 
-    def test_build_bundle_fails_without_uv(self) -> None:
+    def test_build_bundle_fails_without_uv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
         deployer = _make_deployer()
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value=None):
@@ -421,8 +422,9 @@ class TestUvValidation:
 class TestBuildBundle:
     """Test _build_bundle executes correct commands and creates correct tarball structure."""
 
-    def test_build_bundle_commands(self) -> None:
+    def test_build_bundle_commands(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify the correct sequence of shell commands is executed."""
+        monkeypatch.chdir(tmp_path)
         deployer = _make_deployer()
         commands_run: list[str] = []
 
@@ -460,8 +462,9 @@ class TestBuildBundle:
         assert "--only-binary" in commands_run[2]
         assert "--no-deps" in commands_run[2]
 
-    def test_build_bundle_tarball_structure(self) -> None:
+    def test_build_bundle_tarball_structure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify the bundle tarball has project wheel at root and deps in wheels/."""
+        monkeypatch.chdir(tmp_path)
         deployer = _make_deployer()
 
         def mock_run(cmd: str, *, check: bool = True) -> str:
@@ -532,8 +535,9 @@ class TestShellQuoting:
 class TestPlatformTargeting:
     """Dependency resolution must target the worker platform, not the deployer's."""
 
-    def test_compile_targets_worker_platform(self) -> None:
+    def test_compile_targets_worker_platform(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """uv pip compile must use --python-platform to target linux worker."""
+        monkeypatch.chdir(tmp_path)
         from ai_pipeline_core.deployment.deploy import (
             _PIP_TARGET_PLATFORMS as PIP_TARGET_PLATFORMS,
             _TARGET_PYTHON_VERSION as TARGET_PYTHON_VERSION,
@@ -568,8 +572,9 @@ class TestPlatformTargeting:
             assert plat in download_cmd, f"Download must include platform {plat}"
         assert TARGET_PYTHON_VERSION in download_cmd
 
-    def test_build_bundle_stores_project_wheel_name(self) -> None:
+    def test_build_bundle_stores_project_wheel_name(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """_build_bundle must store the project wheel name for use in install script."""
+        monkeypatch.chdir(tmp_path)
         deployer = _make_deployer()
 
         def mock_run(cmd: str, *, check: bool = True) -> str:
@@ -702,8 +707,9 @@ class TestVendorPackages:
         assert compile_cmds, "uv pip compile was not called"
         assert "--find-links" in compile_cmds[0]
 
-    def test_build_bundle_without_vendor_no_find_links(self) -> None:
+    def test_build_bundle_without_vendor_no_find_links(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """When no vendor_packages, uv pip compile must NOT have --find-links."""
+        monkeypatch.chdir(tmp_path)
         deployer = _make_deployer()
         commands_run: list[str] = []
 

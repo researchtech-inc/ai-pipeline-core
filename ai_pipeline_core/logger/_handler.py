@@ -13,6 +13,7 @@ from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._types import LogRecord
 
 __all__ = [
+    "SKIP_EXECUTION_LOG_ATTR",
     "ExecutionLogHandler",
     "LogContext",
     "get_log_context",
@@ -23,7 +24,7 @@ __all__ = [
 _APPLICATION_LOG_LEVEL = logging.INFO
 _DEPENDENCY_LOG_LEVEL = logging.WARNING
 _FRAMEWORK_LOG_LEVEL = logging.DEBUG
-_SKIP_EXECUTION_LOG_ATTR = "_skip_execution_log"
+SKIP_EXECUTION_LOG_ATTR = "_skip_execution_log"
 _DEPENDENCY_LOGGER_PREFIXES = (
     "clickhouse_connect",
     "httpcore",
@@ -100,7 +101,7 @@ class ExecutionLogHandler(logging.Handler):
 
     def emit(self, record: Any) -> None:
         """Append an execution-scoped log record to the active buffer when configured."""
-        if getattr(record, _SKIP_EXECUTION_LOG_ATTR, False):
+        if getattr(record, SKIP_EXECUTION_LOG_ATTR, False):
             return
 
         ctx = _log_context.get()

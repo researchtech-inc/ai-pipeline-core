@@ -8,10 +8,13 @@ import pytest
 
 from ai_pipeline_core.database import DocumentRecord, SpanKind, SpanRecord, SpanStatus
 from ai_pipeline_core.database._memory import _MemoryDatabase
-from ai_pipeline_core.deployment._event_reconstruction import _reconstruct_lifecycle_events
-from ai_pipeline_core.deployment._types import EventType
 from ai_pipeline_core.deployment._event_serialization import event_to_payload
-from ai_pipeline_core.deployment._types import ErrorCode
+from ai_pipeline_core.deployment._event_reconstruction import (
+    _filter_after_cursor,
+    _reconstruct_lifecycle_events,
+    reconstructed_event_cursor,
+)
+from ai_pipeline_core.deployment._types import ErrorCode, EventType
 
 
 def _make_span(**kwargs: object) -> SpanRecord:
@@ -693,3 +696,44 @@ async def test_expected_tasks_roundtrip_serialization() -> None:
     # Verify JSON round-trip
     serialized = json.loads(json.dumps(payload))
     assert serialized["expected_tasks"] == expected_tasks
+
+
+@pytest.mark.asyncio
+async def test_reconstructed_events_include_stable_cursor_and_filter_from_cursor() -> None:
+    db = _MemoryDatabase()
+    root_id, _ = await _seed_successful_run(db)
+
+    events = await _reconstruct_lifecycle_events(db, root_id)
+
+    assert all(event.cursor == reconstructed_event_cursor(event) for event in events)
+    assert _filter_after_cursor(events, None) == events
+
+    filtered = _filter_after_cursor(events, events[2].cursor)
+    assert filtered == events[3:]
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_maps_process_crash_to_crashed_error_code() -> None:
+    db = _MemoryDatabase()
+    root_id = uuid4()
+    t0 = datetime(2026, 3, 14, 12, 0, tzinfo=UTC)
+
+    deploy = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="CrashedDeploy",
+        status=SpanStatus.FAILED,
+        started_at=t0,
+        ended_at=t0 + timedelta(seconds=5),
+        error_type="ProcessCrashed",
+        error_message="process crashed",
+        meta_json=json.dumps({"input_fingerprint": "fp", "deployment_class": "CrashPipeline", "flow_plan": [], "error_code": ErrorCode.CRASHED}),
+    )
+    await db.insert_span(deploy)
+
+    events = await _reconstruct_lifecycle_events(db, root_id)
+    run_failed = next(event for event in events if event.event_type == EventType.RUN_FAILED)
+
+    assert run_failed.data["error_code"] == ErrorCode.CRASHED

@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -66,11 +67,11 @@ class LaminarSpanSink:
         kind: SpanKind,
         name: str,
         target: str,
-        started_at: Any,
+        started_at: datetime,
         input_preview: Any | None,
-        **_: Any,
+        **extra: Any,
     ) -> None:
-        _ = started_at
+        _ = (started_at, extra)
         if not self._ensure_initialized():
             return
 
@@ -113,14 +114,14 @@ class LaminarSpanSink:
         self,
         *,
         span_id: UUID,
-        ended_at: Any,
+        ended_at: datetime,
         output_preview: Any | None,
         error: BaseException | None,
         metrics: SpanMetrics,
         meta: dict[str, Any],
-        **_: Any,
+        **extra: Any,
     ) -> None:
-        _ = ended_at
+        _ = (ended_at, extra)
         open_span = self._open_spans.pop(span_id, None)
         input_preview = self._input_previews.pop(span_id, None)
         if open_span is None:

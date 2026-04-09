@@ -1,0 +1,32 @@
+version: 1
+disable_existing_loggers: false
+prefect:
+  extra_loggers: []
+filters:
+  execution_context:
+    (): ai_pipeline_core.logger._context_filter.ExecutionContextFilter
+formatters:
+  json:
+    (): ai_pipeline_core.logger._json_formatter.JSONConsoleFormatter
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: json
+    filters: [execution_context]
+    level: INFO
+    stream: ext://sys.stdout
+  api:
+    class: prefect.logging.handlers.APILogHandler
+    level: INFO
+loggers:
+  prefect:
+    level: INFO
+    handlers: []
+    propagate: true
+  ai_pipeline_core:
+    level: INFO
+    handlers: []
+    propagate: true
+root:
+  level: DEBUG
+  handlers: [console, api]

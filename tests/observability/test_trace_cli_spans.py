@@ -202,11 +202,21 @@ async def _seed_span_snapshot(base_path: Path) -> tuple[FilesystemDatabase, UUID
 class TestSpanResolveConnection:
     def test_db_path_returns_span_filesystem_database(self, tmp_path: Path) -> None:
         FilesystemDatabase(tmp_path)
-        args = type("Args", (), {"db_path": str(tmp_path)})()
+        args = type("Args", (), {"command": "show", "db_path": str(tmp_path)})()
 
         database = _resolve_connection(args)
 
         assert isinstance(database, FilesystemDatabase)
+        assert database.read_only is True
+
+    def test_recover_db_path_opens_writable_filesystem_database(self, tmp_path: Path) -> None:
+        FilesystemDatabase(tmp_path)
+        args = type("Args", (), {"command": "recover", "db_path": str(tmp_path)})()
+
+        database = _resolve_connection(args)
+
+        assert isinstance(database, FilesystemDatabase)
+        assert database.read_only is False
 
     def test_live_connection_prefers_span_clickhouse(self, monkeypatch: pytest.MonkeyPatch) -> None:
         @dataclass(slots=True)
@@ -220,7 +230,7 @@ class TestSpanResolveConnection:
         monkeypatch.setattr(trace_cli, "settings", _Settings())
         monkeypatch.setattr(trace_cli, "ClickHouseDatabase", _FakeClickHouseDatabase)
 
-        database = _resolve_connection(type("Args", (), {"db_path": None})())
+        database = _resolve_connection(type("Args", (), {"command": "show", "db_path": None})())
 
         assert isinstance(database, _FakeClickHouseDatabase)
         assert isinstance(database.settings, _Settings)

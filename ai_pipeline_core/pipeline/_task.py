@@ -568,28 +568,6 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         output_refs = cls._build_output_refs(cached_documents)
         flow_step = execution_ctx.flow_frame.step if execution_ctx.flow_frame is not None else 0
         cached_input_sha256s = tuple(doc.sha256 for doc in input_docs)
-        await cls._emit_task_completed(
-            execution_ctx,
-            execution_ctx.flow_frame,
-            step=flow_step,
-            task_name=cls.name,
-            task_class_name=cls.__name__,
-            span_id=str(task_span_id),
-            start_time=start_time,
-            output_documents=output_refs,
-            status=str(SpanStatus.CACHED),
-            input_document_sha256s=cached_input_sha256s,
-        )
-        record_lifecycle_event(
-            "task.cached",
-            f"Reused cached task output for {cls.name}",
-            task_name=cls.name,
-            task_class=cls.__name__,
-            flow_name=execution_ctx.flow_frame.name if execution_ctx.flow_frame is not None else "",
-            step=flow_step,
-            cache_key=task_cache_key,
-            cache_source_span_id=str(task_cache_source_span.span_id),
-        )
         with contextlib.ExitStack() as cached_stack:
             cached_stack.enter_context(set_execution_context(execution_ctx.with_task(task_frame)))
             async with track_span(
@@ -620,6 +598,18 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                 )
                 span_ctx.set_output_preview({"documents": [doc.name for doc in cached_documents]})
                 span_ctx._set_output_value(cached_documents)
+        await cls._emit_task_completed(
+            execution_ctx,
+            execution_ctx.flow_frame,
+            step=flow_step,
+            task_name=cls.name,
+            task_class_name=cls.__name__,
+            span_id=str(task_span_id),
+            start_time=start_time,
+            output_documents=output_refs,
+            status=str(SpanStatus.CACHED),
+            input_document_sha256s=cached_input_sha256s,
+        )
         return cached_documents
 
     @classmethod
@@ -810,7 +800,6 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         task_name: str,
         span_id: str,
         flow_step: int,
-        start_time: float,
         input_document_sha256s: tuple[str, ...] = (),
         parent_span_ctx: SpanContext,
     ) -> tuple[tuple[Document, ...], int]:
@@ -824,63 +813,10 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             span_id=span_id,
             input_document_sha256s=input_document_sha256s,
         )
-        record_lifecycle_event(
-            "task.started",
-            f"Starting task {task_name}",
-            task_name=task_name,
-            task_class=cls.__name__,
-            flow_name=flow_frame.name if flow_frame is not None else "",
-            step=flow_step,
-        )
-        try:
-            documents, attempt = await cls._run_with_retries(arguments, parent_span_ctx=parent_span_ctx)
-
-            await cls._generate_summaries(documents)
-            persisted_docs = await cls._persist_documents(documents)
-
-            await cls._emit_task_completed(
-                execution_ctx,
-                flow_frame,
-                step=flow_step,
-                task_name=task_name,
-                task_class_name=cls.__name__,
-                span_id=span_id,
-                start_time=start_time,
-                output_documents=cls._build_output_refs(persisted_docs),
-                input_document_sha256s=input_document_sha256s,
-            )
-            record_lifecycle_event(
-                "task.completed",
-                f"Completed task {task_name}",
-                task_name=task_name,
-                task_class=cls.__name__,
-                flow_name=flow_frame.name if flow_frame is not None else "",
-                step=flow_step,
-                output_count=len(persisted_docs),
-            )
-            return persisted_docs, attempt
-        except TASK_EXECUTION_EXCEPTIONS as exc:
-            await cls._emit_task_failed(
-                execution_ctx,
-                flow_frame,
-                step=flow_step,
-                task_name=task_name,
-                task_class_name=cls.__name__,
-                span_id=span_id,
-                error_message=str(exc),
-                input_document_sha256s=input_document_sha256s,
-            )
-            record_lifecycle_event(
-                "task.failed",
-                f"Task {task_name} failed",
-                task_name=task_name,
-                task_class=cls.__name__,
-                flow_name=flow_frame.name if flow_frame is not None else "",
-                step=flow_step,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
-            raise
+        documents, attempt = await cls._run_with_retries(arguments, parent_span_ctx=parent_span_ctx)
+        await cls._generate_summaries(documents)
+        persisted_docs = await cls._persist_documents(documents)
+        return persisted_docs, attempt
 
     @classmethod
     async def _execute_invocation(cls, arguments: Mapping[str, Any]) -> tuple[Document, ...]:
@@ -951,45 +887,23 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             stack.enter_context(set_execution_context(task_exec_ctx))
             stack.enter_context(set_task_context(task_ctx))
             task_attempt = 0
-
-            async with track_span(
-                SpanKind.TASK,
-                task_name,
-                task_target,
-                sinks=get_sinks(),
-                span_id=task_span_id,
-                parent_span_id=parent_span_id,
-                encode_receiver=task_receiver,
-                encode_input=dict(arguments),
-                db=database,
-                input_preview=task_input_preview,
-            ) as span_ctx:
-                if cls.BASE_COST_USD > 0:
-                    span_ctx._add_cost(cls.BASE_COST_USD)
-                span_ctx.set_meta(
-                    attempt=task_attempt,
-                    retries=cls.retries,
-                    retry_delay_seconds=cls.retry_delay_seconds,
-                    timeout_seconds=cls.timeout_seconds,
-                    cache_hit=False,
-                    description=task_description,
-                    cache_key=task_cache_key,
-                )
-                try:
-                    input_sha256s = tuple(doc.sha256 for doc in input_docs)
-                    result, task_attempt = await cls._execute_lifecycle(
-                        arguments,
-                        execution_ctx=execution_ctx,
-                        flow_frame=flow_frame,
-                        task_name=task_name,
-                        span_id=str(span_ctx.span_id),
-                        flow_step=flow_frame.step if flow_frame is not None else 0,
-                        start_time=start_time,
-                        input_document_sha256s=input_sha256s,
-                        parent_span_ctx=span_ctx,
-                    )
-                except TASK_EXECUTION_EXCEPTIONS as exc:
-                    task_attempt = _get_task_attempt(exc)
+            input_sha256s = tuple(doc.sha256 for doc in input_docs)
+            result: tuple[Document, ...] = ()
+            try:
+                async with track_span(
+                    SpanKind.TASK,
+                    task_name,
+                    task_target,
+                    sinks=get_sinks(),
+                    span_id=task_span_id,
+                    parent_span_id=parent_span_id,
+                    encode_receiver=task_receiver,
+                    encode_input=dict(arguments),
+                    db=database,
+                    input_preview=task_input_preview,
+                ) as span_ctx:
+                    if cls.BASE_COST_USD > 0:
+                        span_ctx._add_cost(cls.BASE_COST_USD)
                     span_ctx.set_meta(
                         attempt=task_attempt,
                         retries=cls.retries,
@@ -999,20 +913,64 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                         description=task_description,
                         cache_key=task_cache_key,
                     )
-                    raise
-
-                span_ctx.set_meta(
-                    attempt=task_attempt,
-                    retries=cls.retries,
-                    retry_delay_seconds=cls.retry_delay_seconds,
-                    timeout_seconds=cls.timeout_seconds,
-                    cache_hit=False,
-                    description=task_description,
-                    cache_key=task_cache_key,
+                    try:
+                        result, task_attempt = await cls._execute_lifecycle(
+                            arguments,
+                            execution_ctx=execution_ctx,
+                            flow_frame=flow_frame,
+                            task_name=task_name,
+                            span_id=str(span_ctx.span_id),
+                            flow_step=flow_frame.step if flow_frame is not None else 0,
+                            input_document_sha256s=input_sha256s,
+                            parent_span_ctx=span_ctx,
+                        )
+                    except TASK_EXECUTION_EXCEPTIONS as exc:
+                        task_attempt = _get_task_attempt(exc)
+                        span_ctx.set_meta(
+                            attempt=task_attempt,
+                            retries=cls.retries,
+                            retry_delay_seconds=cls.retry_delay_seconds,
+                            timeout_seconds=cls.timeout_seconds,
+                            cache_hit=False,
+                            description=task_description,
+                            cache_key=task_cache_key,
+                        )
+                        raise
+                    span_ctx.set_meta(
+                        attempt=task_attempt,
+                        retries=cls.retries,
+                        retry_delay_seconds=cls.retry_delay_seconds,
+                        timeout_seconds=cls.timeout_seconds,
+                        cache_hit=False,
+                        description=task_description,
+                        cache_key=task_cache_key,
+                    )
+                    span_ctx.set_output_preview({"documents": [doc.name for doc in result]})
+                    span_ctx._set_output_value(result)
+            except TASK_EXECUTION_EXCEPTIONS as exc:
+                await cls._emit_task_failed(
+                    execution_ctx,
+                    flow_frame,
+                    step=flow_frame.step if flow_frame is not None else 0,
+                    task_name=task_name,
+                    task_class_name=cls.__name__,
+                    span_id=str(task_span_id),
+                    error_message=str(exc),
+                    input_document_sha256s=input_sha256s,
                 )
-                span_ctx.set_output_preview({"documents": [doc.name for doc in result]})
-                span_ctx._set_output_value(result)
-                return result
+                raise
+            await cls._emit_task_completed(
+                execution_ctx,
+                flow_frame,
+                step=flow_frame.step if flow_frame is not None else 0,
+                task_name=task_name,
+                task_class_name=cls.__name__,
+                span_id=str(task_span_id),
+                start_time=start_time,
+                output_documents=cls._build_output_refs(result),
+                input_document_sha256s=input_sha256s,
+            )
+            return result
 
 
 freeze_document_type_metadata(PipelineTask)

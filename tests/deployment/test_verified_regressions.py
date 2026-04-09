@@ -119,7 +119,9 @@ async def test_cached_flow_preserves_original_output_order(monkeypatch: pytest.M
 
 @pytest.mark.asyncio
 async def test_remote_poll_enforces_internal_deadline() -> None:
-    with pytest.raises(TimeoutError):
+    from ai_pipeline_core.deployment.remote import RemoteDeploymentPollingError
+
+    with pytest.raises(RemoteDeploymentPollingError, match=r"exceeded 0\.1s"):
         await _poll_remote_flow_run(
             _NeverFinalClient(),
             uuid4(),

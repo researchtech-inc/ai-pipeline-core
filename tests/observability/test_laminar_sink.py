@@ -131,8 +131,7 @@ def _build_context() -> ExecutionContext:
 def test_build_runtime_sinks_includes_laminar_sink_when_key_is_set() -> None:
     sinks = build_runtime_sinks(database=None, settings_obj=Settings(lmnr_project_api_key="secret"))
 
-    assert len(sinks) == 1
-    assert isinstance(sinks[0], LaminarSpanSink)
+    assert any(isinstance(sink, LaminarSpanSink) for sink in sinks.span_sinks)
 
 
 @pytest.mark.asyncio

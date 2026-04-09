@@ -2,6 +2,7 @@
 
 # pyright: reportPrivateUsage=false
 
+import asyncio
 import json
 import logging
 from types import MappingProxyType
@@ -100,6 +101,15 @@ class _FailingSink:
         raise RuntimeError("sink-finish-failed")
 
 
+class _SlowFinishSink:
+    async def on_span_started(self, **kwargs: object) -> None:
+        _ = kwargs
+
+    async def on_span_finished(self, **kwargs: object) -> None:
+        _ = kwargs
+        await asyncio.sleep(1)
+
+
 def _make_context(
     database: _MemoryDatabase,
     *,
@@ -113,7 +123,7 @@ def _make_context(
         limits=MappingProxyType({}),
         limits_status=_SharedStatus(),
         database=database,
-        sinks=build_runtime_sinks(database=database, settings_obj=settings),
+        sinks=build_runtime_sinks(database=database, settings_obj=settings).span_sinks,
         deployment_id=deployment_id,
         root_deployment_id=deployment_id,
         deployment_name="span-sink-test",
@@ -299,6 +309,61 @@ async def test_track_span_consumes_log_summary_in_finally() -> None:
     assert metrics["log_summary"]["total"] >= 1
     assert metrics["log_summary"]["warnings"] >= 1
     assert log_buffer.get_summary(span_id) == {"total": 0, "warnings": 0, "errors": 0, "last_error": ""}
+
+
+@pytest.mark.asyncio
+async def test_track_span_preserves_original_exception_when_sink_cleanup_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    database = _RecordingMemoryDatabase()
+    ctx = _make_context(database)
+
+    monkeypatch.setattr("ai_pipeline_core.pipeline._track_span._SHUTDOWN_TIMEOUT_SECONDS", 0.01)
+
+    with set_execution_context(ctx):
+        with pytest.raises(ValueError, match="boom"):
+            async with track_span(
+                SpanKind.OPERATION,
+                "slow-finish",
+                "function:test:slow-finish",
+                sinks=(_SlowFinishSink(),),
+                db=database,
+                input_preview=None,
+            ) as span_ctx:
+                span_ctx._set_output_value(None)
+                raise ValueError("boom")
+
+
+@pytest.mark.asyncio
+async def test_track_span_logs_failed_when_status_is_failed_without_python_exception() -> None:
+    root_logger = logging.getLogger()
+    handler = next((item for item in root_logger.handlers if isinstance(item, ExecutionLogHandler)), None)
+    added_handler = False
+    if handler is None:
+        handler = ExecutionLogHandler()
+        root_logger.addHandler(handler)
+        added_handler = True
+
+    log_buffer = ExecutionLogBuffer()
+    database = _RecordingMemoryDatabase()
+    ctx = _make_context(database, log_buffer=log_buffer)
+
+    try:
+        with set_execution_context(ctx):
+            async with track_span(
+                SpanKind.OPERATION,
+                "explicit-fail",
+                "function:test:explicit-fail",
+                sinks=get_sinks(),
+                db=database,
+                input_preview=None,
+            ) as span_ctx:
+                span_ctx.set_status(SpanStatus.FAILED)
+                span_ctx._set_output_value(None)
+    finally:
+        if added_handler:
+            root_logger.removeHandler(handler)
+
+    logs = log_buffer.drain()
+    assert any(log.event_type == "operation.failed" for log in logs)
 
 
 @pytest.mark.asyncio

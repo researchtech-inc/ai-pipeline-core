@@ -1,6 +1,6 @@
 """Tests for logging configuration."""
 
-import logging
+import importlib
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -140,18 +140,14 @@ class TestSetupLogging:
 
 
 class TestImportTimeSetup:
-    """Verify that importing ai_pipeline_core configures logging."""
+    """Verify the framework no longer relies on import-time logging setup."""
 
-    def test_import_triggers_setup(self) -> None:
-        """setup_logging() is called during package import."""
+    def test_import_does_not_trigger_setup(self) -> None:
+        """Importing the module should not configure logging as a side effect."""
         import ai_pipeline_core.logger._logging_config as cfg
 
-        assert cfg._logging_config is not None
-
-    def test_dependency_loggers_suppressed_after_import(self) -> None:
-        """httpx and httpcore loggers are set to WARNING+ after import."""
-        assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
-        assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING
+        reloaded = importlib.reload(cfg)
+        assert reloaded._logging_config is None
 
 
 def test_logging_module_exports_handler_and_buffer_for_logrecord_runtime() -> None:

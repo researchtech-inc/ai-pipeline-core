@@ -25,6 +25,7 @@ from ai_pipeline_core.database.filesystem.overlay import create_debug_sink
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.pipeline._execution_context import (
     ExecutionContext,
     FlowFrame,
@@ -200,13 +201,14 @@ async def _run_debug(
     execute_fn: Callable[[], Awaitable[tuple[Document, ...]]],
 ) -> tuple[Document, ...]:
     """Shared execution wrapper: sets up context, sinks, log buffer, runs, cleans up."""
+    setup_logging()
     from ai_pipeline_core.deployment._helpers import (  # noqa: PLC0415 — deferred to avoid circular import
         _cancel_dispatched_handles,
         _ensure_execution_log_handler_installed,
         _log_flush_loop,
     )
 
-    sinks = build_runtime_sinks(database=database, settings_obj=settings)
+    runtime_sinks = build_runtime_sinks(database=database, settings_obj=settings)
     _ensure_execution_log_handler_installed()
     flush_event = asyncio.Event()
     event_loop = asyncio.get_running_loop()
@@ -229,17 +231,17 @@ async def _run_debug(
         span_id=deployment_id,
         current_span_id=deployment_id,
         log_buffer=log_buffer,
-        sinks=sinks,
+        sinks=runtime_sinks.span_sinks,
     )
 
-    log_flush_task = asyncio.create_task(_log_flush_loop(database, log_buffer, flush_event))
+    log_flush_task = asyncio.create_task(_log_flush_loop(runtime_sinks.log_sinks, log_buffer, flush_event))
     limits_scope = contextlib.ExitStack()
     limits_scope.enter_context(_set_limits_state(_LimitsState(limits=MappingProxyType({}), status=_SharedStatus())))
     baseline_handles: set[object] = set()
 
     try:
         with limits_scope, set_execution_context(ctx), set_task_context(TaskContext(scope_kind="debug", task_class_name=name)):
-            async with track_span(SpanKind.DEPLOYMENT, name, "", sinks=sinks, span_id=deployment_id, db=database):
+            async with track_span(SpanKind.DEPLOYMENT, name, "", sinks=runtime_sinks.span_sinks, span_id=deployment_id, db=database):
                 baseline_handles = set(ctx.active_task_handles)
                 result = await execute_fn()
                 if not isinstance(result, tuple):
@@ -309,13 +311,14 @@ class DebugSession:
         return self._database
 
     async def __aenter__(self) -> DebugSession:
+        setup_logging()
         from ai_pipeline_core.deployment._helpers import (  # noqa: PLC0415 — deferred to avoid circular import
             _ensure_execution_log_handler_installed,
             _log_flush_loop,
         )
 
         self._database = create_debug_sink(self._output_dir)
-        sinks = build_runtime_sinks(database=self._database, settings_obj=settings)
+        runtime_sinks = build_runtime_sinks(database=self._database, settings_obj=settings)
         _ensure_execution_log_handler_installed()
 
         flush_event = asyncio.Event()
@@ -339,13 +342,11 @@ class DebugSession:
             span_id=self._deployment_id,
             current_span_id=self._deployment_id,
             log_buffer=log_buffer,
-            sinks=sinks,
+            sinks=runtime_sinks.span_sinks,
         )
 
-        self._log_flush_task = asyncio.create_task(_log_flush_loop(self._database, log_buffer, flush_event))
+        self._log_flush_task = asyncio.create_task(_log_flush_loop(runtime_sinks.log_sinks, log_buffer, flush_event))
         self._ctx = ctx
-        self._sinks = sinks
-
         stack = contextlib.AsyncExitStack()
         self._context_stack = stack
         await stack.__aenter__()
@@ -353,7 +354,14 @@ class DebugSession:
         stack.enter_context(set_execution_context(ctx))
         stack.enter_context(set_task_context(TaskContext(scope_kind="debug", task_class_name=f"debug-session-{self._run_id}")))
         await stack.enter_async_context(
-            track_span(SpanKind.DEPLOYMENT, f"debug-session-{self._run_id}", "", sinks=sinks, span_id=self._deployment_id, db=self._database)
+            track_span(
+                SpanKind.DEPLOYMENT,
+                f"debug-session-{self._run_id}",
+                "",
+                sinks=runtime_sinks.span_sinks,
+                span_id=self._deployment_id,
+                db=self._database,
+            )
         )
         return self
 

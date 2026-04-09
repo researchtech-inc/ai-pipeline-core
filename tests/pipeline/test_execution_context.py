@@ -10,6 +10,7 @@ import pytest
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._handler import ExecutionLogHandler
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.pipeline._execution_context import (
     ExecutionContext,
     FlowFrame,
@@ -141,6 +142,7 @@ def test_get_run_id_outside_context_raises() -> None:
 
 
 def test_record_lifecycle_event_uses_current_span_id_for_log_buffer() -> None:
+    setup_logging(level="INFO")
     root_logger = logging.getLogger()
     handler = next((item for item in root_logger.handlers if isinstance(item, ExecutionLogHandler)), None)
     added_handler = False
@@ -171,6 +173,7 @@ def test_record_lifecycle_event_uses_current_span_id_for_log_buffer() -> None:
             logs = buffer.drain()
             assert len(logs) == 1
             assert logs[0].span_id == current_span_id
+            assert logs[0].category == "lifecycle"
             assert logs[0].event_type == "task.started"
             assert '"task_name": "ExampleTask"' in logs[0].fields_json
     finally:

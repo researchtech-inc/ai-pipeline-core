@@ -1,22 +1,40 @@
-"""Runtime span sink construction helpers."""
+"""Runtime sink construction helpers."""
+
+from dataclasses import dataclass
 
 from ai_pipeline_core.database._protocol import DatabaseWriter
 from ai_pipeline_core.observability._laminar_sink import LaminarSpanSink
+from ai_pipeline_core.observability._sentry_init import ensure_sentry_initialized
+from ai_pipeline_core.observability._sentry_sink import SentryLogSink, SentrySpanSink
+from ai_pipeline_core.pipeline._log_sink import DatabaseLogSink
 from ai_pipeline_core.pipeline._span_sink import DatabaseSpanSink, SpanSink
+from ai_pipeline_core.pipeline._types import LogSink
 from ai_pipeline_core.settings import Settings
 
-__all__ = ["build_runtime_sinks"]
+__all__ = ["RuntimeSinks", "build_runtime_sinks"]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSinks:
+    """Concrete sink bundles for one runtime boundary."""
+
+    span_sinks: tuple[SpanSink, ...]
+    log_sinks: tuple[LogSink, ...]
 
 
 def build_runtime_sinks(
     *,
     database: DatabaseWriter | None,
     settings_obj: Settings,
-) -> tuple[SpanSink, ...]:
-    """Build the span sinks for one runtime boundary."""
-    sinks: list[SpanSink] = []
+) -> RuntimeSinks:
+    """Build runtime span/log sinks for one execution boundary."""
+    ensure_sentry_initialized(settings_obj.sentry_dsn)
+
+    span_sinks: list[SpanSink] = [SentrySpanSink()]
+    log_sinks: list[LogSink] = [SentryLogSink()]
     if database is not None:
-        sinks.append(DatabaseSpanSink(database))
+        span_sinks.insert(0, DatabaseSpanSink(database))
+        log_sinks.insert(0, DatabaseLogSink(database))
     if settings_obj.lmnr_project_api_key:
-        sinks.append(LaminarSpanSink(settings_obj))
-    return tuple(sinks)
+        span_sinks.append(LaminarSpanSink(settings_obj))
+    return RuntimeSinks(span_sinks=tuple(span_sinks), log_sinks=tuple(log_sinks))

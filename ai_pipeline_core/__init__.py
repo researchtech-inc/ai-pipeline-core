@@ -49,7 +49,6 @@ from .llm import (
     Tool,
     ToolOutput,
 )
-from .logger._logging_config import setup_logging as _setup_logging
 from .pipeline import (
     FlowOptions,
     LimitKind,
@@ -78,8 +77,6 @@ from .providers import (
 )
 from .replay import ExperimentOverrides, ExperimentResult, execute_span, experiment_batch, experiment_span
 from .settings import Settings
-
-_setup_logging()
 
 __version__ = importlib.metadata.version("ai-pipeline-core")
 

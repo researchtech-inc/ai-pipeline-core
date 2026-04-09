@@ -1,7 +1,7 @@
 """Tests for canonical database protocols."""
 
 import inspect
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import get_type_hints
 from uuid import UUID
 
@@ -43,6 +43,7 @@ def _make_reader_stub() -> object:
         "get_spans_referencing_document",
         "list_deployments",
         "list_deployments_by_run_id",
+        "list_orphaned_deployment_roots",
         "find_documents_by_name",
     }
     return type("ReaderStub", (), {name: _async_method for name in method_names})()
@@ -135,6 +136,13 @@ def test_database_reader_method_signatures() -> None:
         parameter_types={"cache_key": str, "max_age": timedelta | None},
         return_type=SpanRecord | None,
         keyword_only={"max_age"},
+    )
+    _assert_signature(
+        DatabaseReader,
+        "list_orphaned_deployment_roots",
+        parameter_types={"older_than": datetime, "limit": int},
+        return_type=list[SpanRecord],
+        keyword_only={"older_than", "limit"},
     )
     _assert_signature(
         DatabaseReader,

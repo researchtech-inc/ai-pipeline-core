@@ -25,7 +25,7 @@ from prefect.logging import disable_run_logger
 from prefect.testing.utilities import prefect_test_harness
 from pydantic import BaseModel, ConfigDict
 
-from ai_pipeline_core.database import CostTotals, SpanKind, SpanStatus
+from ai_pipeline_core.database import SpanKind, SpanStatus
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
@@ -35,7 +35,6 @@ from ai_pipeline_core.pipeline._execution_context import (
     _RunContext,
     get_execution_context,
     get_sinks,
-    record_lifecycle_event,
     set_execution_context,
     set_run_context,
 )
@@ -124,9 +123,6 @@ async def _record_nonexecuted_flow(
     total_steps: int,
     status: SpanStatus,
     publish_reason: str,
-    lifecycle_event: str,
-    lifecycle_message: str,
-    lifecycle_fields: dict[str, Any],
     publisher: ResultPublisher,
     run_id: str,
     root_deployment_id: str,
@@ -139,6 +135,7 @@ async def _record_nonexecuted_flow(
 ) -> None:
     input_documents = _documents_from_flow_arguments(resolved_kwargs)
     flow_target = f"instance_method:{flow_class.__module__}:{flow_class.__qualname__}.run"
+    flow_span_id: str | None = None
     async with track_span(
         kind=SpanKind.FLOW,
         name=flow_name,
@@ -156,6 +153,7 @@ async def _record_nonexecuted_flow(
             "available_documents": [document.name for document in available_docs],
         },
     ) as flow_span_ctx:
+        flow_span_id = str(flow_span_ctx.span_id)
         flow_span_ctx.set_status(status)
         flow_span_ctx.set_meta(
             step=step,
@@ -167,10 +165,14 @@ async def _record_nonexecuted_flow(
             cache_source_span_id=cache_source_span_id,
             skip_reason=publish_reason,
         )
+        if output_documents:
+            flow_span_ctx.set_output_preview({"documents": [document.name for document in output_documents]})
+            flow_span_ctx._set_output_value(output_documents)
+    try:
         await publisher.publish_flow_skipped(
             FlowSkippedEvent(
                 run_id=run_id,
-                span_id=str(flow_span_ctx.span_id),
+                span_id=flow_span_id,
                 root_deployment_id=root_deployment_id,
                 parent_deployment_task_id=parent_deployment_task_id,
                 flow_name=flow_name,
@@ -183,25 +185,8 @@ async def _record_nonexecuted_flow(
                 input_document_sha256s=tuple(doc.sha256 for doc in input_documents),
             )
         )
-        record_lifecycle_event(lifecycle_event, lifecycle_message, **lifecycle_fields)
-        if output_documents:
-            flow_span_ctx.set_output_preview({"documents": [document.name for document in output_documents]})
-            flow_span_ctx._set_output_value(output_documents)
-
-
-async def _load_deployment_cost_totals(
-    *,
-    database: Any,
-    root_deployment_id: UUID,
-    deployment_span_id: UUID,
-) -> CostTotals:
-    if database is None:
-        return CostTotals()
-    try:
-        return await database.get_deployment_cost_totals(root_deployment_id)
     except Exception as exc:
-        logger.warning("Deployment cost totals query failed for %s: %s", deployment_span_id, exc)
-        return CostTotals()
+        logger.warning("Failed to publish flow.skipped event: %s", exc)
 
 
 _MISSING_FIELD_VALUE = object()
@@ -571,6 +556,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         log_buffer: ExecutionLogBuffer | None = None
         flush_event: asyncio.Event | None = None
         log_flush_task: asyncio.Task[None] | None = None
+        runtime_sinks = build_runtime_sinks(database=database, settings_obj=settings)
         if database is not None:
             _ensure_execution_log_handler_installed()
             flush_event = asyncio.Event()
@@ -606,13 +592,15 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     span_id=deployment_span_id,
                     current_span_id=deployment_span_id,
                     log_buffer=log_buffer,
-                    sinks=build_runtime_sinks(database=database, settings_obj=settings),
+                    sinks=runtime_sinks.span_sinks,
                 )
             )
         )
+        deployment_start_mono = _time_mod.monotonic()
+        deployment_span_ctx: Any | None = None
         try:
             if flush_event is not None:
-                log_flush_task = asyncio.create_task(_log_flush_loop(database, log_buffer, flush_event))
+                log_flush_task = asyncio.create_task(_log_flush_loop(runtime_sinks.log_sinks, log_buffer, flush_event))
             async with track_span(
                 kind=SpanKind.DEPLOYMENT,
                 name=self.name,
@@ -623,13 +611,14 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 encode_input={"documents": tuple(input_docs), "options": options},
                 db=database,
                 input_preview={"deployment": self.name, "document_count": len(input_docs)},
-            ) as deployment_span_ctx:
+            ) as current_deployment_span_ctx:
+                deployment_span_ctx = current_deployment_span_ctx
                 deployment_span_ctx.set_meta(
                     input_fingerprint=input_fingerprint,
                     flow_plan=flow_plan,
                     deployment_class=type(self).__name__,
                 )
-                return await self._run_tracked_deployment(
+                result, last_flow_output_sha256s = await self._run_tracked_deployment(
                     run_id=run_id,
                     publisher=publisher,
                     plan=plan,
@@ -649,6 +638,47 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     deployment_span_ctx=deployment_span_ctx,
                     flow_run_id=flow_run_id,
                 )
+            try:
+                await publisher.publish_run_completed(
+                    RunCompletedEvent(
+                        run_id=run_id,
+                        span_id=deployment_span_id_str,
+                        root_deployment_id=root_id_str,
+                        parent_deployment_task_id=parent_task_id_str,
+                        status=str(SpanStatus.COMPLETED),
+                        result=result.model_dump(),
+                        deployment_name=self.name,
+                        deployment_class=type(self).__name__,
+                        duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
+                        output_document_sha256s=last_flow_output_sha256s,
+                        parent_span_id=parent_task_id_str or "",
+                    )
+                )
+            except Exception as pub_err:
+                logger.warning("Failed to publish completion event: %s", pub_err)
+            return result
+        except (Exception, asyncio.CancelledError) as exc:
+            if deployment_span_ctx is not None:
+                deployment_span_ctx.set_meta(error_code=str(_classify_error(exc)))
+            try:
+                await publisher.publish_run_failed(
+                    RunFailedEvent(
+                        run_id=run_id,
+                        span_id=deployment_span_id_str,
+                        root_deployment_id=root_id_str,
+                        parent_deployment_task_id=parent_task_id_str,
+                        status=str(SpanStatus.FAILED),
+                        error_code=_classify_error(exc),
+                        error_message=str(exc),
+                        deployment_name=self.name,
+                        deployment_class=type(self).__name__,
+                        duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
+                        parent_span_id=parent_task_id_str or "",
+                    )
+                )
+            except Exception as pub_err:
+                logger.warning("Failed to publish failure event: %s", pub_err)
+            raise
         finally:
             if log_flush_task is not None:
                 log_flush_task.cancel()
@@ -679,34 +709,27 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         parent_task_id_str: str | None,
         deployment_span_ctx: Any,
         flow_run_id: str,
-    ) -> TResult:
+    ) -> tuple[TResult, tuple[str, ...]]:
         heartbeat_task: asyncio.Task[None] | None = None
-        failed_published = False
-        deployment_start_mono = _time_mod.monotonic()
         try:
-            record_lifecycle_event(
-                "deployment.started",
-                "Starting deployment",
-                deployment_name=self.name,
-                total_steps=total_steps,
-                start_step=start_step,
-                end_step=end_step,
-            )
-            await publisher.publish_run_started(
-                RunStartedEvent(
-                    run_id=run_id,
-                    span_id=deployment_span_id_str,
-                    root_deployment_id=root_id_str,
-                    parent_deployment_task_id=parent_task_id_str,
-                    input_fingerprint=input_fingerprint,
-                    status=str(SpanStatus.RUNNING),
-                    deployment_name=self.name,
-                    deployment_class=type(self).__name__,
-                    flow_plan=flow_plan,
-                    parent_span_id=parent_task_id_str or "",
-                    input_document_sha256s=tuple(doc.sha256 for doc in input_docs),
+            try:
+                await publisher.publish_run_started(
+                    RunStartedEvent(
+                        run_id=run_id,
+                        span_id=deployment_span_id_str,
+                        root_deployment_id=root_id_str,
+                        parent_deployment_task_id=parent_task_id_str,
+                        input_fingerprint=input_fingerprint,
+                        status=str(SpanStatus.RUNNING),
+                        deployment_name=self.name,
+                        deployment_class=type(self).__name__,
+                        flow_plan=flow_plan,
+                        parent_span_id=parent_task_id_str or "",
+                        input_document_sha256s=tuple(doc.sha256 for doc in input_docs),
+                    )
                 )
-            )
+            except Exception as exc:
+                logger.warning("Failed to publish run.started event: %s", exc)
 
             heartbeat_task = asyncio.create_task(_heartbeat_loop(publisher, run_id, root_deployment_id=root_id_str, span_id=deployment_span_id_str))
             await _ensure_concurrency_limits(self.concurrency_limits)
@@ -745,15 +768,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                         total_steps=total_steps,
                         status=SpanStatus.SKIPPED,
                         publish_reason=f"group '{flow_step.group}' stopped",
-                        lifecycle_event="flow.skipped",
-                        lifecycle_message=f"Skipped flow {flow_name}",
-                        lifecycle_fields={
-                            "flow_name": flow_name,
-                            "flow_class": flow_class.__name__,
-                            "step": step,
-                            "total_steps": total_steps,
-                            "reason": f"group '{flow_step.group}' stopped",
-                        },
                         publisher=publisher,
                         run_id=run_id,
                         root_deployment_id=root_id_str,
@@ -777,15 +791,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                         total_steps=total_steps,
                         status=SpanStatus.SKIPPED,
                         publish_reason=f"run_if gate did not pass: {_gate_reason(flow_step.run_if)}",
-                        lifecycle_event="flow.skipped",
-                        lifecycle_message=f"Skipped flow {flow_name}",
-                        lifecycle_fields={
-                            "flow_name": flow_name,
-                            "flow_class": flow_class.__name__,
-                            "step": step,
-                            "total_steps": total_steps,
-                            "reason": f"run_if gate did not pass: {_gate_reason(flow_step.run_if)}",
-                        },
                         publisher=publisher,
                         run_id=run_id,
                         root_deployment_id=root_id_str,
@@ -830,16 +835,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                         total_steps=total_steps,
                         status=SpanStatus.CACHED,
                         publish_reason="cached_result_available",
-                        lifecycle_event="flow.cached",
-                        lifecycle_message=f"Reused cached flow output for {flow_name}",
-                        lifecycle_fields={
-                            "flow_name": flow_name,
-                            "flow_class": flow_class.__name__,
-                            "step": step,
-                            "total_steps": total_steps,
-                            "cache_key": flow_cache_key,
-                            "cache_source_span_id": str(cached_span.span_id),
-                        },
                         publisher=publisher,
                         run_id=run_id,
                         root_deployment_id=root_id_str,
@@ -853,8 +848,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     continue
 
                 flow_span_id = uuid7()
-                logger.info("[%d/%d] Starting: %s", step, total_steps, flow_name)
-
                 completed_mins = sum(flow_minutes[: max(step - 1, 0)])
                 flow_frame = FlowFrame(
                     name=flow_name,
@@ -935,75 +928,16 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 end_step=end_step,
                 total_steps=total_steps,
             )
-            cost_totals = await _load_deployment_cost_totals(
-                database=database,
-                root_deployment_id=root_deployment_id,
-                deployment_span_id=deployment_span_id,
-            )
-            record_lifecycle_event(
-                "deployment.completed",
-                "Completed deployment",
-                deployment_name=self.name,
-                total_steps=total_steps,
-                output_count=len(all_docs),
-                partial_run=end_step < total_steps,
-                cost_usd=cost_totals.cost_usd,
-            )
-            await publisher.publish_run_completed(
-                RunCompletedEvent(
-                    run_id=run_id,
-                    span_id=deployment_span_id_str,
-                    root_deployment_id=root_id_str,
-                    parent_deployment_task_id=parent_task_id_str,
-                    status=str(SpanStatus.COMPLETED),
-                    result=result.model_dump(),
-                    deployment_name=self.name,
-                    deployment_class=type(self).__name__,
-                    duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
-                    output_document_sha256s=last_flow_output_sha256s,
-                    parent_span_id=parent_task_id_str or "",
-                )
-            )
             deployment_span_ctx.set_output_preview({"run_id": run_id, "result": result.model_dump(mode="json")})
             deployment_span_ctx._set_output_value({
                 "result": result,
                 "output_documents": previous_output_documents,
             })
-            return result
-        except (Exception, asyncio.CancelledError) as exc:
-            record_lifecycle_event(
-                "deployment.failed",
-                "Deployment failed",
-                deployment_name=self.name,
-                total_steps=total_steps,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
+            return result, last_flow_output_sha256s
+        except Exception, asyncio.CancelledError:
             current_exec_ctx = get_execution_context()
             if current_exec_ctx is not None:
                 await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=set())
-            if not failed_published:
-                failed_published = True
-                try:
-                    error_code = _classify_error(exc)
-                    deployment_span_ctx.set_meta(error_code=str(error_code))
-                    await publisher.publish_run_failed(
-                        RunFailedEvent(
-                            run_id=run_id,
-                            span_id=deployment_span_id_str,
-                            root_deployment_id=root_id_str,
-                            parent_deployment_task_id=parent_task_id_str,
-                            status=str(SpanStatus.FAILED),
-                            error_code=error_code,
-                            error_message=str(exc),
-                            deployment_name=self.name,
-                            deployment_class=type(self).__name__,
-                            duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
-                            parent_span_id=parent_task_id_str or "",
-                        )
-                    )
-                except Exception as pub_err:
-                    logger.warning("Failed to publish failure event: %s", pub_err)
             raise
         finally:
             if heartbeat_task is not None:

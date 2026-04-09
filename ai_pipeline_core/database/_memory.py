@@ -110,6 +110,25 @@ class _MemoryDatabase:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
         return sorted(matches, key=deployment_sort_key, reverse=True)
 
+    async def list_orphaned_deployment_roots(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 1000,
+    ) -> list[SpanRecord]:
+        if limit <= 0:
+            return []
+        matches = [
+            span
+            for span in self._spans.values()
+            if span.kind == SpanKind.DEPLOYMENT
+            and span.span_id == span.root_deployment_id
+            and span.status == SpanStatus.RUNNING
+            and span.started_at is not None
+            and span.started_at < older_than
+        ]
+        return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+
     async def get_cached_completion(
         self,
         cache_key: str,

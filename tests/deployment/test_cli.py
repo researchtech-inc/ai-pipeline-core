@@ -3,6 +3,7 @@
 # pyright: reportPrivateUsage=false
 
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -267,6 +268,27 @@ class TestHeartbeatLoop:
             with pytest.raises(asyncio.CancelledError):
                 await task
         assert call_count >= 1
+
+    async def test_heartbeat_logs_even_when_publish_fails(self, caplog: pytest.LogCaptureFixture):
+        publisher = MagicMock()
+
+        async def _failing_heartbeat(run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+            _ = (run_id, root_deployment_id, span_id)
+            raise RuntimeError("publish failed")
+
+        publisher.publish_heartbeat = _failing_heartbeat
+
+        with patch("ai_pipeline_core.deployment._helpers._HEARTBEAT_INTERVAL_SECONDS", 0.01):
+            with caplog.at_level(logging.INFO):
+                task = asyncio.create_task(_heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1"))
+                await asyncio.sleep(0.05)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+        heartbeat_records = [record for record in caplog.records if getattr(record, "event_type", "") == "run.heartbeat"]
+        assert heartbeat_records
+        assert all(getattr(record, "category", "") == "lifecycle" for record in heartbeat_records)
 
 
 # ---------------------------------------------------------------------------

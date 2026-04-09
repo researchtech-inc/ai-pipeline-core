@@ -17,8 +17,10 @@ from ai_pipeline_core.database._factory import Database, create_database_from_se
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.exceptions import LLMError, NonRetriableError, PipelineCoreError
 from ai_pipeline_core.logger._buffer import MAX_PENDING_EXECUTION_LOGS, ExecutionLogBuffer
-from ai_pipeline_core.logger._handler import ExecutionLogHandler
+from ai_pipeline_core.logger._handler import SKIP_EXECUTION_LOG_ATTR, ExecutionLogHandler
+from ai_pipeline_core.pipeline._log_sink import DatabaseLogSink
 from ai_pipeline_core.pipeline._parallel import TaskHandle
+from ai_pipeline_core.pipeline._types import LogSink
 from ai_pipeline_core.pipeline.options import FlowOptions
 from ai_pipeline_core.settings import Settings
 
@@ -26,7 +28,6 @@ from ._pubsub import PubSubPublisher
 from ._types import ErrorCode, ResultPublisher, _NoopPublisher
 
 logger = logging.getLogger(__name__)
-_PUBSUB_DEPENDENCY_AVAILABLE = True
 
 __all__ = [
     "MAX_RUN_ID_LENGTH",
@@ -59,7 +60,6 @@ _HEARTBEAT_INTERVAL_SECONDS = 30
 _MILLISECONDS_PER_SECOND = 1000
 _HANDLE_CANCEL_GRACE_SECONDS = 5
 LOG_BUFFER_FLUSH_INTERVAL_SECONDS = 2
-SKIP_EXECUTION_LOG_ATTR = "_skip_execution_log"
 _execution_log_handler_lock = Lock()
 
 
@@ -234,7 +234,7 @@ async def _cancel_dispatched_handles(
 
 
 async def _flush_logs_once(
-    database: Any,
+    log_sinks: tuple[LogSink, ...],
     log_buffer: ExecutionLogBuffer | None,
     pending_logs: list[LogRecord],
 ) -> list[LogRecord]:
@@ -249,18 +249,33 @@ async def _flush_logs_once(
             dropped_from_backlog,
             extra={SKIP_EXECUTION_LOG_ATTR: True},
         )
-    if database is None or not pending_logs:
+    if not pending_logs or not log_sinks:
         return pending_logs
-    try:
-        await database.save_logs_batch(pending_logs)
-    except Exception as exc:
-        logger.warning(
-            "Execution log flush failed. The framework will retry on the next flush cycle. Error: %s",
-            exc,
-            extra={SKIP_EXECUTION_LOG_ATTR: True},
-            exc_info=exc,
-        )
-        return pending_logs
+    primary_sink = next((sink for sink in log_sinks if isinstance(sink, DatabaseLogSink)), None)
+    if primary_sink is not None:
+        try:
+            await primary_sink.on_logs_batch(pending_logs)
+        except Exception as exc:
+            logger.warning(
+                "Execution log flush failed. The framework will retry on the next flush cycle. Error: %s",
+                exc,
+                extra={SKIP_EXECUTION_LOG_ATTR: True},
+                exc_info=exc,
+            )
+            return pending_logs
+    for sink in log_sinks:
+        if sink is primary_sink:
+            continue
+        try:
+            await sink.on_logs_batch(pending_logs)
+        except Exception as exc:
+            logger.warning(
+                "Best-effort log sink %s failed: %s",
+                type(sink).__name__,
+                exc,
+                extra={SKIP_EXECUTION_LOG_ATTR: True},
+                exc_info=exc,
+            )
     if log_buffer is not None:
         dropped_from_buffer = log_buffer.consume_dropped_count()
         if dropped_from_buffer > 0:
@@ -275,7 +290,7 @@ async def _flush_logs_once(
 
 
 async def _log_flush_loop(
-    database: Any,
+    log_sinks: tuple[LogSink, ...],
     log_buffer: ExecutionLogBuffer | None,
     flush_event: asyncio.Event,
 ) -> None:
@@ -286,9 +301,9 @@ async def _log_flush_loop(
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(flush_event.wait(), timeout=LOG_BUFFER_FLUSH_INTERVAL_SECONDS)
             flush_event.clear()
-            pending_logs = await _flush_logs_once(database, log_buffer, pending_logs)
+            pending_logs = await _flush_logs_once(log_sinks, log_buffer, pending_logs)
     except asyncio.CancelledError:
-        pending_logs = await _flush_logs_once(database, log_buffer, pending_logs)
+        pending_logs = await _flush_logs_once(log_sinks, log_buffer, pending_logs)
         if pending_logs:
             logger.warning(
                 "Execution log flush stopped with %d pending log(s). The database write path is still failing; inspect earlier log flush warnings.",
@@ -306,3 +321,14 @@ async def _heartbeat_loop(publisher: ResultPublisher, run_id: str, *, root_deplo
             await publisher.publish_heartbeat(run_id, root_deployment_id=root_deployment_id, span_id=span_id)
         except Exception as e:
             logger.warning("Heartbeat publish failed: %s", e)
+        logger.info(
+            "run.heartbeat",
+            extra={
+                "category": "lifecycle",
+                "lifecycle": True,
+                "event_type": "run.heartbeat",
+                "run_id": run_id,
+                "root_deployment_id": root_deployment_id,
+                "span_id": span_id,
+            },
+        )

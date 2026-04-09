@@ -242,6 +242,9 @@ class ExecutionContext:
     parent_span_id: UUID | None = None
     current_span_id: UUID | None = None
     flow_span_id: UUID | None = None
+    span_kind: str = ""
+    span_name: str = ""
+    span_target: str = ""
     log_buffer: ExecutionLogBuffer | None = None
     sinks: tuple[SpanSink, ...] = ()
     disable_cache: bool = False
@@ -270,13 +273,24 @@ class ExecutionContext:
         """Return a copy with a new task frame."""
         return replace(self, task_frame=task_frame)
 
-    def with_span(self, span_id: UUID, *, parent_span_id: UUID | None) -> ExecutionContext:
+    def with_span(
+        self,
+        span_id: UUID,
+        *,
+        parent_span_id: UUID | None,
+        span_kind: str = "",
+        span_name: str = "",
+        span_target: str = "",
+    ) -> ExecutionContext:
         """Return a copy with a new current span ID."""
         return replace(
             self,
             span_id=span_id,
             parent_span_id=parent_span_id,
             current_span_id=span_id,
+            span_kind=span_kind,
+            span_name=span_name,
+            span_target=span_target,
         )
 
     @property
@@ -378,7 +392,7 @@ def get_sinks() -> tuple[SpanSink, ...]:
     execution_ctx = get_execution_context()
     if execution_ctx is None:
         return ()
-    return execution_ctx.sinks
+    return tuple(execution_ctx.sinks)
 
 
 def record_lifecycle_event(event_type: str, message: str, **fields: Any) -> None:
@@ -386,6 +400,7 @@ def record_lifecycle_event(event_type: str, message: str, **fields: Any) -> None
     logger.info(
         message,
         extra={
+            "category": "lifecycle",
             "lifecycle": True,
             "event_type": event_type,
             "fields_json": json.dumps(fields, default=str, sort_keys=True),
@@ -404,6 +419,10 @@ def pipeline_test_context(
     Yields:
         The active execution context for the test scope.
     """
+    from ai_pipeline_core.logger._logging_config import setup_logging  # noqa: PLC0415
+
+    if not logging.getLogger().handlers:
+        setup_logging()
     deployment_id = uuid4()
     ctx = ExecutionContext(
         run_id=run_id,

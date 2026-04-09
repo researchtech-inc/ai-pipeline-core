@@ -34,6 +34,7 @@ from ai_pipeline_core.deployment._contract import (
     PendingRun,
     ProgressRun,
 )
+from ai_pipeline_core.logger._logging_config import setup_logging
 from .conftest import InputDoc, MiddleDoc, OutputDoc, StageOne, StageTwo, _TestOptions, _TestResult
 
 
@@ -671,6 +672,7 @@ async def test_deployment_run_executes_flow_instances(input_documents):
 
 @pytest.mark.asyncio
 async def test_deployment_persists_logs_and_log_summaries(input_documents) -> None:
+    setup_logging(level="INFO")
     deployment = ExampleDeployment()
     database = _MemoryDatabase()
 
@@ -688,14 +690,16 @@ async def test_deployment_persists_logs_and_log_summaries(input_documents) -> No
 
     deployment_logs = await database.get_deployment_logs(deployment_spans[0].deployment_id, category="lifecycle")
     event_types = {log.event_type for log in deployment_logs}
-    assert "deployment.started" in event_types
-    assert "deployment.completed" in event_types
+    assert "run.started" in event_types
+    assert "run.completed" in event_types
     assert "flow.started" in event_types
     assert "flow.completed" in event_types
 
 
 @pytest.mark.asyncio
 async def test_skipped_flow_persists_lifecycle_log_and_summary(input_documents) -> None:
+    setup_logging(level="INFO")
+
     class SkipSecondFlowDeployment(ExampleDeployment):
         def build_plan(self, options: _TestOptions) -> DeploymentPlan:
             _ = options
@@ -723,6 +727,7 @@ async def test_skipped_flow_persists_lifecycle_log_and_summary(input_documents) 
 
 @pytest.mark.asyncio
 async def test_cached_flow_persists_lifecycle_log_and_summary(input_documents) -> None:
+    setup_logging(level="INFO")
     database = _MemoryDatabase()
     deployment = ExampleDeployment()
 

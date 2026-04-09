@@ -259,6 +259,32 @@ class ClickHouseDatabase:
         )
         return [row_to_span(tuple(row)) for row in result.result_rows]
 
+    async def list_orphaned_deployment_roots(
+        self,
+        *,
+        older_than: datetime,
+        limit: int = 1000,
+    ) -> list[SpanRecord]:
+        if limit <= 0:
+            return []
+        result = await self._query(
+            f"SELECT {', '.join(SPAN_COLUMNS)} FROM ("
+            f"SELECT * FROM {SPANS_TABLE} "
+            "WHERE kind = {kind:String} "
+            "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
+            ") WHERE span_id = root_deployment_id "
+            "AND status = {status:String} "
+            "AND started_at < {older_than:DateTime64(3)} "
+            "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64}",
+            parameters={
+                "kind": SpanKind.DEPLOYMENT,
+                "status": SpanStatus.RUNNING,
+                "older_than": older_than,
+                "limit": limit,
+            },
+        )
+        return [row_to_span(tuple(row)) for row in result.result_rows]
+
     async def get_cached_completion(
         self,
         cache_key: str,

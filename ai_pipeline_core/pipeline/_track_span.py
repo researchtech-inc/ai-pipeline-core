@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid7
 
+import anyio
 from pydantic import BaseModel
 
 from ai_pipeline_core._codec import SerializedError, UniversalCodec
@@ -40,6 +41,17 @@ __all__ = ["get_current_span_context", "track_span"]
 logger = logging.getLogger(__name__)
 _UNSET = object()
 _current_span_context: ContextVar[SpanContext | None] = ContextVar("_current_span_context", default=None)
+_KIND_TO_LOG_PREFIX: dict[SpanKind, str] = {
+    SpanKind.DEPLOYMENT: "run",
+    SpanKind.FLOW: "flow",
+    SpanKind.TASK: "task",
+    SpanKind.CONVERSATION: "conversation",
+    SpanKind.LLM_ROUND: "llm",
+    SpanKind.TOOL_CALL: "tool",
+    SpanKind.ATTEMPT: "attempt",
+    SpanKind.OPERATION: "operation",
+}
+_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
 def get_current_span_context() -> SpanContext | None:
@@ -70,7 +82,7 @@ class _EncodedSpanFinish:
 
 
 @asynccontextmanager
-async def track_span(
+async def track_span(  # noqa: PLR0914 - span lifecycle orchestration needs several local values
     kind: SpanKind,
     name: str,
     target: str,
@@ -111,7 +123,17 @@ async def track_span(
         sinks=tuple(sinks),
     )
 
-    span_execution_ctx = execution_ctx.with_span(span_id, parent_span_id=effective_parent_span_id) if execution_ctx is not None else None
+    span_execution_ctx = (
+        execution_ctx.with_span(
+            span_id,
+            parent_span_id=effective_parent_span_id,
+            span_kind=kind.value,
+            span_name=name,
+            span_target=target,
+        )
+        if execution_ctx is not None
+        else None
+    )
 
     error: BaseException | None = None
     span_ctx_token = _current_span_context.set(context)
@@ -134,6 +156,19 @@ async def track_span(
             input_blob_shas=start_payload.blob_shas,
             input_preview=context.input_preview,
         )
+        logger.info(
+            "%s.started: %s",
+            _KIND_TO_LOG_PREFIX[kind],
+            name,
+            extra={
+                "category": "lifecycle",
+                "lifecycle": True,
+                "event_type": f"{_KIND_TO_LOG_PREFIX[kind]}.started",
+                "span_kind": kind.value,
+                "span_name": name,
+                "span_target": target,
+            },
+        )
 
         try:
             yield context
@@ -143,10 +178,6 @@ async def track_span(
         finally:
             _current_span_context.reset(span_ctx_token)
             ended_at = datetime.now(UTC)
-            log_summary = _consume_log_summary(span_execution_ctx or execution_ctx, span_id)
-            metrics = context._build_metrics(ended_at=ended_at, started_at=started_at, log_summary=log_summary)
-            if metrics.cost_usd and execution_ctx is not None:
-                execution_ctx._recording_state.total_cost_usd += metrics.cost_usd
             finish_payload = await _prepare_finish_payload(
                 codec=codec,
                 output_value=context._output_value,
@@ -165,24 +196,54 @@ async def track_span(
                 meta["retry_errors"] = context._retry_errors
             if context._status is not None:
                 meta["_span_status"] = context._status
+            terminal_suffix = _terminal_suffix(raw_status=context._status, error=error)
+            _log_terminal_event(kind=kind, name=name, target=target, suffix=terminal_suffix, error=error)
+            log_summary = _consume_log_summary(span_execution_ctx or execution_ctx, span_id)
+            metrics = context._build_metrics(ended_at=ended_at, started_at=started_at, log_summary=log_summary)
+            if metrics.cost_usd and execution_ctx is not None:
+                execution_ctx._recording_state.total_cost_usd += metrics.cost_usd
+            is_shutdown = error is not None and not isinstance(error, Exception)
+            with anyio.move_on_after(_SHUTDOWN_TIMEOUT_SECONDS, shield=True):
+                await _notify_sinks(
+                    finish_payload.active_sinks,
+                    "on_span_finished",
+                    suppress_shutdown_errors=is_shutdown,
+                    span_id=span_id,
+                    ended_at=ended_at,
+                    output_json=finish_payload.output_json,
+                    error_json=finish_payload.error_json,
+                    output_document_shas=finish_payload.output_document_shas,
+                    output_blob_shas=finish_payload.output_blob_shas,
+                    output_preview=context.output_preview,
+                    error=error,
+                    metrics=metrics,
+                    meta=meta,
+                )
 
-            await _notify_sinks(
-                finish_payload.active_sinks,
-                "on_span_finished",
-                span_id=span_id,
-                ended_at=ended_at,
-                output_json=finish_payload.output_json,
-                error_json=finish_payload.error_json,
-                output_document_shas=finish_payload.output_document_shas,
-                output_blob_shas=finish_payload.output_blob_shas,
-                output_preview=context.output_preview,
-                error=error,
-                metrics=metrics,
-                meta=meta,
-            )
+
+def _mark_recording_degraded() -> None:
+    execution_ctx = get_execution_context()
+    if execution_ctx is not None:
+        execution_ctx.recording_degraded = True
 
 
-async def _notify_sinks(sinks: tuple[SpanSink, ...], method_name: str, **kwargs: Any) -> None:
+def _handle_sink_error(method_name: str, error: BaseException, *, suppress_shutdown_errors: bool) -> None:
+    _mark_recording_degraded()
+    if suppress_shutdown_errors:
+        logger.warning("Span sink callback %s failed during shutdown: %s", method_name, error)
+        return
+    if _must_reraise_sink_error(error):
+        raise error
+    logger.warning("Span sink callback %s failed: %s", method_name, error)
+
+
+async def _notify_sinks(
+    sinks: tuple[SpanSink, ...],
+    method_name: str,
+    *,
+    suppress_shutdown_errors: bool = False,
+    **kwargs: Any,
+) -> None:
     if not sinks:
         return
     try:
@@ -190,23 +251,55 @@ async def _notify_sinks(sinks: tuple[SpanSink, ...], method_name: str, **kwargs:
             *(getattr(sink, method_name)(**kwargs) for sink in sinks),
             return_exceptions=True,
         )
-    except BaseException as exc:
-        if _must_reraise_sink_error(exc):
-            raise
-        execution_ctx = get_execution_context()
-        if execution_ctx is not None:
-            execution_ctx.recording_degraded = True
-        logger.warning("Span sink callback %s failed: %s", method_name, exc)
+    except asyncio.CancelledError as exc:
+        _handle_sink_error(method_name, exc, suppress_shutdown_errors=suppress_shutdown_errors)
+        return
+    except (KeyboardInterrupt, SystemExit) as exc:
+        _handle_sink_error(method_name, exc, suppress_shutdown_errors=suppress_shutdown_errors)
         return
     for result in results:
-        if not isinstance(result, BaseException):
-            continue
-        if _must_reraise_sink_error(result):
-            raise result
-        execution_ctx = get_execution_context()
-        if execution_ctx is not None:
-            execution_ctx.recording_degraded = True
-        logger.warning("Span sink callback %s failed: %s", method_name, result)
+        if isinstance(result, BaseException):
+            _handle_sink_error(method_name, result, suppress_shutdown_errors=suppress_shutdown_errors)
+
+
+def _terminal_suffix(*, raw_status: str | None, error: BaseException | None) -> str:
+    if isinstance(raw_status, str) and raw_status in {"cached", "skipped", "completed"}:
+        return raw_status
+    if raw_status == "failed":
+        return "failed"
+    if error is not None:
+        if isinstance(error, asyncio.CancelledError):
+            return "cancelled"
+        return "failed"
+    return "completed"
+
+
+def _log_terminal_event(
+    *,
+    kind: SpanKind,
+    name: str,
+    target: str,
+    suffix: str,
+    error: BaseException | None,
+) -> None:
+    prefix = _KIND_TO_LOG_PREFIX[kind]
+    event_type = f"{prefix}.{suffix}"
+    extra = {
+        "category": "lifecycle",
+        "lifecycle": True,
+        "event_type": event_type,
+        "span_kind": kind.value,
+        "span_name": name,
+        "span_target": target,
+    }
+    if suffix == "failed":
+        log_method = logger.warning if kind == SpanKind.ATTEMPT else logger.error
+        log_method("%s.%s: %s", prefix, suffix, name, extra=extra, exc_info=error)
+        return
+    if suffix == "cancelled":
+        logger.warning("%s.%s: %s", prefix, suffix, name, extra=extra, exc_info=error)
+        return
+    logger.info("%s.%s: %s", prefix, suffix, name, extra=extra)
 
 
 def _consume_log_summary(execution_ctx: Any, span_id: UUID) -> dict[str, Any]:
