@@ -136,10 +136,11 @@ class TestPubSubPublisher:
         mock_future.set_result("msg-id")
         mock_client.publish.return_value = mock_future
 
-        await pub.publish_heartbeat("run-1")
+        await pub.publish_heartbeat("run-1", root_deployment_id="root-1", span_id="span-1")
         mock_client.publish.assert_called_once()
         call_kwargs = mock_client.publish.call_args
         assert call_kwargs[1]["event_type"] == "run.heartbeat"
+        assert call_kwargs[1]["root_deployment_id"] == "root-1"
 
     async def test_heartbeat_contains_timestamp(self):
         """publish_heartbeat includes a timestamp field in the data payload."""
@@ -149,12 +150,13 @@ class TestPubSubPublisher:
         mock_future.set_result("msg-id")
         mock_client.publish.return_value = mock_future
 
-        await pub.publish_heartbeat("run-1")
+        await pub.publish_heartbeat("run-1", root_deployment_id="root-1", span_id="span-1")
         published_data = mock_client.publish.call_args[0][1]
         envelope = json.loads(published_data)
         assert "timestamp" in envelope["data"]
         # Verify it's an ISO format string
         assert "T" in envelope["data"]["timestamp"]
+        assert envelope["data"]["root_deployment_id"] == "root-1"
 
     async def test_publish_completed_size_guard(self):
         """publish_run_completed raises ResultTooLargeError for oversized messages."""
@@ -217,7 +219,29 @@ class TestPubSubPublisher:
 
         # Should not raise
         with patch("ai_pipeline_core.deployment._pubsub.asyncio.sleep", new_callable=AsyncMock):
-            await pub.publish_heartbeat("run-1")
+            await pub.publish_heartbeat("run-1", root_deployment_id="root-1", span_id="span-1")
+
+    async def test_publish_event_raises_when_root_deployment_id_missing(self):
+        """_publish_event rejects missing root_deployment_id instead of silently dropping the attribute."""
+        pub, mock_client = _make_pubsub_publisher()
+
+        with pytest.raises(ValueError, match="root_deployment_id missing"):
+            await pub._publish_event(EventType.RUN_HEARTBEAT, "run-1", {"span_id": "span-1", "timestamp": "2026-01-01T00:00:00+00:00"})
+
+        mock_client.publish.assert_not_called()
+
+    async def test_publish_event_raises_when_root_deployment_id_is_empty(self):
+        """_publish_event rejects empty root_deployment_id instead of publishing degraded attributes."""
+        pub, mock_client = _make_pubsub_publisher()
+
+        with pytest.raises(ValueError, match="root_deployment_id missing"):
+            await pub._publish_event(
+                EventType.RUN_HEARTBEAT,
+                "run-1",
+                {"root_deployment_id": "", "span_id": "span-1", "timestamp": "2026-01-01T00:00:00+00:00"},
+            )
+
+        mock_client.publish.assert_not_called()
 
     async def test_retries_on_failure(self):
         """Publish retries with exponential backoff."""

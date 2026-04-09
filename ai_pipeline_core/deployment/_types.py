@@ -300,7 +300,7 @@ class ResultPublisher(Protocol):
         """Publish a pipeline failure event."""
         ...
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
         """Publish a heartbeat signal."""
         ...
 
@@ -349,7 +349,7 @@ class _NoopPublisher:
     async def publish_run_failed(self, event: RunFailedEvent) -> None:
         """Accept and discard a run failed event."""
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
         """Accept and discard a heartbeat."""
 
     async def publish_flow_started(self, event: FlowStartedEvent) -> None:
@@ -407,7 +407,7 @@ class _MemoryPublisher:
         """Record a run failed event."""
         self.events.append(event)
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
         """Record a heartbeat."""
         self.heartbeats.append({"run_id": run_id, "root_deployment_id": root_deployment_id, "span_id": span_id})
 

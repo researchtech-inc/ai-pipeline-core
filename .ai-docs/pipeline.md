@@ -2,7 +2,7 @@
 # CLASSES: LimitKind, PipelineLimit, FlowOptions, PipelineFlow, TaskHandle, TaskBatch, PipelineTask
 # DEPENDS: BaseModel, StrEnum
 # PURPOSE: Pipeline framework primitives.
-# VERSION: 0.21.1
+# VERSION: 0.21.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -470,6 +470,7 @@ def pipeline_test_context(
     Yields:
         The active execution context for the test scope.
     """
+    deployment_id = uuid4()
     ctx = ExecutionContext(
         run_id=run_id,
         execution_id=None,
@@ -477,6 +478,11 @@ def pipeline_test_context(
         limits=MappingProxyType({}),
         limits_status=_SharedStatus(),
         cache_ttl=cache_ttl,
+        deployment_id=deployment_id,
+        root_deployment_id=deployment_id,
+        deployment_name="pipeline_test_context",
+        span_id=deployment_id,
+        current_span_id=deployment_id,
     )
     with set_execution_context(ctx), set_task_context(TaskContext(scope_kind="test", task_class_name="pipeline_test_context")):
         yield ctx
@@ -671,7 +677,7 @@ async def test_collect_tasks_on_dispatched_handle_list() -> None:
     assert batch.incomplete == []
 ```
 
-**Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:115`)
+**Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:133`)
 
 ```python
 def test_get_run_id_returns_run_id_from_context() -> None:
@@ -679,17 +685,22 @@ def test_get_run_id_returns_run_id_from_context() -> None:
         assert get_run_id() == "ctx-test"
 ```
 
-**Pipeline test context sets and restores** (`tests/pipeline/test_execution_context.py:105`)
+**Add cost persists to span record** (`tests/pipeline/test_add_cost.py:264`)
 
 ```python
-def test_pipeline_test_context_sets_and_restores() -> None:
-    before = get_execution_context()
+@pytest.mark.asyncio
+async def test_add_cost_persists_to_span_record(self) -> None:
+    db = _MemoryDatabase()
+    ctx = _make_execution_context(db)
+    with set_execution_context(ctx):
+        async with track_span(SpanKind.OPERATION, "api-call", "", sinks=ctx.sinks, db=ctx.database) as span_ctx:
+            add_cost(0.006)
+            add_cost(0.004)
+            span_id = span_ctx.span_id
 
-    with pipeline_test_context(run_id="ctx-test") as ctx:
-        assert get_execution_context() is ctx
-        assert ctx.run_id == "ctx-test"
-
-    assert get_execution_context() is before
+    span = await db.get_span(span_id)
+    assert span is not None
+    assert span.cost_usd == pytest.approx(0.01)
 ```
 
 
@@ -703,7 +714,7 @@ def test_invalid_name_pattern(self):
         _validate_concurrency_limits("TestDeploy", {"bad name!": PipelineLimit(10)})
 ```
 
-**Get run id outside context raises** (`tests/pipeline/test_execution_context.py:120`)
+**Get run id outside context raises** (`tests/pipeline/test_execution_context.py:138`)
 
 ```python
 def test_get_run_id_outside_context_raises() -> None:

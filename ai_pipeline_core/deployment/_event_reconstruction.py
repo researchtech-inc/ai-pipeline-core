@@ -456,22 +456,15 @@ async def _reconstruct_lifecycle_events(
     all_span_by_id: dict[UUID, SpanRecord] = {s.span_id: s for s in all_spans}
     meta_by_id: dict[UUID, dict[str, Any]] = {s.span_id: _parse_meta(s) for s in lifecycle_spans}
 
-    deployment_span: SpanRecord | None = None
-    for span in lifecycle_spans:
-        if span.kind == SpanKind.DEPLOYMENT:
-            deployment_span = span
-            break
-
-    parent_task_id_str: str | None = None
-    deployment_span_id_str = ""
-    if deployment_span is not None:
-        parent_task_id_str = str(deployment_span.parent_span_id) if deployment_span.parent_span_id else None
-        deployment_span_id_str = str(deployment_span.span_id)
+    deployment_by_id: dict[UUID, SpanRecord] = {span.span_id: span for span in lifecycle_spans if span.kind == SpanKind.DEPLOYMENT}
 
     events: list[_ReconstructedEvent] = []
 
     for span in lifecycle_spans:
         meta = meta_by_id[span.span_id]
+        deployment_span = deployment_by_id.get(span.deployment_id)
+        parent_task_id_str = str(deployment_span.parent_span_id) if deployment_span and deployment_span.parent_span_id else None
+        deployment_span_id_str = str(deployment_span.span_id) if deployment_span is not None else ""
 
         if span.kind == SpanKind.DEPLOYMENT:
             events.extend(_reconstruct_deployment_events(span, meta, parent_task_id_str))

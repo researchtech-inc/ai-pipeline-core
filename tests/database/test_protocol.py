@@ -42,6 +42,7 @@ def _make_reader_stub() -> object:
         "get_span_logs",
         "get_spans_referencing_document",
         "list_deployments",
+        "list_deployments_by_run_id",
         "find_documents_by_name",
     }
     return type("ReaderStub", (), {name: _async_method for name in method_names})()
@@ -138,9 +139,15 @@ def test_database_reader_method_signatures() -> None:
     _assert_signature(
         DatabaseReader,
         "list_deployments",
-        parameter_types={"limit": int, "status": str | None},
+        parameter_types={"limit": int, "status": str | None, "root_only": bool},
         return_type=list[SpanRecord],
-        keyword_only={"status"},
+        keyword_only={"status", "root_only"},
+    )
+    _assert_signature(
+        DatabaseReader,
+        "list_deployments_by_run_id",
+        parameter_types={"run_id": str},
+        return_type=list[SpanRecord],
     )
     _assert_signature(
         DatabaseReader,

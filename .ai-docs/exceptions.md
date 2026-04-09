@@ -1,7 +1,7 @@
 # MODULE: exceptions
 # CLASSES: LLMError, OutputDegenerationError, EmptyResponseError, PipelineCoreError, NonRetriableError, StubNotImplementedError
 # DEPENDS: Exception
-# VERSION: 0.21.1
+# VERSION: 0.21.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports

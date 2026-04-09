@@ -124,7 +124,7 @@ class TestLLMIntegration:
         """Test that retry parameters are accepted."""
         conv = Conversation(
             model="gemini-3-flash",
-            model_options=ModelOptions(retries=2, retry_delay_seconds=1, timeout=10, max_completion_tokens=1000),
+            model_options=ModelOptions(retries=2, retry_delay_seconds=1, timeout=60, max_completion_tokens=1000),
         )
 
         conv = await conv.send("Hello")

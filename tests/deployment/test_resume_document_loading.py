@@ -246,7 +246,7 @@ class _CapturingPublisher:
     async def publish_run_failed(self, event: object) -> None:
         pass
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
         pass
 
     async def publish_flow_started(self, event: object) -> None:

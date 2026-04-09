@@ -662,12 +662,15 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     ) -> None:
         if flow_frame is None:
             return
+        root_id = execution_ctx.root_deployment_id or execution_ctx.deployment_id or execution_ctx.span_id
+        if root_id is None:
+            raise RuntimeError("Task started event cannot be published without a root deployment id.")
         try:
             await execution_ctx.publisher.publish_task_started(
                 TaskStartedEvent(
                     run_id=execution_ctx.run_id,
                     span_id=span_id,
-                    root_deployment_id=str(execution_ctx.root_deployment_id or ""),
+                    root_deployment_id=str(root_id),
                     parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id) if execution_ctx.parent_deployment_task_id else None,
                     flow_name=flow_frame.name,
                     step=step,
@@ -698,12 +701,15 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     ) -> None:
         if flow_frame is None:
             return
+        root_id = execution_ctx.root_deployment_id or execution_ctx.deployment_id or execution_ctx.span_id
+        if root_id is None:
+            raise RuntimeError("Task completed event cannot be published without a root deployment id.")
         try:
             await execution_ctx.publisher.publish_task_completed(
                 TaskCompletedEvent(
                     run_id=execution_ctx.run_id,
                     span_id=span_id,
-                    root_deployment_id=str(execution_ctx.root_deployment_id or ""),
+                    root_deployment_id=str(root_id),
                     parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id) if execution_ctx.parent_deployment_task_id else None,
                     flow_name=flow_frame.name,
                     step=step,
@@ -734,12 +740,15 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     ) -> None:
         if flow_frame is None:
             return
+        root_id = execution_ctx.root_deployment_id or execution_ctx.deployment_id or execution_ctx.span_id
+        if root_id is None:
+            raise RuntimeError("Task failed event cannot be published without a root deployment id.")
         try:
             await execution_ctx.publisher.publish_task_failed(
                 TaskFailedEvent(
                     run_id=execution_ctx.run_id,
                     span_id=span_id,
-                    root_deployment_id=str(execution_ctx.root_deployment_id or ""),
+                    root_deployment_id=str(root_id),
                     parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id) if execution_ctx.parent_deployment_task_id else None,
                     flow_name=flow_frame.name,
                     step=step,

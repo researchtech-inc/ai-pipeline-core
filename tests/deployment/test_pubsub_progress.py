@@ -28,13 +28,13 @@ class TestNoopPublisherHeartbeat:
     async def test_noop_heartbeat_completes(self) -> None:
         """_NoopPublisher silently discards heartbeat calls."""
         publisher = _NoopPublisher()
-        await publisher.publish_heartbeat("run-123")
+        await publisher.publish_heartbeat("run-123", root_deployment_id="root-123", span_id="span-123")
 
     async def test_noop_heartbeat_accepts_any_run_id(self) -> None:
-        """_NoopPublisher accepts arbitrary run_id values without error."""
+        """_NoopPublisher accepts arbitrary run_id values when routing fields are present."""
         publisher = _NoopPublisher()
-        await publisher.publish_heartbeat("")
-        await publisher.publish_heartbeat("run-with-special-chars-!@#$")
+        await publisher.publish_heartbeat("", root_deployment_id="root-empty", span_id="span-empty")
+        await publisher.publish_heartbeat("run-with-special-chars-!@#$", root_deployment_id="root-special", span_id="span-special")
 
 
 class TestMemoryPublisherHeartbeat:
@@ -43,20 +43,25 @@ class TestMemoryPublisherHeartbeat:
     async def test_memory_publisher_records_heartbeat(self) -> None:
         """_MemoryPublisher appends heartbeat dict to heartbeats list."""
         publisher = _MemoryPublisher()
-        await publisher.publish_heartbeat("run-abc")
+        await publisher.publish_heartbeat("run-abc", root_deployment_id="root-abc", span_id="span-abc")
         assert len(publisher.heartbeats) == 1
         assert publisher.heartbeats[0]["run_id"] == "run-abc"
+        assert publisher.heartbeats[0]["root_deployment_id"] == "root-abc"
+        assert publisher.heartbeats[0]["span_id"] == "span-abc"
 
     async def test_memory_publisher_records_multiple_heartbeats(self) -> None:
         """Multiple heartbeat calls accumulate in order."""
         publisher = _MemoryPublisher()
-        await publisher.publish_heartbeat("run-1")
-        await publisher.publish_heartbeat("run-2")
-        await publisher.publish_heartbeat("run-1")
+        await publisher.publish_heartbeat("run-1", root_deployment_id="root-1", span_id="span-1")
+        await publisher.publish_heartbeat("run-2", root_deployment_id="root-2", span_id="span-2")
+        await publisher.publish_heartbeat("run-1", root_deployment_id="root-1b", span_id="span-1b")
         assert len(publisher.heartbeats) == 3
         assert publisher.heartbeats[0]["run_id"] == "run-1"
         assert publisher.heartbeats[1]["run_id"] == "run-2"
         assert publisher.heartbeats[2]["run_id"] == "run-1"
+        assert publisher.heartbeats[0]["root_deployment_id"] == "root-1"
+        assert publisher.heartbeats[1]["root_deployment_id"] == "root-2"
+        assert publisher.heartbeats[2]["root_deployment_id"] == "root-1b"
 
 
 class TestHeartbeatCloudEventsEnvelope:
@@ -121,7 +126,7 @@ class TestHeartbeatCloudEventsEnvelope:
         """publish_heartbeat() builds envelope with RUN_HEARTBEAT type and publishes it."""
         publisher._publish = AsyncMock()  # type: ignore[assignment]
 
-        await publisher.publish_heartbeat("run-full-test")
+        await publisher.publish_heartbeat("run-full-test", root_deployment_id="root-full-test", span_id="span-full-test")
 
         publisher._publish.assert_called_once()  # type: ignore[union-attr]
         call_args = publisher._publish.call_args  # type: ignore[union-attr]
@@ -131,9 +136,12 @@ class TestHeartbeatCloudEventsEnvelope:
         assert envelope["type"] == EventType.RUN_HEARTBEAT
         assert envelope["subject"] == "run-full-test"
         assert envelope["data"]["run_id"] == "run-full-test"
+        assert envelope["data"]["root_deployment_id"] == "root-full-test"
+        assert envelope["data"]["span_id"] == "span-full-test"
         assert "timestamp" in envelope["data"]
 
         # Second arg is the attributes dict
         attrs = call_args[0][1]
         assert attrs["event_type"] == str(EventType.RUN_HEARTBEAT)
         assert attrs["run_id"] == "run-full-test"
+        assert attrs["root_deployment_id"] == "root-full-test"

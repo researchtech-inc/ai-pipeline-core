@@ -97,11 +97,18 @@ class _MemoryDatabase:
         limit: int,
         *,
         status: str | None = None,
+        root_only: bool = False,
     ) -> list[SpanRecord]:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT]
+        if root_only:
+            matches = [span for span in matches if span.span_id == span.root_deployment_id]
         if status is not None:
             matches = [span for span in matches if span.status == status]
         return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+
+    async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
+        matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
+        return sorted(matches, key=deployment_sort_key, reverse=True)
 
     async def get_cached_completion(
         self,

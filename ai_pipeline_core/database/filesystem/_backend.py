@@ -540,13 +540,19 @@ class FilesystemDatabase:
             return None
         return max(matches, key=deployment_sort_key)
 
-    def _list_deployments_sync(self, limit: int, status: str | None) -> list[SpanRecord]:
+    def _list_deployments_sync(self, limit: int, status: str | None, root_only: bool) -> list[SpanRecord]:
         if limit <= 0:
             return []
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT]
+        if root_only:
+            matches = [span for span in matches if span.span_id == span.root_deployment_id]
         if status is not None:
             matches = [span for span in matches if span.status == status]
         return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+
+    def _list_deployments_by_run_id_sync(self, run_id: str) -> list[SpanRecord]:
+        matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
+        return sorted(matches, key=deployment_sort_key, reverse=True)
 
     def _get_cached_completion_sync(self, cache_key: str, max_age: timedelta | None) -> SpanRecord | None:
         now = datetime.now(UTC)
@@ -728,8 +734,12 @@ class FilesystemDatabase:
         limit: int,
         *,
         status: str | None = None,
+        root_only: bool = False,
     ) -> list[SpanRecord]:
-        return await self._run(self._list_deployments_sync, limit, status)
+        return await self._run(self._list_deployments_sync, limit, status, root_only)
+
+    async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
+        return await self._run(self._list_deployments_by_run_id_sync, run_id)
 
     async def get_cached_completion(
         self,

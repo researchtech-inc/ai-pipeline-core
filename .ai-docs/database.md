@@ -2,7 +2,7 @@
 # CLASSES: DatabaseReader, SpanKind, SpanStatus, SpanRecord, DocumentRecord, CostTotals, HydratedDocument
 # DEPENDS: Protocol, StrEnum
 # PURPOSE: Unified database module for the span-based schema.
-# VERSION: 0.21.1
+# VERSION: 0.21.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -159,8 +159,13 @@ class DatabaseReader(Protocol):
         limit: int,
         *,
         status: str | None = None,
+        root_only: bool = False,
     ) -> list[SpanRecord]:
         """List deployment spans ordered by newest start time first."""
+        ...
+
+    async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
+        """List deployment spans for an exact run_id ordered by newest start time first."""
         ...
 
 
@@ -340,7 +345,7 @@ def create_debug_sink(
 
 ## Examples
 
-**Database reader is runtime checkable** (`tests/database/test_protocol.py:93`)
+**Database reader is runtime checkable** (`tests/database/test_protocol.py:94`)
 
 ```python
 def test_database_reader_is_runtime_checkable() -> None:
@@ -376,7 +381,7 @@ def test_creates_database(self, tmp_path) -> None:
     assert isinstance(db, FilesystemDatabase)
 ```
 
-**Database writer method signatures** (`tests/database/test_protocol.py:168`)
+**Database writer method signatures** (`tests/database/test_protocol.py:175`)
 
 ```python
 def test_database_writer_method_signatures() -> None:
@@ -386,7 +391,7 @@ def test_database_writer_method_signatures() -> None:
     _assert_signature(DatabaseWriter, "save_logs_batch", parameter_types={"logs": list[LogRecord]}, return_type=type(None))
 ```
 
-**Memory database conforms to protocols** (`tests/database/test_protocol.py:86`)
+**Memory database conforms to protocols** (`tests/database/test_protocol.py:87`)
 
 ```python
 def test_memory_database_conforms_to_protocols() -> None:

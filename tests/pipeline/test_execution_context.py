@@ -108,8 +108,26 @@ def test_pipeline_test_context_sets_and_restores() -> None:
     with pipeline_test_context(run_id="ctx-test") as ctx:
         assert get_execution_context() is ctx
         assert ctx.run_id == "ctx-test"
+        assert ctx.deployment_id is not None
+        assert ctx.root_deployment_id == ctx.deployment_id
+        assert ctx.span_id == ctx.deployment_id
+        assert ctx.current_span_id == ctx.deployment_id
 
     assert get_execution_context() is before
+
+
+def test_execution_context_post_init_fills_root_deployment_id_from_deployment_id() -> None:
+    deployment_id = uuid7()
+    ctx = ExecutionContext(
+        run_id="test-run",
+        execution_id=None,
+        publisher=_NoopPublisher(),
+        limits=MappingProxyType({}),
+        limits_status=_SharedStatus(),
+        deployment_id=deployment_id,
+    )
+
+    assert ctx.root_deployment_id == deployment_id
 
 
 def test_get_run_id_returns_run_id_from_context() -> None:

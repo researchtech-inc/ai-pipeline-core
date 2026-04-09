@@ -92,8 +92,13 @@ class DatabaseReader(Protocol):
         limit: int,
         *,
         status: str | None = None,
+        root_only: bool = False,
     ) -> list[SpanRecord]:
         """List deployment spans ordered by newest start time first."""
+        ...
+
+    async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
+        """List deployment spans for an exact run_id ordered by newest start time first."""
         ...
 
     async def get_cached_completion(

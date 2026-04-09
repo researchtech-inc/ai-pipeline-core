@@ -2,7 +2,7 @@
 # CLASSES: DeploymentResult, PipelineDeployment, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
 # DEPENDS: BaseModel, Generic
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.21.1
+# VERSION: 0.21.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -267,6 +267,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
         input_sha256s = tuple(doc.sha256 for doc in documents)
         task_name = f"remote:{self.name}"
         task_start = time.monotonic()
+        resolved_root_id = root_deployment_id or deployment_id or subtask_span_id
 
         async with track_span(
             SpanKind.TASK,
@@ -290,7 +291,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
                         TaskStartedEvent(
                             run_id=run_id,
                             span_id=str(subtask_span_id),
-                            root_deployment_id=str(root_deployment_id or ""),
+                            root_deployment_id=str(resolved_root_id),
                             parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
                             flow_name=flow_name,
                             step=flow_step,
@@ -316,7 +317,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
                         derived_run_id,
                         documents,
                         options,
-                        root_deployment_id=root_deployment_id or deployment_id or subtask_span_id,
+                        root_deployment_id=resolved_root_id,
                         parent_deployment_task_id=subtask_span_id,
                         database=database,
                         publisher=publisher,
@@ -327,7 +328,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
                         derived_run_id,
                         documents,
                         options,
-                        root_deployment_id=root_deployment_id or deployment_id or subtask_span_id,
+                        root_deployment_id=resolved_root_id,
                         parent_deployment_task_id=subtask_span_id,
                         parent_execution_id=exec_ctx.execution_id if exec_ctx else None,
                     )
@@ -338,7 +339,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
                             TaskFailedEvent(
                                 run_id=run_id,
                                 span_id=str(subtask_span_id),
-                                root_deployment_id=str(root_deployment_id or ""),
+                                root_deployment_id=str(resolved_root_id),
                                 parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
                                 flow_name=flow_name,
                                 step=flow_step,
@@ -360,7 +361,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
                         TaskCompletedEvent(
                             run_id=run_id,
                             span_id=str(subtask_span_id),
-                            root_deployment_id=str(root_deployment_id or ""),
+                            root_deployment_id=str(resolved_root_id),
                             parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
                             flow_name=flow_name,
                             step=flow_step,

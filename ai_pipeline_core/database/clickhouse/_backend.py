@@ -224,12 +224,15 @@ class ClickHouseDatabase:
         limit: int,
         *,
         status: str | None = None,
+        root_only: bool = False,
     ) -> list[SpanRecord]:
         if limit <= 0:
             return []
         parameters: dict[str, Any] = {"kind": SpanKind.DEPLOYMENT, "limit": limit}
         # kind is immutable → inner filter; status is mutable → outer filter
         outer_filters: list[str] = []
+        if root_only:
+            outer_filters.append("span_id = root_deployment_id")
         if status is not None:
             outer_filters.append("status = {status:String}")
             parameters["status"] = status
@@ -242,6 +245,17 @@ class ClickHouseDatabase:
             f") {outer_where}"
             "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64}",
             parameters=parameters,
+        )
+        return [row_to_span(tuple(row)) for row in result.result_rows]
+
+    async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
+        result = await self._query(
+            f"SELECT {', '.join(SPAN_COLUMNS)} FROM ("
+            f"SELECT * FROM {SPANS_TABLE} "
+            "WHERE run_id = {run_id:String} AND kind = {kind:String} "
+            "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
+            ") ORDER BY started_at DESC, span_id DESC",
+            parameters={"run_id": run_id, "kind": SpanKind.DEPLOYMENT},
         )
         return [row_to_span(tuple(row)) for row in result.result_rows]
 

@@ -298,7 +298,7 @@ async def _log_flush_loop(
         raise
 
 
-async def _heartbeat_loop(publisher: ResultPublisher, run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+async def _heartbeat_loop(publisher: ResultPublisher, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
     """Publish heartbeat signals at regular intervals until cancelled."""
     while True:
         await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)

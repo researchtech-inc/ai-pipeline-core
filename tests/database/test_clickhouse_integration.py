@@ -935,6 +935,71 @@ async def test_list_deployments_without_status_filter(database: ClickHouseDataba
 
 
 @pytest.mark.asyncio
+async def test_list_deployments_root_only_excludes_child_deployments(database: ClickHouseDatabase) -> None:
+    root_dep = uuid4()
+    child_dep = uuid4()
+    prefix = f"root-only-{uuid4().hex[:8]}"
+    await database.insert_span(
+        _make_span(
+            span_id=root_dep,
+            deployment_id=root_dep,
+            root_deployment_id=root_dep,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=f"{prefix}-root",
+            started_at=_BASE_TIME,
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            span_id=child_dep,
+            parent_span_id=uuid4(),
+            deployment_id=child_dep,
+            root_deployment_id=root_dep,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=f"{prefix}-child",
+            started_at=_BASE_TIME + timedelta(seconds=1),
+        )
+    )
+
+    results = await database.list_deployments(100, root_only=True)
+    ids = {span.span_id for span in results}
+
+    assert root_dep in ids
+    assert child_dep not in ids
+
+
+@pytest.mark.asyncio
+async def test_list_deployments_by_run_id_returns_all_attempts_newest_first(database: ClickHouseDatabase) -> None:
+    run_id = f"rerun-{uuid4().hex[:8]}"
+    older = uuid4()
+    newer = uuid4()
+    await database.insert_span(
+        _make_span(
+            span_id=older,
+            deployment_id=older,
+            root_deployment_id=older,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            started_at=_BASE_TIME,
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            span_id=newer,
+            deployment_id=newer,
+            root_deployment_id=newer,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            started_at=_BASE_TIME + timedelta(seconds=5),
+        )
+    )
+
+    results = await database.list_deployments_by_run_id(run_id)
+
+    assert [span.span_id for span in results[:2]] == [newer, older]
+
+
+@pytest.mark.asyncio
 async def test_list_deployments_respects_limit(database: ClickHouseDatabase) -> None:
     ids = [uuid4() for _ in range(3)]
     prefix = f"limit-{uuid4().hex[:8]}"

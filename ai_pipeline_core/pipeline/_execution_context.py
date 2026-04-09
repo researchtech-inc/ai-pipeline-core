@@ -249,6 +249,8 @@ class ExecutionContext:
     _child_sequence_counters: dict[UUID, count[int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.root_deployment_id is None and self.deployment_id is not None:
+            self.root_deployment_id = self.deployment_id
         if self.span_id is None:
             self.span_id = self.current_span_id
         if self.parent_span_id is None and self.current_span_id != self.span_id:
@@ -402,6 +404,7 @@ def pipeline_test_context(
     Yields:
         The active execution context for the test scope.
     """
+    deployment_id = uuid4()
     ctx = ExecutionContext(
         run_id=run_id,
         execution_id=None,
@@ -409,6 +412,11 @@ def pipeline_test_context(
         limits=MappingProxyType({}),
         limits_status=_SharedStatus(),
         cache_ttl=cache_ttl,
+        deployment_id=deployment_id,
+        root_deployment_id=deployment_id,
+        deployment_name="pipeline_test_context",
+        span_id=deployment_id,
+        current_span_id=deployment_id,
     )
     with set_execution_context(ctx), set_task_context(TaskContext(scope_kind="test", task_class_name="pipeline_test_context")):
         yield ctx

@@ -165,6 +165,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         input_sha256s = tuple(doc.sha256 for doc in documents)
         task_name = f"remote:{self.name}"
         task_start = time.monotonic()
+        resolved_root_id = root_deployment_id or deployment_id or subtask_span_id
 
         async with track_span(
             SpanKind.TASK,
@@ -188,7 +189,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                         TaskStartedEvent(
                             run_id=run_id,
                             span_id=str(subtask_span_id),
-                            root_deployment_id=str(root_deployment_id or ""),
+                            root_deployment_id=str(resolved_root_id),
                             parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
                             flow_name=flow_name,
                             step=flow_step,
@@ -214,7 +215,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                         derived_run_id,
                         documents,
                         options,
-                        root_deployment_id=root_deployment_id or deployment_id or subtask_span_id,
+                        root_deployment_id=resolved_root_id,
                         parent_deployment_task_id=subtask_span_id,
                         database=database,
                         publisher=publisher,
@@ -225,7 +226,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                         derived_run_id,
                         documents,
                         options,
-                        root_deployment_id=root_deployment_id or deployment_id or subtask_span_id,
+                        root_deployment_id=resolved_root_id,
                         parent_deployment_task_id=subtask_span_id,
                         parent_execution_id=exec_ctx.execution_id if exec_ctx else None,
                     )
@@ -236,7 +237,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                             TaskFailedEvent(
                                 run_id=run_id,
                                 span_id=str(subtask_span_id),
-                                root_deployment_id=str(root_deployment_id or ""),
+                                root_deployment_id=str(resolved_root_id),
                                 parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
                                 flow_name=flow_name,
                                 step=flow_step,
@@ -258,7 +259,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                         TaskCompletedEvent(
                             run_id=run_id,
                             span_id=str(subtask_span_id),
-                            root_deployment_id=str(root_deployment_id or ""),
+                            root_deployment_id=str(resolved_root_id),
                             parent_deployment_task_id=str(parent_deployment_task_id) if parent_deployment_task_id else None,
                             flow_name=flow_name,
                             step=flow_step,

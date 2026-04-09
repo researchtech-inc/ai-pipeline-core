@@ -378,9 +378,10 @@ class TestBug5Heartbeat:
 
     def test_heartbeat_protocol_accepts_root_deployment_id(self):
         sig = inspect.signature(ResultPublisher.publish_heartbeat)
-        params = list(sig.parameters.keys())
-        assert "root_deployment_id" in params
-        assert "span_id" in params
+        root_param = sig.parameters["root_deployment_id"]
+        span_param = sig.parameters["span_id"]
+        assert root_param.default is inspect._empty
+        assert span_param.default is inspect._empty
 
     async def test_heartbeat_records_root_deployment_id(self):
         pub = _MemoryPublisher()

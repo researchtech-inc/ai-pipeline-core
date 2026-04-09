@@ -124,6 +124,9 @@ async def test_task_started_and_completed_events_use_same_span_id() -> None:
     assert started[0].task_class == "_PassthroughTask"
     assert completed[0].span_id == started[0].span_id
     assert completed[0].duration_ms >= 0
+    assert started[0].root_deployment_id
+    assert completed[0].root_deployment_id
+    assert started[0].root_deployment_id == completed[0].root_deployment_id
 
 
 @pytest.mark.asyncio
@@ -140,6 +143,9 @@ async def test_task_failed_event_uses_started_span_id() -> None:
     assert len(failed) == 1
     assert failed[0].span_id == started[0].span_id
     assert "task failed deliberately" in failed[0].error_message
+    assert started[0].root_deployment_id
+    assert failed[0].root_deployment_id
+    assert started[0].root_deployment_id == failed[0].root_deployment_id
 
 
 @pytest.mark.asyncio

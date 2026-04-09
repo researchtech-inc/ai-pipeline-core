@@ -243,7 +243,7 @@ class TestHeartbeatLoop:
         publisher = MagicMock()
         publisher.publish_heartbeat = AsyncMock()
         with patch("ai_pipeline_core.deployment._helpers._HEARTBEAT_INTERVAL_SECONDS", 0.01):
-            task = asyncio.create_task(_heartbeat_loop(publisher, "run-1"))
+            task = asyncio.create_task(_heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1"))
             await asyncio.sleep(0.05)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -253,7 +253,7 @@ class TestHeartbeatLoop:
         publisher = MagicMock()
         call_count = 0
 
-        async def _failing_heartbeat(run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+        async def _failing_heartbeat(run_id: str, *, root_deployment_id: str, span_id: str) -> None:
             nonlocal call_count
             call_count += 1
             raise RuntimeError("publish failed")
@@ -261,7 +261,7 @@ class TestHeartbeatLoop:
         publisher.publish_heartbeat = _failing_heartbeat
 
         with patch("ai_pipeline_core.deployment._helpers._HEARTBEAT_INTERVAL_SECONDS", 0.01):
-            task = asyncio.create_task(_heartbeat_loop(publisher, "run-1"))
+            task = asyncio.create_task(_heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1"))
             await asyncio.sleep(0.05)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):

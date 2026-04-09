@@ -39,7 +39,7 @@ class TestNoopPublisher:
 
     async def test_accepts_heartbeat(self):
         pub = _NoopPublisher()
-        await pub.publish_heartbeat("run-1")
+        await pub.publish_heartbeat("run-1", root_deployment_id="rd1", span_id="s1")
 
     async def test_accepts_flow_started(self):
         pub = _NoopPublisher()
@@ -159,11 +159,13 @@ class TestMemoryPublisher:
 
     async def test_records_heartbeats(self):
         pub = _MemoryPublisher()
-        await pub.publish_heartbeat("run-1")
-        await pub.publish_heartbeat("run-1")
+        await pub.publish_heartbeat("run-1", root_deployment_id="rd1", span_id="s1")
+        await pub.publish_heartbeat("run-1", root_deployment_id="rd2", span_id="s2")
         assert len(pub.heartbeats) == 2
         assert pub.heartbeats[0]["run_id"] == "run-1"
         assert pub.heartbeats[1]["run_id"] == "run-1"
+        assert pub.heartbeats[0]["root_deployment_id"] == "rd1"
+        assert pub.heartbeats[1]["root_deployment_id"] == "rd2"
 
     async def test_records_flow_events(self):
         pub = _MemoryPublisher()

@@ -106,16 +106,28 @@ class PubSubPublisher:
         if event_type == EventType.RUN_COMPLETED and len(data) > MAX_PUBSUB_MESSAGE_BYTES:
             raise ResultTooLargeError(f"Completed event ({len(data)} bytes) exceeds {MAX_PUBSUB_MESSAGE_BYTES} byte Pub/Sub limit")
         attrs = self._make_attributes(event_type, run_id)
-        root_id = payload.get("root_deployment_id", "")
-        if root_id:
-            attrs["root_deployment_id"] = str(root_id)
+        try:
+            root_id = payload["root_deployment_id"]
+        except KeyError as exc:
+            raise ValueError(
+                f"root_deployment_id missing on {event_type} event for run_id {run_id}. "
+                f"All lifecycle events must carry root_deployment_id for consumer correlation. "
+                f"Event payload keys: {list(payload.keys())}"
+            ) from exc
+        if not root_id:
+            raise ValueError(
+                f"root_deployment_id missing on {event_type} event for run_id {run_id}. "
+                f"All lifecycle events must carry root_deployment_id for consumer correlation. "
+                f"Event payload keys: {list(payload.keys())}"
+            )
+        attrs["root_deployment_id"] = str(root_id)
         await self._publish(data, attrs)
 
     async def publish_run_started(self, event: RunStartedEvent) -> None:
         """Publish run.started event."""
         await self._publish_event(EventType.RUN_STARTED, event.run_id, event_to_payload(event))
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str = "", span_id: str = "") -> None:
+    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
         """Publish run.heartbeat event."""
         await self._publish_event(
             EventType.RUN_HEARTBEAT,

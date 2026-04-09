@@ -156,6 +156,98 @@ async def test_successful_run_reconstruction() -> None:
 
 
 @pytest.mark.asyncio
+async def test_child_deployment_events_use_child_parent_links() -> None:
+    db = _MemoryDatabase()
+    root_id = uuid4()
+    root_deploy_span_id = root_id
+    root_task_id = uuid4()
+    child_deploy_span_id = uuid4()
+    child_flow_id = uuid4()
+    child_task_id = uuid4()
+    t0 = datetime(2026, 3, 14, 12, 0, tzinfo=UTC)
+
+    root_deploy = _make_span(
+        span_id=root_deploy_span_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="RootDeploy",
+        run_id="root-run",
+        status=SpanStatus.COMPLETED,
+        started_at=t0,
+        ended_at=t0 + timedelta(seconds=20),
+        meta_json=json.dumps({"input_fingerprint": "fp", "deployment_class": "RootPipeline", "flow_plan": []}),
+        output_json=json.dumps({"result": {}}),
+    )
+    root_task = _make_span(
+        span_id=root_task_id,
+        parent_span_id=root_deploy_span_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.TASK,
+        name="remote:child",
+        run_id="root-run",
+        status=SpanStatus.COMPLETED,
+        started_at=t0 + timedelta(seconds=1),
+        ended_at=t0 + timedelta(seconds=3),
+    )
+    child_deploy = _make_span(
+        span_id=child_deploy_span_id,
+        parent_span_id=root_task_id,
+        deployment_id=child_deploy_span_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="ChildDeploy",
+        run_id="child-run",
+        status=SpanStatus.COMPLETED,
+        started_at=t0 + timedelta(seconds=4),
+        ended_at=t0 + timedelta(seconds=12),
+        meta_json=json.dumps({"input_fingerprint": "child-fp", "deployment_class": "ChildPipeline", "flow_plan": []}),
+        output_json=json.dumps({"result": {}}),
+    )
+    child_flow = _make_span(
+        span_id=child_flow_id,
+        parent_span_id=child_deploy_span_id,
+        deployment_id=child_deploy_span_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.FLOW,
+        name="ChildFlow",
+        run_id="child-run",
+        status=SpanStatus.COMPLETED,
+        started_at=t0 + timedelta(seconds=5),
+        ended_at=t0 + timedelta(seconds=10),
+        meta_json=json.dumps({"step": 1, "total_steps": 1, "expected_tasks": []}),
+        receiver_json=json.dumps({"mode": "constructor_args", "value": {}}),
+    )
+    child_task = _make_span(
+        span_id=child_task_id,
+        parent_span_id=child_flow_id,
+        deployment_id=child_deploy_span_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.TASK,
+        name="ChildTask",
+        run_id="child-run",
+        status=SpanStatus.COMPLETED,
+        started_at=t0 + timedelta(seconds=6),
+        ended_at=t0 + timedelta(seconds=9),
+    )
+
+    for span in (root_deploy, root_task, child_deploy, child_flow, child_task):
+        await db.insert_span(span)
+
+    events = await _reconstruct_lifecycle_events(db, root_id)
+
+    child_run_started = next(e for e in events if e.event_type == EventType.RUN_STARTED and e.data["run_id"] == "child-run")
+    child_flow_started = next(e for e in events if e.event_type == EventType.FLOW_STARTED and e.data["run_id"] == "child-run")
+    child_task_started = next(e for e in events if e.event_type == EventType.TASK_STARTED and e.data["run_id"] == "child-run")
+
+    assert child_run_started.data["parent_deployment_task_id"] == str(root_task_id)
+    assert child_flow_started.data["parent_deployment_task_id"] == str(root_task_id)
+    assert child_flow_started.data["parent_span_id"] == str(child_deploy_span_id)
+    assert child_task_started.data["parent_deployment_task_id"] == str(root_task_id)
+
+
+@pytest.mark.asyncio
 async def test_in_progress_run() -> None:
     db = _MemoryDatabase()
     root_id = uuid4()
