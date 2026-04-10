@@ -6,7 +6,9 @@ and query methods — against the actual database engine.
 """
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
+from types import MappingProxyType
 from uuid import uuid4
 
 import pytest
@@ -23,6 +25,11 @@ from ai_pipeline_core.database._types import (
 )
 from ai_pipeline_core.database.clickhouse._backend import ClickHouseDatabase
 from ai_pipeline_core.database.clickhouse._connection import reset_schema_check
+from ai_pipeline_core.deployment._types import _NoopPublisher
+from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
+from ai_pipeline_core.logger._handler import ExecutionLogHandler
+from ai_pipeline_core.pipeline._execution_context import ExecutionContext, set_execution_context
+from ai_pipeline_core.pipeline.limits import _SharedStatus
 from ai_pipeline_core.settings import Settings
 
 HTTP_PORT = 8123
@@ -274,6 +281,99 @@ async def test_deployment_tree_hierarchy(database: ClickHouseDatabase) -> None:
     assert SpanKind.TASK in kinds
     assert SpanKind.CONVERSATION in kinds
     assert len(tree) == 4
+
+
+@pytest.mark.asyncio
+async def test_deployment_tree_topology_blanks_payload_json_and_preserves_order(database: ClickHouseDatabase) -> None:
+    root_id = uuid4()
+    run_id = f"topology-{uuid4().hex[:8]}"
+    root = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="Deploy",
+        run_id=run_id,
+        started_at=_BASE_TIME + timedelta(seconds=5),
+        input_json=json.dumps({"input": True}),
+        output_json=json.dumps({"output": True}),
+        meta_json=json.dumps({"meta": True}),
+        metrics_json=json.dumps({"tokens_input": 1}),
+        receiver_json=json.dumps({"receiver": True}),
+        error_json=json.dumps({"error": True}),
+    )
+    child = _make_span(
+        parent_span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.TASK,
+        name="Child",
+        sequence_no=1,
+        run_id=run_id,
+        started_at=_BASE_TIME,
+        input_json=json.dumps({"child": True}),
+    )
+    await database.insert_span(root)
+    await database.insert_span(child)
+
+    topology = await database.get_deployment_tree_topology(root_id)
+
+    assert [span.name for span in topology] == ["Child", "Deploy"]
+    assert topology[0].input_json == ""
+    assert topology[0].output_json == ""
+    assert topology[0].meta_json == ""
+    assert topology[0].metrics_json == ""
+    assert topology[0].receiver_json == ""
+    assert topology[0].error_json == ""
+    assert topology[0].error_message == ""
+
+
+@pytest.mark.asyncio
+async def test_deployment_activity_helpers_and_running_root_order(database: ClickHouseDatabase) -> None:
+    now = _BASE_TIME
+    oldest_root_id = uuid4()
+    newest_root_id = uuid4()
+
+    oldest_root = _make_span(
+        span_id=oldest_root_id,
+        deployment_id=oldest_root_id,
+        root_deployment_id=oldest_root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="Oldest",
+        status=SpanStatus.RUNNING,
+        started_at=now,
+        ended_at=None,
+    )
+    newest_root = _make_span(
+        span_id=newest_root_id,
+        deployment_id=newest_root_id,
+        root_deployment_id=newest_root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="Newest",
+        status=SpanStatus.RUNNING,
+        started_at=now + timedelta(hours=1),
+        ended_at=None,
+    )
+    latest_child = _make_span(
+        parent_span_id=oldest_root_id,
+        deployment_id=oldest_root_id,
+        root_deployment_id=oldest_root_id,
+        kind=SpanKind.TASK,
+        name="LatestChild",
+        status=SpanStatus.RUNNING,
+        started_at=now + timedelta(hours=2),
+        ended_at=now + timedelta(hours=3),
+    )
+    for span in (oldest_root, newest_root, latest_child):
+        await database.insert_span(span)
+
+    running_roots = await database.list_running_deployment_roots(limit=2)
+    latest_activity = await database.latest_span_activity_for_deployment(oldest_root_id)
+    live_activity = await database.get_deployment_latest_activity(oldest_root_id)
+
+    assert [span.span_id for span in running_roots] == [oldest_root_id, newest_root_id]
+    assert latest_activity == now + timedelta(hours=3)
+    assert live_activity == latest_activity
 
 
 @pytest.mark.asyncio
@@ -604,6 +704,37 @@ async def test_get_deployment_logs_batch(database: ClickHouseDatabase) -> None:
     messages = {log.message for log in logs}
     assert "a" in messages
     assert "b" in messages
+
+
+@pytest.mark.asyncio
+async def test_execution_log_handler_persists_service_in_fields_json(database: ClickHouseDatabase) -> None:
+    deployment_id = uuid4()
+    span_id = uuid4()
+    log_buffer = ExecutionLogBuffer(request_flush=lambda: None)
+    ctx = ExecutionContext(
+        run_id="service-run",
+        execution_id=None,
+        publisher=_NoopPublisher(),
+        limits=MappingProxyType({}),
+        limits_status=_SharedStatus(),
+        deployment_id=deployment_id,
+        root_deployment_id=deployment_id,
+        service_name="research",
+        span_id=span_id,
+        current_span_id=span_id,
+        log_buffer=log_buffer,
+    )
+    record = logging.LogRecord("my.app", logging.INFO, __file__, 1, "service log", (), None)
+    record.fields_json = {"step": "emit"}
+
+    with set_execution_context(ctx):
+        ExecutionLogHandler().emit(record)
+
+    await database.save_logs_batch(log_buffer.drain())
+    loaded_logs = await database.get_span_logs(span_id)
+
+    assert len(loaded_logs) == 1
+    assert json.loads(loaded_logs[0].fields_json) == {"service": "research", "step": "emit"}
 
 
 # ---------------------------------------------------------------------------
@@ -1059,10 +1190,14 @@ async def test_get_spans_referencing_document_via_all_sha_arrays(database: Click
 
     refs = await database.get_spans_referencing_document(target)
 
-    ref_ids = {r.span_id for r in refs}
-    assert span_output.span_id in ref_ids
-    assert span_input_blob.span_id in ref_ids
-    assert span_output_blob.span_id in ref_ids
+    assert [ref.span_id for ref in refs] == [
+        span_output.span_id,
+        span_input_blob.span_id,
+        span_output_blob.span_id,
+    ]
+    assert all(ref.input_json == "" for ref in refs)
+    assert all(ref.output_json == "" for ref in refs)
+    assert all(ref.error_message == "" for ref in refs)
 
 
 @pytest.mark.asyncio

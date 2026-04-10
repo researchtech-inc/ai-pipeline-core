@@ -1,5 +1,6 @@
 """Focused tests for execution log buffering and handler classification."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 import logging
@@ -9,7 +10,7 @@ from uuid import uuid4
 from ai_pipeline_core.database import LogRecord
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
-from ai_pipeline_core.logger._handler import ExecutionLogHandler
+from ai_pipeline_core.logger._handler import ExecutionLogHandler, _should_add_sentry_breadcrumb
 from ai_pipeline_core.pipeline._execution_context import ExecutionContext, set_execution_context
 from ai_pipeline_core.pipeline.limits import _SharedStatus
 
@@ -191,3 +192,35 @@ def test_execution_log_buffer_drops_oldest_when_capacity_is_exceeded(monkeypatch
     drained = buffer.drain()
     assert [log.message for log in drained] == ["second", "third"]
     assert buffer.consume_dropped_count() == 1
+
+
+@dataclass(slots=True)
+class _FakeRecord:
+    """Minimal log record stub for testing _should_add_sentry_breadcrumb."""
+
+    levelno: int
+
+
+def test_lifecycle_warning_becomes_sentry_breadcrumb() -> None:
+    """H3: lifecycle WARNING events pass through the breadcrumb filter."""
+    record = _FakeRecord(logging.WARNING)
+    assert _should_add_sentry_breadcrumb(category="lifecycle", record=record) is True
+
+
+def test_lifecycle_info_excluded_from_sentry_breadcrumbs() -> None:
+    """H3: lifecycle INFO events are excluded by the WARNING+ gate."""
+    record = _FakeRecord(logging.INFO)
+    assert _should_add_sentry_breadcrumb(category="lifecycle", record=record) is False
+
+
+def test_framework_warning_excluded_from_sentry_breadcrumbs() -> None:
+    """H3: framework WARNING events remain excluded from breadcrumbs."""
+    record = _FakeRecord(logging.WARNING)
+    assert _should_add_sentry_breadcrumb(category="framework", record=record) is False
+
+
+def test_application_and_dependency_warnings_still_pass() -> None:
+    """H3: existing application/dependency WARNING behavior unchanged."""
+    record = _FakeRecord(logging.WARNING)
+    assert _should_add_sentry_breadcrumb(category="application", record=record) is True
+    assert _should_add_sentry_breadcrumb(category="dependency", record=record) is True

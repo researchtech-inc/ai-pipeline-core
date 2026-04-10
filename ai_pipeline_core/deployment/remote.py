@@ -14,7 +14,7 @@ from prefect import get_client
 from prefect.client.orchestration import PrefectClient
 from prefect.client.schemas import FlowRun
 from prefect.context import AsyncClientContext
-from prefect.deployments.flow_runs import run_deployment
+from prefect.deployments.flow_runs import arun_deployment
 from prefect.exceptions import ObjectNotFound
 
 from ai_pipeline_core._lifecycle_events import TaskCompletedEvent, TaskFailedEvent, TaskStartedEvent
@@ -181,7 +181,7 @@ async def _submit_remote_flow_run(
 
     for attempt_number in range(1, _MAX_SUBMISSION_ATTEMPTS + 1):
         try:
-            flow_run = await cast(Any, run_deployment)(
+            return await arun_deployment(
                 client=client,
                 name=deployment_name,
                 parameters=parameters,
@@ -189,7 +189,6 @@ async def _submit_remote_flow_run(
                 timeout=0,
                 idempotency_key=idempotency_key,
             )
-            return cast(FlowRun, flow_run)
         except asyncio.CancelledError:
             raise
         except ObjectNotFound:

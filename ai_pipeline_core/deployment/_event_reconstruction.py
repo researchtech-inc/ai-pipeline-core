@@ -1,8 +1,14 @@
-"""Reconstruct lifecycle events from database span trees."""
+"""Reconstruct lifecycle events from database span trees.
+
+The lifecycle replay API is formally at-least-once. The overlap constant below
+is not tunable: it is the clock-skew window inside which repeated delivery is
+permitted. Clients must deduplicate by ``(span_id, event_type)``. Increasing
+the window does not improve correctness; decreasing it breaks at-least-once.
+"""
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -10,10 +16,10 @@ from ai_pipeline_core._lifecycle_events import DocumentRef, TaskCompletedEvent, 
 from ai_pipeline_core.database._json_helpers import parse_json_object
 from ai_pipeline_core.database._protocol import DatabaseReader
 from ai_pipeline_core.database._types import DocumentRecord, SpanKind, SpanRecord, SpanStatus
-from ai_pipeline_core.observability._recovery import _CRASH_ERROR_TYPE
 
 from ._event_serialization import event_to_payload
 from ._types import (
+    _CRASH_ERROR_TYPE,
     ErrorCode,
     EventType,
     FlowCompletedEvent,
@@ -26,6 +32,7 @@ from ._types import (
 )
 
 __all__ = [
+    "InvalidLifecycleCursorError",
     "_ReconstructedEvent",
     "_filter_after_cursor",
     "_reconstruct_lifecycle_events",
@@ -38,6 +45,11 @@ _KIND_PRIORITY = {SpanKind.DEPLOYMENT: 0, SpanKind.FLOW: 1, SpanKind.TASK: 2}
 _PHASE_PRIORITY_STARTED = 0
 _PHASE_PRIORITY_SKIPPED = 1
 _PHASE_PRIORITY_TERMINAL = 2
+_LIFECYCLE_CURSOR_OVERLAP_SECONDS_CONTRACT = 5.0
+
+
+class InvalidLifecycleCursorError(ValueError):
+    """Raised when a lifecycle after_cursor cannot be parsed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +61,11 @@ class _ReconstructedEvent:
     timestamp: datetime
     data: dict[str, Any]
     cursor: str
+
+    @property
+    def dedup_key(self) -> tuple[str, str]:
+        """Stable client-side deduplication key for at-least-once replay."""
+        return self.span_id, self.event_type.value
 
 
 def _parse_meta(span: SpanRecord) -> dict[str, Any]:
@@ -140,16 +157,15 @@ def _parse_cursor(after_cursor: str) -> tuple[datetime, int, int, str]:
             span_id,
         )
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Invalid lifecycle after_cursor. Expected '{{timestamp_iso}}|{{kind_priority}}|{{phase_priority}}|{{span_id}}', got {after_cursor!r}."
-        ) from exc
+        raise InvalidLifecycleCursorError("Invalid cursor. Clients should restart from the full history by omitting `after_cursor`.") from exc
 
 
 def _filter_after_cursor(events: list[_ReconstructedEvent], after_cursor: str | None) -> list[_ReconstructedEvent]:
     """Return only events that sort strictly after the given cursor."""
     if after_cursor is None:
         return events
-    cursor_key = _parse_cursor(after_cursor)
+    parsed_timestamp, _kind, _phase, _span_id = _parse_cursor(after_cursor)
+    cursor_key = (parsed_timestamp - timedelta(seconds=_LIFECYCLE_CURSOR_OVERLAP_SECONDS_CONTRACT), 0, 0, "")
     return [event for event in events if _sort_key(event) > cursor_key]
 
 

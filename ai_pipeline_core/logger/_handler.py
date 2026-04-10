@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import sentry_sdk
+from ai_pipeline_core._execution_context_state import get_execution_context_state
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._types import LogRecord
 
@@ -89,6 +91,32 @@ def _coerce_fields_json(record: Any) -> str:
     return json.dumps(raw_fields, default=str, sort_keys=True)
 
 
+def _coerce_fields_json_with_service(record: Any, *, service_name: str) -> str:
+    """Normalize structured log fields and inject the execution service identity."""
+    raw_fields = getattr(record, "fields_json", "{}")
+    if not service_name:
+        return _coerce_fields_json(record)
+
+    fields: dict[str, Any] = {}
+    if isinstance(raw_fields, str):
+        try:
+            parsed = json.loads(raw_fields)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            fields.update(parsed)
+    elif isinstance(raw_fields, dict):
+        fields.update(raw_fields)
+
+    fields["service"] = service_name
+    return json.dumps(fields, default=str, sort_keys=True)
+
+
+def _should_add_sentry_breadcrumb(*, category: str, record: Any) -> bool:
+    """Return whether a record should be mirrored to Sentry as a breadcrumb."""
+    return record.levelno >= logging.WARNING and category in {"application", "dependency", "lifecycle"}
+
+
 def _format_exception_text(record: Any) -> str:
     """Render ``exc_info`` into text, ignoring empty exception tuples."""
     if record.exc_info is None or record.exc_info[0] is None:
@@ -113,6 +141,13 @@ class ExecutionLogHandler(logging.Handler):
             return
 
         timestamp = datetime.fromtimestamp(record.created, tz=UTC)
+        execution_ctx = get_execution_context_state()
+        service_name = getattr(execution_ctx, "service_name", "")
+        fields_json = _coerce_fields_json_with_service(
+            record,
+            service_name=service_name if isinstance(service_name, str) else "",
+        )
+        message = record.getMessage()
 
         try:
             ctx.log_buffer.append(
@@ -125,10 +160,23 @@ class ExecutionLogHandler(logging.Handler):
                     category=category,
                     event_type=str(getattr(record, "event_type", "")),
                     logger_name=record.name,
-                    message=record.getMessage(),
-                    fields_json=_coerce_fields_json(record),
+                    message=message,
+                    fields_json=fields_json,
                     exception_text=_format_exception_text(record),
                 )
             )
+            if _should_add_sentry_breadcrumb(category=category, record=record):
+                sentry_sdk.add_breadcrumb(
+                    category="log",
+                    level=record.levelname.lower(),
+                    message=message,
+                    data={
+                        "logger_name": record.name,
+                        "event_type": str(getattr(record, "event_type", "")),
+                        "deployment_id": str(ctx.deployment_id),
+                        "span_id": str(ctx.span_id),
+                        "fields_json": fields_json,
+                    },
+                )
         except AttributeError, OSError, OverflowError, TypeError, ValueError:
             self.handleError(record)

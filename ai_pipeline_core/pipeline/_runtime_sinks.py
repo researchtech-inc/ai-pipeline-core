@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from ai_pipeline_core.database._protocol import DatabaseWriter
 from ai_pipeline_core.observability._laminar_sink import LaminarSpanSink
 from ai_pipeline_core.observability._sentry_init import ensure_sentry_initialized
-from ai_pipeline_core.observability._sentry_sink import SentryLogSink, SentrySpanSink
+from ai_pipeline_core.observability._sentry_sink import SentrySpanSink
 from ai_pipeline_core.pipeline._log_sink import DatabaseLogSink
 from ai_pipeline_core.pipeline._span_sink import DatabaseSpanSink, SpanSink
 from ai_pipeline_core.pipeline._types import LogSink
@@ -28,10 +28,11 @@ def build_runtime_sinks(
     settings_obj: Settings,
 ) -> RuntimeSinks:
     """Build runtime span/log sinks for one execution boundary."""
-    ensure_sentry_initialized(settings_obj.sentry_dsn)
-
-    span_sinks: list[SpanSink] = [SentrySpanSink()]
-    log_sinks: list[LogSink] = [SentryLogSink()]
+    span_sinks: list[SpanSink] = []
+    log_sinks: list[LogSink] = []
+    if settings_obj.sentry_dsn:
+        ensure_sentry_initialized(settings_obj.sentry_dsn)
+        span_sinks.append(SentrySpanSink())
     if database is not None:
         span_sinks.insert(0, DatabaseSpanSink(database))
         log_sinks.insert(0, DatabaseLogSink(database))

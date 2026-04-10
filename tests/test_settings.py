@@ -113,3 +113,18 @@ PREFECT_API_URL=http://localhost:4200
         assert Settings.model_config.get("env_file_encoding") == "utf-8"
         assert Settings.model_config.get("extra") == "ignore"
         assert Settings.model_config.get("frozen") is True
+
+    def test_orphan_reap_defaults(self) -> None:
+        """Test the remaining orphan-reaper safety default."""
+        s = Settings()
+
+        assert s.orphan_reap_require_prefect_client is True
+
+    def test_removed_orphan_reap_threshold_settings_are_absent(self) -> None:
+        """Test that the heuristic orphan-reaper settings were deleted."""
+        s = Settings()
+
+        assert "orphan_reap_heartbeat_stale_seconds" not in Settings.model_fields
+        assert "orphan_reap_fallback_max_hours" not in Settings.model_fields
+        assert not hasattr(s, "orphan_reap_heartbeat_stale_seconds")
+        assert not hasattr(s, "orphan_reap_fallback_max_hours")

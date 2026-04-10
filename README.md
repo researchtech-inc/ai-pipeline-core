@@ -63,10 +63,10 @@ dev = [
 ]
 ```
 
-To pin to a specific version, append `@v0.21.3` (or a commit hash) before `#subdirectory`:
+To pin to a specific version, append `@v0.22.0` (or a commit hash) before `#subdirectory`:
 
 ```toml
-"dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.20.0#subdirectory=tools/dev-cli"
+    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.0#subdirectory=tools/dev-cli"
 ```
 
 This installs three additional CLI commands:
@@ -83,6 +83,10 @@ This installs three additional CLI commands:
 ### Versioning
 
 This is an internal framework under active development. **No backward compatibility is guaranteed between versions** — pin your dependency to an exact version. There is no changelog; the git commit history serves as the changelog.
+
+### Crash Visibility
+
+Near-zero tail loss on SIGKILL is the right expectation for stdout logging, not zero-loss durability. The platform logging agent still buffers recent log lines locally before shipping them, so an OOM or SIGKILL can drop the very end of the stream. That is still materially better than deferred database log flushing, but truly zero-loss logging would require synchronous network writes on every log line, which is too expensive for the framework's hot path.
 
 ### Development Installation
 

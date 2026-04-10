@@ -1,6 +1,6 @@
 [project]
 name = "ai-pipeline-core"
-version = "0.21.3"
+version = "0.22.0"
 description = "Core utilities for AI-powered processing pipelines using prefect"
 readme = "README.md"
 license = {text = "MIT"}
@@ -76,6 +76,7 @@ strict = true
 testpaths = ["tests"]
 markers = [
     "integration: tests requiring real LLM API keys (auto-skipped when OPENAI_API_KEY not set)",
+    "available: tests requiring locally available infrastructure or subprocess helpers",
     "clickhouse: tests requiring a ClickHouse Docker container (auto-skipped when Docker unavailable)",
     "pubsub: tests requiring GCP Pub/Sub emulator via testcontainers (auto-skipped when Docker unavailable)",
     "pubsub_live: tests requiring real GCP Pub/Sub (needs PUBSUB_PROJECT_ID)",

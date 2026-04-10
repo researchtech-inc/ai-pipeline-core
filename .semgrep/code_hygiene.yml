@@ -196,3 +196,15 @@ rules:
       exclude:
         - "**/tests/**"
         - "ai_pipeline_core/deployment/_deployment_runtime.py"
+
+  - id: sentry-isolation-scope-only-in-run-core
+    pattern: sentry_sdk.isolation_scope()
+    message: >
+      Open sentry_sdk.isolation_scope() only in PipelineDeployment._run_core().
+      For per-capture tagging use sentry_sdk.new_scope() instead.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include: ["ai_pipeline_core/"]
+      exclude:
+        - "ai_pipeline_core/deployment/base.py"

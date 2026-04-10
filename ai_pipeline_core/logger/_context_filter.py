@@ -32,6 +32,7 @@ class ExecutionContextFilter(logging.Filter):
             "span_target": ctx.span_target,
             "flow_name": flow_name,
             "task_name": task_name,
+            "service": ctx.service_name,
         }
         for field_name, value in values.items():
             if field_name not in record.__dict__:

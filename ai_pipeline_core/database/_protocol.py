@@ -22,7 +22,7 @@ __all__ = [
 # Protocol
 @runtime_checkable
 class DatabaseWriter(Protocol):
-    """Write protocol for the span/document/blob/log schema."""
+    """Write protocol for span storage."""
 
     @property
     def supports_remote(self) -> bool:
@@ -30,61 +30,69 @@ class DatabaseWriter(Protocol):
         ...
 
     async def insert_span(self, span: SpanRecord) -> None:
-        """Insert a span row. Lifecycle updates are written as new rows with higher versions."""
+        """Append one span version."""
         ...
 
     async def save_document(self, record: DocumentRecord) -> None:
-        """Persist a single document record."""
+        """Store one document record."""
         ...
 
     async def save_document_batch(self, records: list[DocumentRecord]) -> None:
-        """Persist multiple document records in one operation."""
+        """Store many document records."""
         ...
 
     async def save_blob(self, blob: _BlobRecord) -> None:
-        """Persist a single blob."""
+        """Store one blob."""
         ...
 
     async def save_blob_batch(self, blobs: list[_BlobRecord]) -> None:
-        """Persist multiple blobs in one operation."""
+        """Store many blobs."""
         ...
 
     async def save_logs_batch(self, logs: list[LogRecord]) -> None:
-        """Persist multiple log records in one operation."""
+        """Store many logs."""
         ...
 
     async def update_document_summary(self, document_sha256: str, summary: str) -> None:
-        """Update the top-level summary field for a document row."""
+        """Update one document summary."""
         ...
 
     async def flush(self) -> None:
-        """Flush any buffered writes to storage."""
+        """Flush buffered writes."""
         ...
 
     async def shutdown(self) -> None:
-        """Release resources and close connections."""
+        """Close the backend."""
         ...
 
 
 # Protocol
 @runtime_checkable
 class DatabaseReader(Protocol):
-    """Read protocol for the span/document/blob/log schema."""
+    """Read protocol for span storage."""
 
     async def get_span(self, span_id: UUID) -> SpanRecord | None:
-        """Retrieve a span by its ID."""
+        """Load one span by ID."""
         ...
 
     async def get_child_spans(self, parent_span_id: UUID) -> list[SpanRecord]:
-        """Retrieve direct child spans ordered by sequence number."""
+        """Load direct child spans."""
         ...
 
     async def get_deployment_tree(self, root_deployment_id: UUID) -> list[SpanRecord]:
-        """Retrieve every span in a deployment tree as a flat list."""
+        """Load one deployment tree."""
+        ...
+
+    async def get_deployment_tree_topology(self, root_deployment_id: UUID) -> list[SpanRecord]:
+        """Load one deployment tree without payload JSON."""
+        ...
+
+    async def get_deployment_latest_activity(self, root_deployment_id: UUID) -> datetime | None:
+        """Return latest tree activity."""
         ...
 
     async def get_deployment_by_run_id(self, run_id: str) -> SpanRecord | None:
-        """Find the newest deployment span for a run ID."""
+        """Find the newest deployment span for a run."""
         ...
 
     async def list_deployments(
@@ -94,20 +102,26 @@ class DatabaseReader(Protocol):
         status: str | None = None,
         root_only: bool = False,
     ) -> list[SpanRecord]:
-        """List deployment spans ordered by newest start time first."""
+        """List deployment spans."""
         ...
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
-        """List deployment spans for an exact run_id ordered by newest start time first."""
+        """List deployment spans for one run."""
         ...
 
-    async def list_orphaned_deployment_roots(
+    async def list_running_deployment_roots(
         self,
         *,
-        older_than: datetime,
         limit: int = 1000,
     ) -> list[SpanRecord]:
-        """List root deployment spans still marked running after the given cutoff."""
+        """List running root deployments, oldest first."""
+        ...
+
+    async def latest_span_activity_for_deployment(
+        self,
+        root_deployment_id: UUID,
+    ) -> datetime | None:
+        """Return latest tree activity for recovery."""
         ...
 
     async def get_cached_completion(
@@ -116,11 +130,11 @@ class DatabaseReader(Protocol):
         *,
         max_age: timedelta | None = None,
     ) -> SpanRecord | None:
-        """Find a completed span matching the cache key within the max age window."""
+        """Find a completed cached span."""
         ...
 
     async def get_deployment_cost_totals(self, root_deployment_id: UUID) -> CostTotals:
-        """Aggregate cost (all spans) and token totals (llm_round only) for a deployment tree."""
+        """Aggregate deployment cost totals."""
         ...
 
     async def get_deployment_span_count(
@@ -129,7 +143,7 @@ class DatabaseReader(Protocol):
         *,
         kinds: list[str] | None = None,
     ) -> int:
-        """Count spans in a deployment tree, optionally filtering by span kind."""
+        """Count spans in a tree."""
         ...
 
     async def get_spans_referencing_document(
@@ -138,34 +152,34 @@ class DatabaseReader(Protocol):
         *,
         kinds: list[str] | None = None,
     ) -> list[SpanRecord]:
-        """Find spans that reference a SHA in document or blob input/output arrays."""
+        """Find spans that reference a document or blob SHA."""
         ...
 
     async def get_document(self, document_sha256: str) -> DocumentRecord | None:
-        """Retrieve a document record by SHA256."""
+        """Load one document record."""
         ...
 
     async def get_documents_batch(self, sha256s: list[str]) -> dict[str, DocumentRecord]:
-        """Retrieve multiple document records keyed by SHA256."""
+        """Load many document records keyed by SHA."""
         ...
 
     async def get_document_with_content(
         self,
         document_sha256: str,
     ) -> HydratedDocument | None:
-        """Load document metadata plus primary content and attachment blobs."""
+        """Load one document plus content."""
         ...
 
     async def get_all_document_shas_for_tree(self, root_deployment_id: UUID) -> set[str]:
-        """Collect all document SHA256s referenced anywhere in a deployment tree."""
+        """Collect all document SHAs in a tree."""
         ...
 
     async def get_blob(self, content_sha256: str) -> _BlobRecord | None:
-        """Retrieve a blob by content SHA256."""
+        """Load one blob."""
         ...
 
     async def get_blobs_batch(self, content_sha256s: list[str]) -> dict[str, _BlobRecord]:
-        """Retrieve blobs keyed by content SHA256."""
+        """Load many blobs keyed by SHA."""
         ...
 
     async def get_span_logs(
@@ -175,7 +189,7 @@ class DatabaseReader(Protocol):
         level: str | None = None,
         category: str | None = None,
     ) -> list[LogRecord]:
-        """Retrieve logs for a specific span."""
+        """Load logs for one span."""
         ...
 
     async def get_deployment_logs(
@@ -185,7 +199,7 @@ class DatabaseReader(Protocol):
         level: str | None = None,
         category: str | None = None,
     ) -> list[LogRecord]:
-        """Retrieve logs for an entire deployment."""
+        """Load logs for one deployment."""
         ...
 
     async def get_deployment_logs_batch(
@@ -195,7 +209,7 @@ class DatabaseReader(Protocol):
         level: str | None = None,
         category: str | None = None,
     ) -> list[LogRecord]:
-        """Retrieve logs for multiple deployments in one operation."""
+        """Load logs for many deployments."""
         ...
 
     async def find_documents_by_name(
@@ -204,9 +218,8 @@ class DatabaseReader(Protocol):
         *,
         document_type: str | None = None,
     ) -> dict[str, DocumentRecord]:
-        """Find document records by exact name match.
+        """Find documents by exact name.
 
-        Returns {name: record}. When multiple documents share a name,
-        the record with the highest document_sha256 wins (deterministic tiebreak).
+        Returns ``{name: record}``. Duplicate names keep the highest SHA.
         """
         ...

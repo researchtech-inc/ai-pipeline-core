@@ -360,7 +360,7 @@ class TestTaskRetryAttemptSpans:
 
     @pytest.mark.asyncio
     async def test_no_retry_task_failure_creates_failed_attempt_span(self) -> None:
-        """A retries=0 task that fails emits a failed ATTEMPT span but no retry_errors on the TASK span."""
+        """A retries=0 task that fails emits a failed ATTEMPT span and records attempt metadata on the TASK span."""
         database = _MemoryDatabase()
         with set_execution_context(_make_context(database)):
             with pytest.raises(RuntimeError, match="no-retry failure"):
@@ -376,8 +376,10 @@ class TestTaskRetryAttemptSpans:
 
         task_span = next(s for s in database._spans.values() if s.kind == SpanKind.TASK)
         task_meta = json.loads(task_span.meta_json)
-        assert "retry_count" not in task_meta
-        assert "retry_errors" not in task_meta
+        assert task_meta["retry_count"] == 1
+        assert len(task_meta["retry_errors"]) == 1
+        assert task_meta["retry_errors"][0]["will_retry"] is False
+        assert task_meta["retry_errors"][0]["max_attempts"] == 1
 
     @pytest.mark.asyncio
     async def test_all_attempts_fail_records_all_errors(self) -> None:
@@ -986,7 +988,7 @@ class TestFlowRetryAttemptSpans:
 
     @pytest.mark.asyncio
     async def test_no_retry_flow_failure_creates_failed_attempt_span(self) -> None:
-        """A retries=0 flow that fails emits a failed ATTEMPT span but no retry_errors on the FLOW span."""
+        """A retries=0 flow that fails emits a failed ATTEMPT span and records attempt metadata on the parent span."""
         from ai_pipeline_core.deployment._deployment_runtime import _resolve_flow_arguments, _run_flow_with_retries
 
         database = _MemoryDatabase()
@@ -1016,7 +1018,9 @@ class TestFlowRetryAttemptSpans:
         error_data = json.loads(attempt_spans[0].error_json)
         assert error_data["type_name"] == "RuntimeError"
         assert "flow always fails" in error_data["message"]
-        assert parent_ctx._retry_errors == []
+        assert len(parent_ctx._retry_errors) == 1
+        assert parent_ctx._retry_errors[0]["will_retry"] is False
+        assert parent_ctx._retry_errors[0]["max_attempts"] == 1
 
     @pytest.mark.asyncio
     async def test_flow_single_attempt_span_even_without_retries(self) -> None:

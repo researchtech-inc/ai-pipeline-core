@@ -1,5 +1,6 @@
 """Sentry span and log sinks."""
 
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -7,12 +8,29 @@ from uuid import UUID
 
 import sentry_sdk
 from ai_pipeline_core.database import SpanKind
-from ai_pipeline_core.logger._types import LogRecord
 from ai_pipeline_core.pipeline._execution_context import get_execution_context
 from ai_pipeline_core.pipeline._span_types import SpanMetrics
-from ai_pipeline_core.pipeline._types import LogSink
 
-__all__ = ["SentryLogSink", "SentrySpanSink"]
+__all__ = ["SentrySpanSink"]
+
+_ISSUE_CAPTURE_KINDS = frozenset({SpanKind.TASK, SpanKind.FLOW, SpanKind.DEPLOYMENT})
+
+
+def _replay_retry_breadcrumbs(scope: Any, meta: dict[str, Any]) -> None:
+    """Attach retry/attempt-failure metadata from the span as Sentry breadcrumbs."""
+    for retry_error in meta.get("retry_errors", []):
+        if not isinstance(retry_error, dict):
+            continue
+        will_retry = bool(retry_error.get("will_retry", False))
+        message = str(retry_error.get("error_message", "attempt failed"))
+        if will_retry:
+            message = f"{message} (retrying)"
+        scope.add_breadcrumb(
+            category="retry",
+            level="warning",
+            message=message,
+            data=dict(retry_error),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +40,7 @@ class _StartedSpanState:
 
 
 class SentrySpanSink:
-    """Capture terminal span failures in Sentry and add attempt breadcrumbs."""
+    """Capture terminal span failures in Sentry."""
 
     def __init__(self) -> None:
         self._started: dict[UUID, _StartedSpanState] = {}
@@ -73,72 +91,31 @@ class SentrySpanSink:
         started_state = self._started.pop(span_id, None)
         if error is None or started_state is None or span_id in self._captured:
             return
+        if not isinstance(error, Exception):
+            return
+        if started_state.kind == SpanKind.ATTEMPT:
+            return
+        if started_state.kind not in _ISSUE_CAPTURE_KINDS:
+            return
+        if getattr(error, "_sentry_captured", False):
+            return
         self._captured.add(span_id)
         execution_ctx = get_execution_context()
-        if started_state.kind == SpanKind.ATTEMPT:
-            sentry_sdk.add_breadcrumb(
-                category="attempt",
-                level="warning",
-                message=started_state.name,
-                data={
-                    "attempt": meta.get("attempt"),
-                    "max_attempts": meta.get("max_attempts"),
-                    "span_id": str(span_id),
-                    "span_name": started_state.name,
-                    "run_id": execution_ctx.run_id if execution_ctx is not None else "",
-                    "error_type": type(error).__name__,
-                    "error_message": str(error),
-                },
-            )
-            return
 
-        with sentry_sdk.isolation_scope() as scope:
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("span_id", str(span_id))
+            scope.set_tag("span_kind", started_state.kind.value)
+            scope.set_tag("span_name", started_state.name)
             if execution_ctx is not None:
-                scope.set_tag("run_id", execution_ctx.run_id)
-                scope.set_tag("deployment_id", str(execution_ctx.deployment_id) if execution_ctx.deployment_id is not None else "")
-                scope.set_tag("root_deployment_id", str(execution_ctx.root_deployment_id) if execution_ctx.root_deployment_id is not None else "")
-                scope.set_tag("span_id", str(span_id))
-                scope.set_tag("span_kind", started_state.kind.value)
-                scope.set_tag("span_name", started_state.name)
                 if execution_ctx.flow_frame is not None:
                     scope.set_tag("flow_name", execution_ctx.flow_frame.name)
+                    scope.set_tag("flow_step", str(execution_ctx.flow_frame.step))
                 if execution_ctx.task_frame is not None:
                     scope.set_tag("task_name", execution_ctx.task_frame.task_class_name)
             model_name = meta.get("model")
             if isinstance(model_name, str) and model_name:
                 scope.set_tag("model", model_name)
-            for retry_error in meta.get("retry_errors", []):
-                if not isinstance(retry_error, dict):
-                    continue
-                sentry_sdk.add_breadcrumb(
-                    category="retry",
-                    level="warning",
-                    message=str(retry_error.get("error_message", "retry failure")),
-                    data=dict(retry_error),
-                )
+            _replay_retry_breadcrumbs(scope, meta)
             sentry_sdk.capture_exception(error)
-
-
-class SentryLogSink(LogSink):
-    """Write third-party warning/error logs as Sentry breadcrumbs."""
-
-    async def on_logs_batch(self, logs: list[LogRecord]) -> None:
-        """Convert warning/error dependency logs into breadcrumbs."""
-        _ = self
-        for log in logs:
-            if log.level not in {"WARNING", "ERROR", "CRITICAL"}:
-                continue
-            if log.logger_name.startswith("ai_pipeline_core"):
-                continue
-            sentry_sdk.add_breadcrumb(
-                category="log",
-                level=log.level.lower(),
-                message=log.message,
-                data={
-                    "logger_name": log.logger_name,
-                    "event_type": log.event_type,
-                    "deployment_id": str(log.deployment_id),
-                    "span_id": str(log.span_id),
-                    "fields_json": log.fields_json,
-                },
-            )
+            with contextlib.suppress(AttributeError, TypeError):
+                object.__setattr__(error, "_sentry_captured", True)  # noqa: PLC2801 — bypass potential custom __setattr__ on exception subclasses

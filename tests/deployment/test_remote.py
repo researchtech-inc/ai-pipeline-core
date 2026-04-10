@@ -104,7 +104,7 @@ class TestRunRemoteDeployment:
 
             with (
                 patch(
-                    "ai_pipeline_core.deployment.remote.run_deployment",
+                    "ai_pipeline_core.deployment.remote.arun_deployment",
                     new=AsyncMock(side_effect=ObjectNotFound(http_exc=Exception("missing"))),
                 ),
                 patch("ai_pipeline_core.deployment.remote.settings") as mock_settings,
@@ -130,7 +130,7 @@ class TestRunRemoteDeployment:
                 patch("ai_pipeline_core.deployment.remote.PrefectClient") as mock_prefect_client,
                 patch("ai_pipeline_core.deployment.remote.AsyncClientContext.model_construct", return_value=nullcontext()),
                 patch(
-                    "ai_pipeline_core.deployment.remote.run_deployment",
+                    "ai_pipeline_core.deployment.remote.arun_deployment",
                     new=AsyncMock(side_effect=[local_run_error, remote_flow_run]),
                 ) as mock_run_deployment,
                 patch("ai_pipeline_core.deployment.remote._poll_remote_flow_run", new=AsyncMock(return_value={"success": True})) as mock_poll,
@@ -170,7 +170,7 @@ class TestRunRemoteDeployment:
                 patch("ai_pipeline_core.deployment.remote.PrefectClient") as mock_prefect_client,
                 patch("ai_pipeline_core.deployment.remote.AsyncClientContext.model_construct", return_value=nullcontext()),
                 patch(
-                    "ai_pipeline_core.deployment.remote.run_deployment",
+                    "ai_pipeline_core.deployment.remote.arun_deployment",
                     new=AsyncMock(side_effect=[not_found_error, not_found_error]),
                 ),
                 patch("ai_pipeline_core.deployment.remote.settings") as mock_settings,
@@ -204,7 +204,7 @@ class TestSubmitRemoteFlowRun:
 
         with (
             patch(
-                "ai_pipeline_core.deployment.remote.run_deployment",
+                "ai_pipeline_core.deployment.remote.arun_deployment",
                 new=AsyncMock(side_effect=[retryable_error, _make_created_flow_run()]),
             ) as mock_run_deployment,
             patch("ai_pipeline_core.deployment.remote.random.SystemRandom.uniform", return_value=0.0),
@@ -232,7 +232,7 @@ class TestSubmitRemoteFlowRun:
 
         with (
             patch(
-                "ai_pipeline_core.deployment.remote.run_deployment",
+                "ai_pipeline_core.deployment.remote.arun_deployment",
                 new=AsyncMock(side_effect=[transport_error, transport_error, transport_error]),
             ),
             patch("ai_pipeline_core.deployment.remote.random.SystemRandom.uniform", return_value=0.0),
@@ -259,7 +259,7 @@ class TestSubmitRemoteFlowRun:
         validation_error = _make_http_status_error(422, "field 'options' is invalid")
 
         with patch(
-            "ai_pipeline_core.deployment.remote.run_deployment",
+            "ai_pipeline_core.deployment.remote.arun_deployment",
             new=AsyncMock(side_effect=validation_error),
         ) as mock_run_deployment:
             with pytest.raises(RemoteDeploymentSubmissionError, match="field 'options' is invalid") as excinfo:
@@ -282,7 +282,7 @@ class TestSubmitRemoteFlowRun:
 
         with (
             patch(
-                "ai_pipeline_core.deployment.remote.run_deployment",
+                "ai_pipeline_core.deployment.remote.arun_deployment",
                 new=AsyncMock(side_effect=[rate_limit_error, _make_created_flow_run(flow_run_id=2)]),
             ) as mock_run_deployment,
             patch("ai_pipeline_core.deployment.remote.random.SystemRandom.uniform", return_value=0.125),
@@ -307,7 +307,7 @@ class TestSubmitRemoteFlowRun:
 
         with (
             patch(
-                "ai_pipeline_core.deployment.remote.run_deployment",
+                "ai_pipeline_core.deployment.remote.arun_deployment",
                 new=AsyncMock(side_effect=asyncio.CancelledError()),
             ) as mock_run_deployment,
             patch("ai_pipeline_core.deployment.remote.asyncio.sleep", new=AsyncMock()) as mock_sleep,
@@ -331,7 +331,7 @@ class TestSubmitRemoteFlowRun:
         not_found_error = ObjectNotFound(http_exc=Exception("missing"))
 
         with patch(
-            "ai_pipeline_core.deployment.remote.run_deployment",
+            "ai_pipeline_core.deployment.remote.arun_deployment",
             new=AsyncMock(side_effect=not_found_error),
         ):
             with pytest.raises(ObjectNotFound):

@@ -86,6 +86,12 @@ class _MemoryDatabase:
         matches = [span for span in self._spans.values() if span.root_deployment_id == root_deployment_id]
         return sorted(matches, key=span_sort_key)
 
+    async def get_deployment_tree_topology(self, root_deployment_id: UUID) -> list[SpanRecord]:
+        return await self.get_deployment_tree(root_deployment_id)
+
+    async def get_deployment_latest_activity(self, root_deployment_id: UUID) -> datetime | None:
+        return await self.latest_span_activity_for_deployment(root_deployment_id)
+
     async def get_deployment_by_run_id(self, run_id: str) -> SpanRecord | None:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
         if not matches:
@@ -110,10 +116,9 @@ class _MemoryDatabase:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
         return sorted(matches, key=deployment_sort_key, reverse=True)
 
-    async def list_orphaned_deployment_roots(
+    async def list_running_deployment_roots(
         self,
         *,
-        older_than: datetime,
         limit: int = 1000,
     ) -> list[SpanRecord]:
         if limit <= 0:
@@ -121,13 +126,19 @@ class _MemoryDatabase:
         matches = [
             span
             for span in self._spans.values()
-            if span.kind == SpanKind.DEPLOYMENT
-            and span.span_id == span.root_deployment_id
-            and span.status == SpanStatus.RUNNING
-            and span.started_at is not None
-            and span.started_at < older_than
+            if span.kind == SpanKind.DEPLOYMENT and span.span_id == span.root_deployment_id and span.status == SpanStatus.RUNNING
         ]
-        return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+        return sorted(matches, key=lambda span: (span.started_at, str(span.span_id)))[:limit]
+
+    async def latest_span_activity_for_deployment(self, root_deployment_id: UUID) -> datetime | None:
+        latest: datetime | None = None
+        for span in self._spans.values():
+            if span.root_deployment_id != root_deployment_id:
+                continue
+            activity = span.ended_at or span.started_at
+            if latest is None or activity > latest:
+                latest = activity
+        return latest
 
     async def get_cached_completion(
         self,

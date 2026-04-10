@@ -10,6 +10,7 @@ import inspect
 import json
 from datetime import UTC
 from typing import Any
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -210,6 +211,7 @@ class TestPipelineDeploymentValidation:
         assert MyDeployment.options_type is FlowOptions
         assert MyDeployment.result_type is ValidResult
         assert MyDeployment.pubsub_service_type == ""
+        assert MyDeployment.service_name == ""
 
     def test_pubsub_service_type_classvar(self):
         """pubsub_service_type defaults to empty and can be overridden."""
@@ -219,6 +221,7 @@ class TestPipelineDeploymentValidation:
 
             flow_retries = 0
             pubsub_service_type = "research"
+            service_name = "research"
 
             def build_flows(self, options):
                 return [ValidFlow()]
@@ -228,6 +231,31 @@ class TestPipelineDeploymentValidation:
                 return ValidResult(success=True)
 
         assert WithServiceType.pubsub_service_type == "research"
+        assert WithServiceType.service_name == "research"
+
+    def test_deployment_subclass_without_service_name_warns(self):
+        """pubsub_service_type-only subclasses warn about the 0.23.0 service_name requirement."""
+
+        with pytest.warns(
+            FutureWarning,
+            match=(
+                "PipelineDeployment subclass WarnsWithoutServiceName sets pubsub_service_type but not service_name. "
+                'service_name will be required in 0.23.0 — set `service_name: ClassVar\\[str\\] = "..."` on the class\\.'
+            ),
+        ):
+
+            class WarnsWithoutServiceName(PipelineDeployment[FlowOptions, ValidResult]):
+                """Deployment with only pubsub_service_type configured."""
+
+                flow_retries = 0
+                pubsub_service_type = "research"
+
+                def build_flows(self, options):
+                    return [ValidFlow()]
+
+                @staticmethod
+                def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
+                    return ValidResult(success=True)
 
     def test_name_starts_with_test_raises(self):
         """Test that 'Test' prefix raises TypeError."""
@@ -803,6 +831,20 @@ async def test_deployment_stores_parent_execution_id_on_deployment_node(input_do
     deployment_spans = [span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT]
     assert deployment_spans
     assert deployment_spans[0].run_id == "run-parent-link"
+
+
+@pytest.mark.asyncio
+async def test_run_core_writes_prefect_flow_run_id_to_root_span_meta(input_documents: list[Document]) -> None:
+    database = _MemoryDatabase()
+    prefect_flow_run_id = uuid4()
+
+    with patch("ai_pipeline_core.deployment.base.runtime.flow_run.get_id", return_value=prefect_flow_run_id):
+        await ExampleDeployment().run("run-prefect-meta", input_documents, _TestOptions(), database=database)
+
+    deployment_spans = [span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT]
+    assert deployment_spans
+    meta = json.loads(deployment_spans[0].meta_json)
+    assert meta["prefect_flow_run_id"] == str(prefect_flow_run_id)
 
 
 def test_run_local_forces_memory_database(monkeypatch: pytest.MonkeyPatch, input_documents: list[Document]) -> None:

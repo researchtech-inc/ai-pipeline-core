@@ -18,7 +18,6 @@ if "prefect" in sys.modules and get_current_settings().cloud.enable_orchestratio
 
 from . import llm
 from ._codec import CodecError, UniversalCodec
-from .database import DatabaseReader
 from .deployment import DeploymentPlan, DeploymentResult, FieldGate, FlowOutputs, FlowStep, PipelineDeployment
 from .deployment.remote import RemoteDeployment
 from .documents import (
@@ -85,7 +84,6 @@ __all__ = [
     "Citation",
     "CodecError",
     "Conversation",
-    "DatabaseReader",
     "DeploymentPlan",
     "DeploymentResult",
     "Document",

@@ -18,6 +18,7 @@ from ai_pipeline_core.database._serialization import (
     row_to_span,
     string_tuple,
 )
+from ai_pipeline_core.database._sorting import span_sort_key
 from ai_pipeline_core.database._types import (
     CostTotals,
     DocumentRecord,
@@ -52,6 +53,53 @@ logger = logging.getLogger(__name__)
 
 _FAILURE_THRESHOLD = 3
 _RECONNECT_INTERVAL_SEC = 60
+_TOPOLOGY_SPAN_COLUMNS = (
+    "span_id",
+    "parent_span_id",
+    "deployment_id",
+    "root_deployment_id",
+    "run_id",
+    "deployment_name",
+    "kind",
+    "name",
+    "description",
+    "status",
+    "sequence_no",
+    "started_at",
+    "ended_at",
+    "version",
+    "cache_key",
+    "previous_conversation_id",
+    "cost_usd",
+    "error_type",
+    "'' AS error_message",
+    "input_document_shas",
+    "output_document_shas",
+    "target",
+    "'' AS receiver_json",
+    "'' AS input_json",
+    "'' AS output_json",
+    "'' AS error_json",
+    "'' AS meta_json",
+    "'' AS metrics_json",
+    "input_blob_shas",
+    "output_blob_shas",
+)
+
+
+def _root_latest_spans_query(select_sql: str, *, extra_where: str = "") -> str:
+    return (
+        "WITH latest AS ("
+        f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+        "WHERE root_deployment_id = {root_deployment_id:UUID} "
+        "GROUP BY span_id"
+        ") "
+        f"SELECT {select_sql} "
+        f"FROM {SPANS_TABLE} AS s "
+        "INNER JOIN latest USING (span_id, version) "
+        "WHERE s.root_deployment_id = {root_deployment_id:UUID}"
+        f"{extra_where}"
+    )
 
 
 class ClickHouseDatabase:
@@ -199,12 +247,33 @@ class ClickHouseDatabase:
 
     async def get_deployment_tree(self, root_deployment_id: UUID) -> list[SpanRecord]:
         result = await self._query(
-            f"SELECT {', '.join(SPAN_COLUMNS)} FROM {SPANS_TABLE} FINAL "
-            "WHERE root_deployment_id = {root_deployment_id:UUID} "
-            "ORDER BY started_at, deployment_id, sequence_no, version, span_id",
+            _root_latest_spans_query(", ".join(SPAN_COLUMNS)),
             parameters={"root_deployment_id": root_deployment_id},
         )
-        return [row_to_span(tuple(row)) for row in result.result_rows]
+        return sorted(
+            (row_to_span(tuple(row)) for row in result.result_rows),
+            key=span_sort_key,
+        )
+
+    async def get_deployment_tree_topology(self, root_deployment_id: UUID) -> list[SpanRecord]:
+        """Return tree structure only; payload JSON fields are blanked empty strings.
+
+        Callers must not read ``input_json``, ``output_json``, ``meta_json``,
+        ``metrics_json``, ``receiver_json``, ``error_json``, or
+        ``error_message`` from these rows. Use ``get_span()`` or
+        ``get_deployment_tree()`` when payload content is required.
+        """
+        result = await self._query(
+            _root_latest_spans_query(", ".join(_TOPOLOGY_SPAN_COLUMNS)),
+            parameters={"root_deployment_id": root_deployment_id},
+        )
+        return sorted(
+            (row_to_span(tuple(row)) for row in result.result_rows),
+            key=span_sort_key,
+        )
+
+    async def get_deployment_latest_activity(self, root_deployment_id: UUID) -> datetime | None:
+        return await self.latest_span_activity_for_deployment(root_deployment_id)
 
     async def get_deployment_by_run_id(self, run_id: str) -> SpanRecord | None:
         result = await self._query(
@@ -259,10 +328,9 @@ class ClickHouseDatabase:
         )
         return [row_to_span(tuple(row)) for row in result.result_rows]
 
-    async def list_orphaned_deployment_roots(
+    async def list_running_deployment_roots(
         self,
         *,
-        older_than: datetime,
         limit: int = 1000,
     ) -> list[SpanRecord]:
         if limit <= 0:
@@ -274,16 +342,26 @@ class ClickHouseDatabase:
             "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
             ") WHERE span_id = root_deployment_id "
             "AND status = {status:String} "
-            "AND started_at < {older_than:DateTime64(3)} "
-            "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64}",
+            "ORDER BY started_at ASC, span_id ASC LIMIT {limit:UInt64}",
             parameters={
                 "kind": SpanKind.DEPLOYMENT,
                 "status": SpanStatus.RUNNING,
-                "older_than": older_than,
                 "limit": limit,
             },
         )
         return [row_to_span(tuple(row)) for row in result.result_rows]
+
+    async def latest_span_activity_for_deployment(self, root_deployment_id: UUID) -> datetime | None:
+        result = await self._query(
+            _root_latest_spans_query("max(coalesce(s.ended_at, s.started_at))"),
+            parameters={"root_deployment_id": root_deployment_id},
+        )
+        if not result.result_rows:
+            return None
+        value = result.result_rows[0][0]
+        if not isinstance(value, datetime):
+            return None
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
     async def get_cached_completion(
         self,
@@ -317,7 +395,7 @@ class ClickHouseDatabase:
 
     async def get_deployment_cost_totals(self, root_deployment_id: UUID) -> CostTotals:
         result = await self._query(
-            f"SELECT kind, cost_usd, metrics_json FROM {SPANS_TABLE} FINAL WHERE root_deployment_id = {{root_deployment_id:UUID}}",
+            _root_latest_spans_query("s.kind, s.cost_usd, s.metrics_json"),
             parameters={"root_deployment_id": root_deployment_id},
         )
         return aggregate_cost_totals(
@@ -333,13 +411,15 @@ class ClickHouseDatabase:
     ) -> int:
         if kinds == []:
             return 0
-        filters = ["root_deployment_id = {root_deployment_id:UUID}"]
-        parameters: dict[str, Any] = {"root_deployment_id": root_deployment_id}
-        if kinds is not None:
-            filters.append("kind IN {kinds:Array(String)}")
-            parameters["kinds"] = kinds
+        parameters: dict[str, Any] = {
+            "root_deployment_id": root_deployment_id,
+            "kinds": kinds or [],
+        }
         result = await self._query(
-            f"SELECT count() FROM {SPANS_TABLE} FINAL WHERE {' AND '.join(filters)}",
+            _root_latest_spans_query(
+                "count()",
+                extra_where=" AND (length({kinds:Array(String)}) = 0 OR s.kind IN {kinds:Array(String)})",
+            ),
             parameters=parameters,
         )
         return int(result.result_rows[0][0]) if result.result_rows else 0
@@ -352,27 +432,38 @@ class ClickHouseDatabase:
     ) -> list[SpanRecord]:
         if kinds == []:
             return []
-        filters = [
-            "("
+        parameters: dict[str, Any] = {
+            "document_sha256": document_sha256,
+            "kinds": kinds or [],
+        }
+        result = await self._query(
+            "WITH latest AS ("
+            f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE ("
             "has(input_document_shas, {document_sha256:String}) "
             "OR has(output_document_shas, {document_sha256:String}) "
             "OR has(input_blob_shas, {document_sha256:String}) "
             "OR has(output_blob_shas, {document_sha256:String})"
-            ")"
-        ]
-        parameters: dict[str, Any] = {"document_sha256": document_sha256}
-        if kinds is not None:
-            filters.append("kind IN {kinds:Array(String)}")
-            parameters["kinds"] = kinds
-        result = await self._query(
-            f"SELECT {', '.join(SPAN_COLUMNS)} FROM ("
-            f"SELECT * FROM {SPANS_TABLE} "
-            f"WHERE {' AND '.join(filters)} "
-            "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
-            ") ORDER BY started_at, deployment_id, sequence_no, span_id",
+            ") "
+            "AND (length({kinds:Array(String)}) = 0 OR kind IN {kinds:Array(String)}) "
+            "GROUP BY span_id"
+            ") "
+            f"SELECT {', '.join(_TOPOLOGY_SPAN_COLUMNS)} "
+            f"FROM {SPANS_TABLE} AS s "
+            "INNER JOIN latest USING (span_id, version) "
+            "WHERE ("
+            "has(s.input_document_shas, {document_sha256:String}) "
+            "OR has(s.output_document_shas, {document_sha256:String}) "
+            "OR has(s.input_blob_shas, {document_sha256:String}) "
+            "OR has(s.output_blob_shas, {document_sha256:String})"
+            ") "
+            "AND (length({kinds:Array(String)}) = 0 OR s.kind IN {kinds:Array(String)})",
             parameters=parameters,
         )
-        return [row_to_span(tuple(row)) for row in result.result_rows]
+        return sorted(
+            (row_to_span(tuple(row)) for row in result.result_rows),
+            key=span_sort_key,
+        )
 
     async def get_document(self, document_sha256: str) -> DocumentRecord | None:
         result = await self._query(
@@ -414,14 +505,14 @@ class ClickHouseDatabase:
 
     async def get_all_document_shas_for_tree(self, root_deployment_id: UUID) -> set[str]:
         result = await self._query(
-            f"SELECT input_document_shas, output_document_shas FROM {SPANS_TABLE} FINAL WHERE root_deployment_id = {{root_deployment_id:UUID}}",
+            _root_latest_spans_query(
+                "arrayDistinct(arrayConcat(groupUniqArrayArray(s.input_document_shas), groupUniqArrayArray(s.output_document_shas))) AS shas"
+            ),
             parameters={"root_deployment_id": root_deployment_id},
         )
-        shas: set[str] = set()
-        for input_shas, output_shas in result.result_rows:
-            shas.update(string_tuple(input_shas))
-            shas.update(string_tuple(output_shas))
-        return shas
+        if not result.result_rows:
+            return set()
+        return set(string_tuple(result.result_rows[0][0]))
 
     async def get_blob(self, content_sha256: str) -> _BlobRecord | None:
         result = await self._query(

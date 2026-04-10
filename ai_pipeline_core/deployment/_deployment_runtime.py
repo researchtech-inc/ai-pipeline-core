@@ -296,15 +296,14 @@ async def _run_flow_with_retries(
                 await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=active_handles_before)
             will_retry = flow_attempt < flow_attempts - 1
             delay = min(retry_delay * (2**flow_attempt), MAX_RETRY_DELAY_SECONDS) if will_retry else 0
-            if flow_attempts > 1:
-                parent_span_ctx.record_retry_failure(
-                    exc=attempt_exc,
-                    attempt=flow_attempt,
-                    max_attempts=flow_attempts,
-                    attempt_span_id=str(attempt_span_id),
-                    will_retry=will_retry,
-                    delay_seconds=delay,
-                )
+            parent_span_ctx.record_retry_failure(
+                exc=attempt_exc,
+                attempt=flow_attempt,
+                max_attempts=flow_attempts,
+                attempt_span_id=str(attempt_span_id),
+                will_retry=will_retry,
+                delay_seconds=delay,
+            )
             if not will_retry:
                 raise
             logger.warning(
@@ -405,26 +404,23 @@ async def _execute_flow_with_context(
                     flow_retries=_resolve_flow_retries(flow_class, deployment_flow_retries),
                     flow_retry_delay_seconds=_resolve_flow_retry_delay(flow_class, deployment_flow_retry_delay_seconds),
                 )
-                try:
-                    await publisher.publish_flow_started(
-                        FlowStartedEvent(
-                            run_id=run_id,
-                            span_id=str(flow_span_id),
-                            root_deployment_id=root_id_str,
-                            parent_deployment_task_id=parent_task_id_str,
-                            flow_name=flow_name,
-                            flow_class=flow_class.__name__,
-                            step=step,
-                            total_steps=total_steps,
-                            status=str(SpanStatus.RUNNING),
-                            expected_tasks=expected_tasks,
-                            flow_params=flow_instance.get_params(),
-                            parent_span_id=deployment_span_id_str,
-                            input_document_sha256s=input_doc_sha256s,
-                        )
+                await publisher.publish_flow_started(
+                    FlowStartedEvent(
+                        run_id=run_id,
+                        span_id=str(flow_span_id),
+                        root_deployment_id=root_id_str,
+                        parent_deployment_task_id=parent_task_id_str,
+                        flow_name=flow_name,
+                        flow_class=flow_class.__name__,
+                        step=step,
+                        total_steps=total_steps,
+                        status=str(SpanStatus.RUNNING),
+                        expected_tasks=expected_tasks,
+                        flow_params=flow_instance.get_params(),
+                        parent_span_id=deployment_span_id_str,
+                        input_document_sha256s=input_doc_sha256s,
                     )
-                except _PUBLISH_EXCEPTIONS as publish_error:
-                    logger.warning("Failed to publish flow.started event: %s", publish_error)
+                )
                 validated_docs = await _run_flow_with_retries(
                     flow_instance=flow_instance,
                     flow_class=flow_class,
@@ -478,26 +474,23 @@ async def _execute_flow_with_context(
             )
             for doc in validated_docs
         )
-        try:
-            await publisher.publish_flow_completed(
-                FlowCompletedEvent(
-                    run_id=run_id,
-                    span_id=str(flow_span_id),
-                    root_deployment_id=root_id_str,
-                    parent_deployment_task_id=parent_task_id_str,
-                    flow_name=flow_name,
-                    flow_class=flow_class.__name__,
-                    step=step,
-                    total_steps=total_steps,
-                    status=str(SpanStatus.COMPLETED),
-                    duration_ms=flow_duration_ms,
-                    output_documents=output_refs,
-                    parent_span_id=deployment_span_id_str,
-                    input_document_sha256s=input_doc_sha256s,
-                )
+        await publisher.publish_flow_completed(
+            FlowCompletedEvent(
+                run_id=run_id,
+                span_id=str(flow_span_id),
+                root_deployment_id=root_id_str,
+                parent_deployment_task_id=parent_task_id_str,
+                flow_name=flow_name,
+                flow_class=flow_class.__name__,
+                step=step,
+                total_steps=total_steps,
+                status=str(SpanStatus.COMPLETED),
+                duration_ms=flow_duration_ms,
+                output_documents=output_refs,
+                parent_span_id=deployment_span_id_str,
+                input_document_sha256s=input_doc_sha256s,
             )
-        except _PUBLISH_EXCEPTIONS as publish_error:
-            logger.warning("Failed to publish flow.completed event: %s", publish_error)
+        )
         return validated_docs
 
 

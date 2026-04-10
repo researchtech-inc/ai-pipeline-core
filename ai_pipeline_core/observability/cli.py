@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from uuid import UUID
 
+from prefect import get_client  # noqa: TID251 - NEXT-STEPS v2 requires module-level Prefect import here.
+
 from ai_pipeline_core.database._factory import Database
 from ai_pipeline_core.database._protocol import DatabaseReader
 from ai_pipeline_core.database._types import SpanKind, SpanRecord
@@ -27,6 +29,11 @@ __all__ = [
 ]
 
 _TraceDatabase = Database | FilesystemDatabase | ClickHouseDatabase
+_RECOVER_SCOPE_WARNING = (
+    "This tool only acts on explicit Prefect-terminal signals (FAILED, CRASHED, CANCELLED, COMPLETED). "
+    "Runs in RUNNING state or returning ObjectNotFound will be left untouched. "
+    "Use --i-accept-nondeterministic-reconciliation to force wall-clock reconciliation for operator-investigated cases."
+)
 
 
 def _parse_execution_id(value: str) -> UUID:
@@ -248,13 +255,25 @@ async def _show_doc_async(database: _TraceDatabase, sha256: str) -> int:
     return 0
 
 
-async def _recover_orphans_async(database: _TraceDatabase, max_age_minutes: int) -> int:
+async def _recover_orphans_async(
+    database: _TraceDatabase,
+    *,
+    accept_nondeterministic_reconciliation: bool,
+) -> int:
     try:
-        recovered = await recover_orphaned_spans(
-            database,
-            max_age_minutes=max_age_minutes,
-            limit=1000,
-        )
+        if accept_nondeterministic_reconciliation:
+            recovered = await recover_orphaned_spans(
+                database,
+                prefect_client=None,
+                require_prefect_client=False,
+            )
+        else:
+            async with get_client() as prefect_client:
+                recovered = await recover_orphaned_spans(
+                    database,
+                    prefect_client=prefect_client,
+                    require_prefect_client=True,
+                )
     finally:
         await database.shutdown()
     print(f"Recovered {len(recovered)} orphaned run(s).")
@@ -291,7 +310,12 @@ def main(argv: list[str] | None = None) -> int:
     doc_parser.add_argument("sha256", help="Document SHA256 identifier")
 
     recover_parser = subparsers.add_parser("recover", parents=[db_parent], help="Mark orphaned running deployments as failed")
-    recover_parser.add_argument("--max-age-minutes", type=int, default=settings.orphan_span_max_age_minutes)
+    recover_parser.add_argument(
+        "--i-accept-nondeterministic-reconciliation",
+        action="store_true",
+        default=False,
+        help=("Explicitly bypass Prefect-state reconciliation and force nondeterministic wall-clock reconciliation after operator investigation."),
+    )
 
     args = parser.parse_args(argv)
     if args.command is None:
@@ -313,7 +337,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doc":
             return asyncio.run(_show_doc_async(database, args.sha256))
         if args.command == "recover":
-            return asyncio.run(_recover_orphans_async(database, args.max_age_minutes))
+            print(_RECOVER_SCOPE_WARNING)
+            return asyncio.run(
+                _recover_orphans_async(
+                    database,
+                    accept_nondeterministic_reconciliation=args.i_accept_nondeterministic_reconciliation,
+                )
+            )
     except SystemExit:
         raise
     except Exception as exc:

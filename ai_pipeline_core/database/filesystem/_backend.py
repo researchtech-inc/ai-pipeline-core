@@ -534,6 +534,13 @@ class FilesystemDatabase:
         matches = [span for span in self._spans.values() if span.root_deployment_id == root_deployment_id]
         return sorted(matches, key=span_sort_key)
 
+    def _get_deployment_latest_activity_sync(self, root_deployment_id: UUID) -> datetime | None:
+        tree_spans = [span for span in self._spans.values() if span.root_deployment_id == root_deployment_id]
+        if not tree_spans:
+            return None
+        activities = [span.ended_at or span.started_at for span in tree_spans]
+        return max(activities)
+
     def _get_deployment_by_run_id_sync(self, run_id: str) -> SpanRecord | None:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
         if not matches:
@@ -554,19 +561,18 @@ class FilesystemDatabase:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
         return sorted(matches, key=deployment_sort_key, reverse=True)
 
-    def _list_orphaned_deployment_roots_sync(self, older_than: datetime, limit: int) -> list[SpanRecord]:
+    def _list_running_deployment_roots_sync(self, limit: int) -> list[SpanRecord]:
         if limit <= 0:
             return []
         matches = [
             span
             for span in self._spans.values()
-            if span.kind == SpanKind.DEPLOYMENT
-            and span.span_id == span.root_deployment_id
-            and span.status == SpanStatus.RUNNING
-            and span.started_at is not None
-            and span.started_at < older_than
+            if span.kind == SpanKind.DEPLOYMENT and span.span_id == span.root_deployment_id and span.status == SpanStatus.RUNNING
         ]
-        return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+        return sorted(matches, key=lambda span: (span.started_at, str(span.span_id)))[:limit]
+
+    def _latest_span_activity_for_deployment_sync(self, root_deployment_id: UUID) -> datetime | None:
+        return self._get_deployment_latest_activity_sync(root_deployment_id)
 
     def _get_cached_completion_sync(self, cache_key: str, max_age: timedelta | None) -> SpanRecord | None:
         now = datetime.now(UTC)
@@ -740,6 +746,12 @@ class FilesystemDatabase:
     async def get_deployment_tree(self, root_deployment_id: UUID) -> list[SpanRecord]:
         return await self._run(self._get_deployment_tree_sync, root_deployment_id)
 
+    async def get_deployment_tree_topology(self, root_deployment_id: UUID) -> list[SpanRecord]:
+        return await self.get_deployment_tree(root_deployment_id)
+
+    async def get_deployment_latest_activity(self, root_deployment_id: UUID) -> datetime | None:
+        return await self._run(self._get_deployment_latest_activity_sync, root_deployment_id)
+
     async def get_deployment_by_run_id(self, run_id: str) -> SpanRecord | None:
         return await self._run(self._get_deployment_by_run_id_sync, run_id)
 
@@ -755,13 +767,15 @@ class FilesystemDatabase:
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
         return await self._run(self._list_deployments_by_run_id_sync, run_id)
 
-    async def list_orphaned_deployment_roots(
+    async def list_running_deployment_roots(
         self,
         *,
-        older_than: datetime,
         limit: int = 1000,
     ) -> list[SpanRecord]:
-        return await self._run(self._list_orphaned_deployment_roots_sync, older_than, limit)
+        return await self._run(self._list_running_deployment_roots_sync, limit)
+
+    async def latest_span_activity_for_deployment(self, root_deployment_id: UUID) -> datetime | None:
+        return await self._run(self._latest_span_activity_for_deployment_sync, root_deployment_id)
 
     async def get_cached_completion(
         self,

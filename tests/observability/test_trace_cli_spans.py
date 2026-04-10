@@ -235,6 +235,54 @@ class TestSpanResolveConnection:
         assert isinstance(database, _FakeClickHouseDatabase)
         assert isinstance(database.settings, _Settings)
 
+    def test_recover_command_prints_warning_and_passes_override_flag(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        FilesystemDatabase(tmp_path)
+        observed: dict[str, bool] = {}
+
+        async def _fake_recover(database, *, accept_nondeterministic_reconciliation: bool) -> int:
+            observed["accept"] = accept_nondeterministic_reconciliation
+            await database.shutdown()
+            return 0
+
+        monkeypatch.setattr(trace_cli, "_recover_orphans_async", _fake_recover)
+
+        result = main(["recover", "--db-path", str(tmp_path), "--i-accept-nondeterministic-reconciliation"])
+
+        assert result == 0
+        assert observed["accept"] is True
+        assert trace_cli._RECOVER_SCOPE_WARNING in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        ("flag", "value"),
+        [
+            ("--without-prefect", None),
+            ("--heartbeat-stale-seconds", "30"),
+            ("--fallback-max-hours", "48"),
+        ],
+    )
+    def test_recover_command_rejects_deleted_flags(
+        self,
+        tmp_path: Path,
+        flag: str,
+        value: str | None,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        FilesystemDatabase(tmp_path)
+        argv = ["recover", "--db-path", str(tmp_path), flag]
+        if value is not None:
+            argv.append(value)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(argv)
+
+        assert exc_info.value.code == 2
+        assert flag in capsys.readouterr().err
+
 
 class TestSpanResolveIdentifier:
     def test_span_uuid_resolves_root_deployment_id(self, tmp_path: Path) -> None:

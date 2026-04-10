@@ -1,6 +1,6 @@
 # MODULE: observability
 # PURPOSE: Observability system for AI pipelines.
-# VERSION: 0.21.3
+# VERSION: 0.22.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Functions
@@ -36,7 +36,12 @@ def main(argv: list[str] | None = None) -> int:
     doc_parser.add_argument("sha256", help="Document SHA256 identifier")
 
     recover_parser = subparsers.add_parser("recover", parents=[db_parent], help="Mark orphaned running deployments as failed")
-    recover_parser.add_argument("--max-age-minutes", type=int, default=settings.orphan_span_max_age_minutes)
+    recover_parser.add_argument(
+        "--i-accept-nondeterministic-reconciliation",
+        action="store_true",
+        default=False,
+        help=("Explicitly bypass Prefect-state reconciliation and force nondeterministic wall-clock reconciliation after operator investigation."),
+    )
 
     args = parser.parse_args(argv)
     if args.command is None:
@@ -58,7 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doc":
             return asyncio.run(_show_doc_async(database, args.sha256))
         if args.command == "recover":
-            return asyncio.run(_recover_orphans_async(database, args.max_age_minutes))
+            print(_RECOVER_SCOPE_WARNING)
+            return asyncio.run(
+                _recover_orphans_async(
+                    database,
+                    accept_nondeterministic_reconciliation=args.i_accept_nondeterministic_reconciliation,
+                )
+            )
     except SystemExit:
         raise
     except Exception as exc:
@@ -70,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
 
 ## Examples
 
-**Main download command writes span summary artifacts** (`tests/observability/test_trace_cli_spans.py:261`)
+**Main download command writes span summary artifacts** (`tests/observability/test_trace_cli_spans.py:309`)
 
 ```python
 def test_main_download_command_writes_span_summary_artifacts(
@@ -89,7 +100,7 @@ def test_main_download_command_writes_span_summary_artifacts(
     assert (output_dir / "logs.jsonl").exists()
 ```
 
-**Main show command reads span snapshot** (`tests/observability/test_trace_cli_spans.py:249`)
+**Main show command reads span snapshot** (`tests/observability/test_trace_cli_spans.py:297`)
 
 ```python
 def test_main_show_command_reads_span_snapshot(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -130,41 +141,78 @@ def test_build_runtime_sinks_includes_laminar_sink_when_key_is_set() -> None:
     assert any(isinstance(sink, LaminarSpanSink) for sink in sinks.span_sinks)
 ```
 
-**Db path returns span filesystem database** (`tests/observability/test_trace_cli_spans.py:203`)
+
+## Error Examples
+
+**Kwarg alone does not bypass require client** (`tests/observability/test_recovery.py:318`)
 
 ```python
-def test_db_path_returns_span_filesystem_database(self, tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_kwarg_alone_does_not_bypass_require_client() -> None:
+    """M1: Passing require_prefect_client=False alone is not enough when env var is default."""
+    database = _MemoryDatabase()
+
+    with pytest.raises(RuntimeError, match="refuses to run without a Prefect client"):
+        await recover_orphaned_spans(database, prefect_client=None, require_prefect_client=False)
+```
+
+**Refuses to run without prefect client by default** (`tests/observability/test_recovery.py:122`)
+
+```python
+@pytest.mark.asyncio
+async def test_refuses_to_run_without_prefect_client_by_default() -> None:
+    database = _MemoryDatabase()
+
+    with pytest.raises(RuntimeError, match="refuses to run without a Prefect client"):
+        await recover_orphaned_spans(database, prefect_client=None)
+```
+
+**Recover command rejects deleted flags** (`tests/observability/test_trace_cli_spans.py:268`)
+
+```python
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [
+        ("--without-prefect", None),
+        ("--heartbeat-stale-seconds", "30"),
+        ("--fallback-max-hours", "48"),
+    ],
+)
+def test_recover_command_rejects_deleted_flags(
+    self,
+    tmp_path: Path,
+    flag: str,
+    value: str | None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     FilesystemDatabase(tmp_path)
-    args = type("Args", (), {"command": "show", "db_path": str(tmp_path)})()
+    argv = ["recover", "--db-path", str(tmp_path), flag]
+    if value is not None:
+        argv.append(value)
 
-    database = _resolve_connection(args)
+    with pytest.raises(SystemExit) as exc_info:
+        main(argv)
 
-    assert isinstance(database, FilesystemDatabase)
-    assert database.read_only is True
+    assert exc_info.value.code == 2
+    assert flag in capsys.readouterr().err
 ```
 
-**Different key after failure uses error level** (`tests/observability/test_laminar_log_levels.py:28`)
+**Recovery propagates typeerror not swallow** (`tests/observability/test_recovery.py:281`)
 
 ```python
-def test_different_key_after_failure_uses_error_level(self) -> None:
-    source = inspect.getsource(LaminarSpanSink._initialization_state_allows_export)
-    assert "logger.error" in source
-```
+@pytest.mark.asyncio
+async def test_recovery_propagates_typeerror_not_swallow() -> None:
+    database = _BrokenDatabase()
+    root = await _seed_running_root(
+        database,
+        started_at=datetime.now(UTC) - timedelta(hours=1),
+        prefect_flow_run_id=uuid4(),
+    )
+    await _add_task_child(database, root=root, status=SpanStatus.RUNNING)
 
-**Initialization failure uses error level** (`tests/observability/test_laminar_log_levels.py:18`)
-
-```python
-def test_initialization_failure_uses_error_level(self) -> None:
-    source = inspect.getsource(LaminarSpanSink._initialize_laminar)
-    assert "logger.error" in source
-    assert "logger.warning" not in source
-```
-
-**Project switch uses error level** (`tests/observability/test_laminar_log_levels.py:23`)
-
-```python
-def test_project_switch_uses_error_level(self) -> None:
-    source = inspect.getsource(LaminarSpanSink._warn_project_switch)
-    assert "logger.error" in source
-    assert "logger.warning" not in source
+    with pytest.raises(TypeError, match="broken activity reader"):
+        await recover_orphaned_spans(
+            database,
+            prefect_client=_FakePrefectClient(_prefect_flow_run(state_type="FAILED")),
+        )
 ```

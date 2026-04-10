@@ -2,14 +2,13 @@
 # CLASSES: DatabaseReader, SpanKind, SpanStatus, SpanRecord, DocumentRecord, CostTotals, HydratedDocument
 # DEPENDS: Protocol, StrEnum
 # PURPOSE: Unified database module for the span-based schema.
-# VERSION: 0.21.3
+# VERSION: 0.22.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
 
 ```python
-from ai_pipeline_core import DatabaseReader
-from ai_pipeline_core.database import CostTotals, Database, DocumentRecord, HydratedDocument, SpanKind, SpanRecord, SpanStatus
+from ai_pipeline_core.database import CostTotals, Database, DatabaseReader, DocumentRecord, HydratedDocument, SpanKind, SpanRecord, SpanStatus
 ```
 
 ## Types & Constants
@@ -35,7 +34,7 @@ class _BlobRecord:
 # Protocol — implement in concrete class
 @runtime_checkable
 class DatabaseReader(Protocol):
-    """Read protocol for the span/document/blob/log schema."""
+    """Read protocol for span storage."""
 
     async def find_documents_by_name(
         self,
@@ -43,23 +42,22 @@ class DatabaseReader(Protocol):
         *,
         document_type: str | None = None,
     ) -> dict[str, DocumentRecord]:
-        """Find document records by exact name match.
+        """Find documents by exact name.
 
-        Returns {name: record}. When multiple documents share a name,
-        the record with the highest document_sha256 wins (deterministic tiebreak).
+        Returns ``{name: record}``. Duplicate names keep the highest SHA.
         """
         ...
 
     async def get_all_document_shas_for_tree(self, root_deployment_id: UUID) -> set[str]:
-        """Collect all document SHA256s referenced anywhere in a deployment tree."""
+        """Collect all document SHAs in a tree."""
         ...
 
     async def get_blob(self, content_sha256: str) -> _BlobRecord | None:
-        """Retrieve a blob by content SHA256."""
+        """Load one blob."""
         ...
 
     async def get_blobs_batch(self, content_sha256s: list[str]) -> dict[str, _BlobRecord]:
-        """Retrieve blobs keyed by content SHA256."""
+        """Load many blobs keyed by SHA."""
         ...
 
     async def get_cached_completion(
@@ -68,19 +66,23 @@ class DatabaseReader(Protocol):
         *,
         max_age: timedelta | None = None,
     ) -> SpanRecord | None:
-        """Find a completed span matching the cache key within the max age window."""
+        """Find a completed cached span."""
         ...
 
     async def get_child_spans(self, parent_span_id: UUID) -> list[SpanRecord]:
-        """Retrieve direct child spans ordered by sequence number."""
+        """Load direct child spans."""
         ...
 
     async def get_deployment_by_run_id(self, run_id: str) -> SpanRecord | None:
-        """Find the newest deployment span for a run ID."""
+        """Find the newest deployment span for a run."""
         ...
 
     async def get_deployment_cost_totals(self, root_deployment_id: UUID) -> CostTotals:
-        """Aggregate cost (all spans) and token totals (llm_round only) for a deployment tree."""
+        """Aggregate deployment cost totals."""
+        ...
+
+    async def get_deployment_latest_activity(self, root_deployment_id: UUID) -> datetime | None:
+        """Return latest tree activity."""
         ...
 
     async def get_deployment_logs(
@@ -90,7 +92,7 @@ class DatabaseReader(Protocol):
         level: str | None = None,
         category: str | None = None,
     ) -> list[LogRecord]:
-        """Retrieve logs for an entire deployment."""
+        """Load logs for one deployment."""
         ...
 
     async def get_deployment_logs_batch(
@@ -100,7 +102,7 @@ class DatabaseReader(Protocol):
         level: str | None = None,
         category: str | None = None,
     ) -> list[LogRecord]:
-        """Retrieve logs for multiple deployments in one operation."""
+        """Load logs for many deployments."""
         ...
 
     async def get_deployment_span_count(
@@ -109,30 +111,34 @@ class DatabaseReader(Protocol):
         *,
         kinds: list[str] | None = None,
     ) -> int:
-        """Count spans in a deployment tree, optionally filtering by span kind."""
+        """Count spans in a tree."""
         ...
 
     async def get_deployment_tree(self, root_deployment_id: UUID) -> list[SpanRecord]:
-        """Retrieve every span in a deployment tree as a flat list."""
+        """Load one deployment tree."""
+        ...
+
+    async def get_deployment_tree_topology(self, root_deployment_id: UUID) -> list[SpanRecord]:
+        """Load one deployment tree without payload JSON."""
         ...
 
     async def get_document(self, document_sha256: str) -> DocumentRecord | None:
-        """Retrieve a document record by SHA256."""
+        """Load one document record."""
         ...
 
     async def get_document_with_content(
         self,
         document_sha256: str,
     ) -> HydratedDocument | None:
-        """Load document metadata plus primary content and attachment blobs."""
+        """Load one document plus content."""
         ...
 
     async def get_documents_batch(self, sha256s: list[str]) -> dict[str, DocumentRecord]:
-        """Retrieve multiple document records keyed by SHA256."""
+        """Load many document records keyed by SHA."""
         ...
 
     async def get_span(self, span_id: UUID) -> SpanRecord | None:
-        """Retrieve a span by its ID."""
+        """Load one span by ID."""
         ...
 
     async def get_span_logs(
@@ -142,7 +148,7 @@ class DatabaseReader(Protocol):
         level: str | None = None,
         category: str | None = None,
     ) -> list[LogRecord]:
-        """Retrieve logs for a specific span."""
+        """Load logs for one span."""
         ...
 
     async def get_spans_referencing_document(
@@ -151,7 +157,14 @@ class DatabaseReader(Protocol):
         *,
         kinds: list[str] | None = None,
     ) -> list[SpanRecord]:
-        """Find spans that reference a SHA in document or blob input/output arrays."""
+        """Find spans that reference a document or blob SHA."""
+        ...
+
+    async def latest_span_activity_for_deployment(
+        self,
+        root_deployment_id: UUID,
+    ) -> datetime | None:
+        """Return latest tree activity for recovery."""
         ...
 
     async def list_deployments(
@@ -161,20 +174,19 @@ class DatabaseReader(Protocol):
         status: str | None = None,
         root_only: bool = False,
     ) -> list[SpanRecord]:
-        """List deployment spans ordered by newest start time first."""
+        """List deployment spans."""
         ...
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
-        """List deployment spans for an exact run_id ordered by newest start time first."""
+        """List deployment spans for one run."""
         ...
 
-    async def list_orphaned_deployment_roots(
+    async def list_running_deployment_roots(
         self,
         *,
-        older_than: datetime,
         limit: int = 1000,
     ) -> list[SpanRecord]:
-        """List root deployment spans still marked running after the given cutoff."""
+        """List running root deployments, oldest first."""
         ...
 
 
@@ -354,7 +366,7 @@ def create_debug_sink(
 
 ## Examples
 
-**Database reader is runtime checkable** (`tests/database/test_protocol.py:95`)
+**Database reader is runtime checkable** (`tests/database/test_protocol.py:98`)
 
 ```python
 def test_database_reader_is_runtime_checkable() -> None:
@@ -390,7 +402,7 @@ def test_creates_database(self, tmp_path) -> None:
     assert isinstance(db, FilesystemDatabase)
 ```
 
-**Database writer method signatures** (`tests/database/test_protocol.py:183`)
+**Database writer method signatures** (`tests/database/test_protocol.py:204`)
 
 ```python
 def test_database_writer_method_signatures() -> None:
@@ -400,7 +412,7 @@ def test_database_writer_method_signatures() -> None:
     _assert_signature(DatabaseWriter, "save_logs_batch", parameter_types={"logs": list[LogRecord]}, return_type=type(None))
 ```
 
-**Memory database conforms to protocols** (`tests/database/test_protocol.py:88`)
+**Memory database conforms to protocols** (`tests/database/test_protocol.py:91`)
 
 ```python
 def test_memory_database_conforms_to_protocols() -> None:

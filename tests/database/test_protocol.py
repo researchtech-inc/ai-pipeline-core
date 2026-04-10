@@ -31,19 +31,22 @@ def _make_reader_stub() -> object:
         "get_child_spans",
         "get_deployment_by_run_id",
         "get_deployment_cost_totals",
+        "get_deployment_latest_activity",
         "get_deployment_logs",
         "get_deployment_logs_batch",
         "get_deployment_span_count",
         "get_deployment_tree",
+        "get_deployment_tree_topology",
         "get_document",
         "get_document_with_content",
         "get_documents_batch",
         "get_span",
         "get_span_logs",
         "get_spans_referencing_document",
+        "latest_span_activity_for_deployment",
         "list_deployments",
         "list_deployments_by_run_id",
-        "list_orphaned_deployment_roots",
+        "list_running_deployment_roots",
         "find_documents_by_name",
     }
     return type("ReaderStub", (), {name: _async_method for name in method_names})()
@@ -132,6 +135,18 @@ def test_database_reader_method_signatures() -> None:
     )
     _assert_signature(
         DatabaseReader,
+        "get_deployment_tree_topology",
+        parameter_types={"root_deployment_id": UUID},
+        return_type=list[SpanRecord],
+    )
+    _assert_signature(
+        DatabaseReader,
+        "get_deployment_latest_activity",
+        parameter_types={"root_deployment_id": UUID},
+        return_type=datetime | None,
+    )
+    _assert_signature(
+        DatabaseReader,
         "get_cached_completion",
         parameter_types={"cache_key": str, "max_age": timedelta | None},
         return_type=SpanRecord | None,
@@ -139,10 +154,16 @@ def test_database_reader_method_signatures() -> None:
     )
     _assert_signature(
         DatabaseReader,
-        "list_orphaned_deployment_roots",
-        parameter_types={"older_than": datetime, "limit": int},
+        "list_running_deployment_roots",
+        parameter_types={"limit": int},
         return_type=list[SpanRecord],
-        keyword_only={"older_than", "limit"},
+        keyword_only={"limit"},
+    )
+    _assert_signature(
+        DatabaseReader,
+        "latest_span_activity_for_deployment",
+        parameter_types={"root_deployment_id": UUID},
+        return_type=datetime | None,
     )
     _assert_signature(
         DatabaseReader,

@@ -223,6 +223,63 @@ async def test_get_all_document_shas_for_tree_collects_inputs_and_outputs() -> N
 
 
 @pytest.mark.asyncio
+async def test_tree_topology_and_activity_helpers_match_memory_backend_behavior() -> None:
+    database, root_deployment_id, _ = await _seed_database()
+
+    topology = await database.get_deployment_tree_topology(root_deployment_id)
+    latest_activity = await database.get_deployment_latest_activity(root_deployment_id)
+    reaper_activity = await database.latest_span_activity_for_deployment(root_deployment_id)
+
+    assert topology == await database.get_deployment_tree(root_deployment_id)
+    assert latest_activity == reaper_activity
+    assert latest_activity == max(span.ended_at or span.started_at for span in topology)
+
+
+@pytest.mark.asyncio
+async def test_list_running_deployment_roots_returns_oldest_first() -> None:
+    database = _MemoryDatabase()
+    base = datetime(2026, 3, 11, 12, 0, tzinfo=UTC)
+    newest = _make_span(
+        span_id=uuid4(),
+        deployment_id=uuid4(),
+        root_deployment_id=uuid4(),
+        kind=SpanKind.DEPLOYMENT,
+        status=SpanStatus.RUNNING,
+        started_at=base + timedelta(hours=2),
+    )
+    newest = _make_span(
+        span_id=newest.span_id,
+        deployment_id=newest.span_id,
+        root_deployment_id=newest.span_id,
+        kind=SpanKind.DEPLOYMENT,
+        status=SpanStatus.RUNNING,
+        started_at=base + timedelta(hours=2),
+    )
+    oldest = _make_span(
+        span_id=uuid4(),
+        deployment_id=uuid4(),
+        root_deployment_id=uuid4(),
+        kind=SpanKind.DEPLOYMENT,
+        status=SpanStatus.RUNNING,
+        started_at=base,
+    )
+    oldest = _make_span(
+        span_id=oldest.span_id,
+        deployment_id=oldest.span_id,
+        root_deployment_id=oldest.span_id,
+        kind=SpanKind.DEPLOYMENT,
+        status=SpanStatus.RUNNING,
+        started_at=base,
+    )
+    for span in (newest, oldest):
+        await database.insert_span(span)
+
+    roots = await database.list_running_deployment_roots(limit=2)
+
+    assert [span.span_id for span in roots] == [oldest.span_id, newest.span_id]
+
+
+@pytest.mark.asyncio
 async def test_update_document_summary_changes_only_summary() -> None:
     database = _MemoryDatabase()
     original = _make_document(document_sha256="doc-1", summary="old")

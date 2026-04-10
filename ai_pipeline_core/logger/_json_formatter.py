@@ -19,6 +19,7 @@ _EXECUTION_FIELDS = (
     "span_target",
     "flow_name",
     "task_name",
+    "service",
 )
 
 

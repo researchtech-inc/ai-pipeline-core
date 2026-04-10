@@ -10,6 +10,8 @@ from ai_pipeline_core.database import DocumentRecord, SpanKind, SpanRecord, Span
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.deployment._event_serialization import event_to_payload
 from ai_pipeline_core.deployment._event_reconstruction import (
+    InvalidLifecycleCursorError,
+    _ReconstructedEvent,
     _filter_after_cursor,
     _reconstruct_lifecycle_events,
     reconstructed_event_cursor,
@@ -709,7 +711,58 @@ async def test_reconstructed_events_include_stable_cursor_and_filter_from_cursor
     assert _filter_after_cursor(events, None) == events
 
     filtered = _filter_after_cursor(events, events[2].cursor)
-    assert filtered == events[3:]
+    assert events[3] in filtered
+    assert events[-1] in filtered
+
+
+def test_filter_after_cursor_guarantees_at_least_once_under_clock_skew() -> None:
+    now = datetime(2026, 3, 14, 12, 0, tzinfo=UTC)
+    raw_events = [
+        _ReconstructedEvent(event_type=EventType.RUN_STARTED, span_id="old", timestamp=now - timedelta(seconds=10), data={}, cursor=""),
+        _ReconstructedEvent(event_type=EventType.FLOW_STARTED, span_id="near", timestamp=now - timedelta(seconds=3), data={}, cursor=""),
+        _ReconstructedEvent(event_type=EventType.TASK_STARTED, span_id="future", timestamp=now + timedelta(seconds=1), data={}, cursor=""),
+    ]
+    events = [
+        _ReconstructedEvent(
+            event_type=event.event_type,
+            span_id=event.span_id,
+            timestamp=event.timestamp,
+            data=event.data,
+            cursor=reconstructed_event_cursor(event),
+        )
+        for event in raw_events
+    ]
+    cursor_event = _ReconstructedEvent(
+        event_type=EventType.RUN_STARTED,
+        span_id="cursor",
+        timestamp=now,
+        data={},
+        cursor="",
+    )
+
+    filtered_once = _filter_after_cursor(events, reconstructed_event_cursor(cursor_event))
+    filtered_twice = _filter_after_cursor(events, reconstructed_event_cursor(cursor_event))
+
+    assert [event.span_id for event in filtered_once] == ["near", "future"]
+    assert [event.dedup_key for event in filtered_once] == [event.dedup_key for event in filtered_twice]
+    assert filtered_once[0].dedup_key == ("near", EventType.FLOW_STARTED.value)
+    assert filtered_once[1].dedup_key == ("future", EventType.TASK_STARTED.value)
+
+
+def test_filter_after_cursor_raises_on_malformed_cursor() -> None:
+    event = _ReconstructedEvent(
+        event_type=EventType.RUN_STARTED,
+        span_id="root",
+        timestamp=datetime(2026, 3, 14, 12, 0, tzinfo=UTC),
+        data={},
+        cursor="",
+    )
+
+    with pytest.raises(
+        InvalidLifecycleCursorError,
+        match=r"Invalid cursor\. Clients should restart from the full history by omitting `after_cursor`\.",
+    ):
+        _filter_after_cursor([event], "not-a-valid-cursor")
 
 
 @pytest.mark.asyncio

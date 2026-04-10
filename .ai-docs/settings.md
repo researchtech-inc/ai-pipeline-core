@@ -1,7 +1,7 @@
 # MODULE: settings
 # CLASSES: Settings
 # DEPENDS: BaseSettings
-# VERSION: 0.21.3
+# VERSION: 0.22.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     lmnr_project_api_key: str = ""
     sentry_dsn: str = ""
     log_format: str = "text"
-    orphan_span_max_age_minutes: int = 120
+    orphan_reap_require_prefect_client: bool = True
     task_retries: int = 0
     task_retry_delay_seconds: int = 30
     flow_retries: int = 0
@@ -85,6 +85,19 @@ def test_settings_singleton_is_settings_instance() -> None:
     assert isinstance(settings, Settings)
 ```
 
+**Removed orphan reap threshold settings are absent** (`tests/test_settings.py:123`)
+
+```python
+def test_removed_orphan_reap_threshold_settings_are_absent(self) -> None:
+    """Test that the heuristic orphan-reaper settings were deleted."""
+    s = Settings()
+
+    assert "orphan_reap_heartbeat_stale_seconds" not in Settings.model_fields
+    assert "orphan_reap_fallback_max_hours" not in Settings.model_fields
+    assert not hasattr(s, "orphan_reap_heartbeat_stale_seconds")
+    assert not hasattr(s, "orphan_reap_fallback_max_hours")
+```
+
 **Execution context does not replace settings singleton** (`tests/test_settings_singleton.py:25`)
 
 ```python
@@ -104,6 +117,16 @@ def test_model_config_attributes(self):
     assert Settings.model_config.get("frozen") is True
 ```
 
+**Orphan reap defaults** (`tests/test_settings.py:117`)
+
+```python
+def test_orphan_reap_defaults(self) -> None:
+    """Test the remaining orphan-reaper safety default."""
+    s = Settings()
+
+    assert s.orphan_reap_require_prefect_client is True
+```
+
 **Partial configuration** (`tests/test_settings.py:92`)
 
 ```python
@@ -115,48 +138,6 @@ def test_partial_configuration(self):
 
         assert s.openai_api_key == "test-key"
         assert s.openai_base_url == ""  # Default
-```
-
-**Env variable loading** (`tests/test_settings.py:25`)
-
-```python
-@patch.dict(
-    os.environ,
-    {
-        "OPENAI_BASE_URL": "https://api.openai.com/v1",
-        "OPENAI_API_KEY": "sk-test123",
-        "PREFECT_API_URL": "https://api.prefect.io",
-        "PREFECT_API_KEY": "pf-key456",
-    },
-)
-def test_env_variable_loading(self):
-    """Test loading settings from environment variables."""
-    s = Settings()
-    assert s.openai_base_url == "https://api.openai.com/v1"
-    assert s.openai_api_key == "sk-test123"
-    assert s.prefect_api_url == "https://api.prefect.io"
-    assert s.prefect_api_key == "pf-key456"
-```
-
-**Extra env ignored** (`tests/test_settings.py:41`)
-
-```python
-@patch.dict(
-    os.environ,
-    {
-        "OPENAI_API_KEY": "test-key",
-        "UNKNOWN_SETTING": "should-be-ignored",
-        "RANDOM_VAR": "also-ignored",
-    },
-)
-def test_extra_env_ignored(self):
-    """Test that unknown environment variables are ignored."""
-    # Should not raise even with unknown env vars (extra="ignore")
-    s = Settings()
-    assert s.openai_api_key == "test-key"
-    # Unknown vars are not added as attributes
-    assert not hasattr(s, "unknown_setting")
-    assert not hasattr(s, "random_var")
 ```
 
 

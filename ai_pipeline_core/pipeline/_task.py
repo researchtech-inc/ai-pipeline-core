@@ -422,9 +422,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
 
         Every executed body — even with retries=0 — emits one ATTEMPT span so the span tree
         is TASK → ATTEMPT → children. Exception: cache hits emit only a TASK span with
-        CACHED status and no ATTEMPT. When retries=0 and the task fails, the ATTEMPT span
-        captures error_json but the parent TASK span does NOT accumulate retry_errors
-        (retry metadata is only meaningful when retries > 0).
+        CACHED status and no ATTEMPT. Every failed attempt records metadata on the parent
+        TASK span via ``record_retry_failure``, regardless of retry count.
         """
         retries = cls.retries if cls.retries is not None else settings.task_retries
         retry_delay = cls.retry_delay_seconds if cls.retry_delay_seconds is not None else settings.task_retry_delay_seconds
@@ -453,15 +452,14 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             except RETRY_CAPTURE_EXCEPTIONS as exc:
                 will_retry = attempt < attempts - 1
                 delay = min(retry_delay * (2**attempt), MAX_RETRY_DELAY_SECONDS) if will_retry else 0
-                if attempts > 1:
-                    parent_span_ctx.record_retry_failure(
-                        exc=exc,
-                        attempt=attempt,
-                        max_attempts=attempts,
-                        attempt_span_id=str(attempt_span_id),
-                        will_retry=will_retry,
-                        delay_seconds=delay,
-                    )
+                parent_span_ctx.record_retry_failure(
+                    exc=exc,
+                    attempt=attempt,
+                    max_attempts=attempts,
+                    attempt_span_id=str(attempt_span_id),
+                    will_retry=will_retry,
+                    delay_seconds=delay,
+                )
                 if not will_retry:
                     _attach_task_attempt(exc, attempt)
                     raise

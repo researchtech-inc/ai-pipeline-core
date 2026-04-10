@@ -56,6 +56,10 @@ MAX_RUN_ID_LENGTH = 100
 # Fields added by run_cli()'s _CliOptions that should not affect fingerprints (run scope or remote run_id)
 _CLI_FIELDS: frozenset[str] = frozenset({"working_directory", "run_id", "start", "end"})
 
+# Visibility heartbeat cadence in seconds. Emitted to stdout logs and Pub/Sub
+# for live-dashboard consumption only. NOT used as a reconciliation threshold.
+# No correctness invariant; tuning this does not affect framework behavior.
+# Increase for cost; decrease for higher-resolution monitoring.
 _HEARTBEAT_INTERVAL_SECONDS = 30
 _MILLISECONDS_PER_SECOND = 1000
 _HANDLE_CANCEL_GRACE_SECONDS = 5

@@ -2,7 +2,7 @@
 # CLASSES: DeploymentResult, PipelineDeployment, RemoteDeploymentError, RemoteDeploymentNotFoundError, RemoteDeploymentSubmissionError, RemoteDeploymentPollingError, RemoteDeploymentExecutionError, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
 # DEPENDS: BaseModel, Generic, RuntimeError
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.21.3
+# VERSION: 0.22.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -31,6 +31,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
     options_type: ClassVar[type[FlowOptions]]
     result_type: ClassVar[type[DeploymentResult]]
     pubsub_service_type: ClassVar[str] = ''
+    service_name: ClassVar[str] = ''
     cache_ttl: ClassVar[timedelta | None] = timedelta(hours=24)
     flow_retries: ClassVar[int | None] = None
     flow_retry_delay_seconds: ClassVar[int | None] = None
@@ -68,6 +69,13 @@ class PipelineDeployment(Generic[TOptions, TResult]):
 
         # Concurrency limits validation
         cls.concurrency_limits = _validate_concurrency_limits(cls.__name__, getattr(cls, "concurrency_limits", MappingProxyType({})))
+        if cls.pubsub_service_type and not cls.service_name:
+            warnings.warn(
+                f"PipelineDeployment subclass {cls.__name__} sets pubsub_service_type but not service_name. "
+                'service_name will be required in 0.23.0 — set `service_name: ClassVar[str] = "..."` on the class.',
+                FutureWarning,
+                stacklevel=2,
+            )
 
     @final
     def as_prefect_flow(self) -> Callable[..., Any]:
@@ -522,7 +530,7 @@ def test_deployment_default_flow_retries_is_none(self) -> None:
     assert PipelineDeployment.flow_retry_delay_seconds is None
 ```
 
-**Deployment result data** (`tests/deployment/test_deployment_base.py:176`)
+**Deployment result data** (`tests/deployment/test_deployment_base.py:177`)
 
 ```python
 def test_deployment_result_data(self):

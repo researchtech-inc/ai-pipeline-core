@@ -11,6 +11,7 @@ from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline import PipelineFlow
 
 TDocument = TypeVar("TDocument", bound=Document[Any])
+_CRASH_ERROR_TYPE = "ProcessCrashed"
 
 
 @dataclass(frozen=True, slots=True)

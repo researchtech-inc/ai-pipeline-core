@@ -2,7 +2,7 @@
 # CLASSES: LimitKind, PipelineLimit, FlowOptions, PipelineFlow, TaskHandle, TaskBatch, PipelineTask
 # DEPENDS: BaseModel, StrEnum
 # PURPOSE: Pipeline framework primitives.
-# VERSION: 0.21.3
+# VERSION: 0.22.0
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -681,7 +681,7 @@ async def test_collect_tasks_on_dispatched_handle_list() -> None:
     assert batch.incomplete == []
 ```
 
-**Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:134`)
+**Get run id returns run id from context** (`tests/pipeline/test_execution_context.py:135`)
 
 ```python
 def test_get_run_id_returns_run_id_from_context() -> None:
@@ -718,7 +718,7 @@ def test_invalid_name_pattern(self):
         _validate_concurrency_limits("TestDeploy", {"bad name!": PipelineLimit(10)})
 ```
 
-**Get run id outside context raises** (`tests/pipeline/test_execution_context.py:139`)
+**Get run id outside context raises** (`tests/pipeline/test_execution_context.py:140`)
 
 ```python
 def test_get_run_id_outside_context_raises() -> None:

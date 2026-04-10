@@ -73,6 +73,7 @@ def test_execution_context_has_empty_sink_defaults() -> None:
     ctx = _make_ctx()
 
     assert ctx.sinks == ()
+    assert ctx.service_name == ""
 
 
 def test_with_span_sets_current_and_parent_span_ids() -> None:

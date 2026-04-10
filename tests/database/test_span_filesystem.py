@@ -180,6 +180,21 @@ async def test_filesystem_database_persists_and_reloads_records(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_filesystem_topology_and_activity_helpers_match_tree_shape(tmp_path: Path) -> None:
+    database, _document_sha = await _seed_database(tmp_path)
+    root_id = next(span.root_deployment_id for span in database._spans.values())
+
+    topology = await database.get_deployment_tree_topology(root_id)
+    tree = await database.get_deployment_tree(root_id)
+    latest_activity = await database.get_deployment_latest_activity(root_id)
+    reaper_activity = await database.latest_span_activity_for_deployment(root_id)
+
+    assert topology == tree
+    assert latest_activity == reaper_activity
+    assert latest_activity == max(span.ended_at or span.started_at for span in tree)
+
+
+@pytest.mark.asyncio
 async def test_filesystem_document_insert_once_and_summary_update(tmp_path: Path) -> None:
     database = FilesystemDatabase(tmp_path)
     first = _make_document(document_sha256="doc-1", summary="first")
