@@ -63,10 +63,10 @@ dev = [
 ]
 ```
 
-To pin to a specific version, append `@v0.22.0` (or a commit hash) before `#subdirectory`:
+To pin to a specific version, append `@v0.22.1` (or a commit hash) before `#subdirectory`:
 
 ```toml
-    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.0#subdirectory=tools/dev-cli"
+    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.1#subdirectory=tools/dev-cli"
 ```
 
 This installs three additional CLI commands:
@@ -599,8 +599,8 @@ print(conv.tool_call_records)  # Records of all tool calls made
 - `system_prompt`: System-level instructions
 - `reasoning_effort`: `"low" | "medium" | "high"` for models with explicit reasoning
 - `search_context_size`: `"low" | "medium" | "high"` for search-enabled models
-- `retries`: Retry attempts (default `None` → uses `Settings.conversation_retries`, default `2`)
-- `retry_delay_seconds`: Delay between retries (default `None` → uses `Settings.conversation_retry_delay_seconds`, default `20`)
+- `retries`: Retry attempts (default `None` → uses `Settings.conversation_retries`, default `3`)
+- `retry_delay_seconds`: Flat delay override between retries (default `None` → otherwise uses exponential backoff from `Settings.conversation_retry_delay_seconds=30`, `conversation_retry_backoff_multiplier=3`, capped at `conversation_retry_max_delay_seconds=300`)
 - `cache_warmup_max_wait`: Max seconds followers wait for warmup cache (default `None` = disabled, recommended `600.0`)
 - `cache_warmup_max_qps`: Per-prefix QPS limit for warmup (default `None` = no limit, recommended `15` for Gemini)
 - `timeout`: Max wait seconds (default `600`)
@@ -699,7 +699,7 @@ result = await handle.result()
 ```
 
 **ClassVar configuration:**
-- `retries`: Retry attempts on failure (default `None` → uses `Settings.task_retries`, default `0`; exponential backoff)
+- `retries`: Retry attempts on failure (default `None` → uses `Settings.task_retries`, default `2`; exponential backoff)
 - `retry_delay_seconds`: Base delay between retries (default `None` → uses `Settings.task_retry_delay_seconds`, default `30`; doubles each attempt, capped at 300s)
 - `timeout_seconds`: Task execution timeout (default `None`)
 - `estimated_minutes`: Duration estimate for progress tracking (default `1`, must be >= 1)

@@ -48,6 +48,22 @@ T = TypeVar("T", bound=BaseModel)
 _VALID_FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter", "function_call"})
 
 
+def _conversation_retry_delay_seconds(*, attempt: int, model_options: ModelOptions) -> int:
+    """Return retry delay for one failed conversation attempt.
+
+    ``attempt`` is zero-based and corresponds to the attempt that just failed.
+    When ``ModelOptions.retry_delay_seconds`` is set, preserve the historical flat-delay
+    behavior. Otherwise use the settings-backed exponential schedule with a hard cap.
+    """
+    if model_options.retry_delay_seconds is not None:
+        return model_options.retry_delay_seconds
+
+    return min(
+        settings.conversation_retry_delay_seconds * (settings.conversation_retry_backoff_multiplier**attempt),
+        settings.conversation_retry_max_delay_seconds,
+    )
+
+
 def _content_to_api_parts(content: str | ContentPart | tuple[ContentPart, ...]) -> list[dict[str, Any]]:
     """Convert content to OpenAI API format.
 
@@ -441,7 +457,6 @@ async def _generate_impl(
         completion_kwargs["prompt_cache_key"] = _compute_cache_key(api_messages[:effective_context_count], model_options.system_prompt)
 
     retries = model_options.retries if model_options.retries is not None else settings.conversation_retries
-    retry_delay = model_options.retry_delay_seconds if model_options.retry_delay_seconds is not None else settings.conversation_retry_delay_seconds
     total_attempts = 1 + retries
     for attempt in range(total_attempts):
         try:
@@ -497,7 +512,7 @@ async def _generate_impl(
             if attempt == total_attempts - 1:
                 raise LLMError(final_error_msg) from e
 
-        await asyncio.sleep(retry_delay)
+        await asyncio.sleep(_conversation_retry_delay_seconds(attempt=attempt, model_options=model_options))
 
     raise LLMError("Unknown error occurred during LLM generation.")
 

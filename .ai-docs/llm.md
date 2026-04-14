@@ -2,7 +2,7 @@
 # CLASSES: Citation, TokenUsage, ModelOptions, Conversation, ToolOutput, Tool, ToolCallRecord
 # DEPENDS: BaseModel, Generic
 # PURPOSE: Large Language Model integration via LiteLLM proxy.
-# VERSION: 0.22.0
+# VERSION: 0.22.1
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -78,8 +78,8 @@ class ModelOptions(BaseModel):
     system_prompt: str | None = None  # Prepended to messages; substitutor instructions appended when active
     search_context_size: Literal["low", "medium", "high"] | None = None
     reasoning_effort: Literal["low", "medium", "high"] | None = None
-    retries: int | None = None  # None = use Settings.conversation_retries (default 2). Cache auto-disabled on retry.
-    retry_delay_seconds: int | None = None  # None = use Settings.conversation_retry_delay_seconds (default 20)
+    retries: int | None = None  # None = use Settings.conversation_retries (default 3). Cache auto-disabled on retry.
+    retry_delay_seconds: int | None = None  # None = use Settings exponential backoff (base 30s, multiplier 3, capped at 300s)
     timeout: int = 600
     cache_ttl: str | None = "300s"
     service_tier: Literal["auto", "default", "flex", "scale", "priority"] | None = None

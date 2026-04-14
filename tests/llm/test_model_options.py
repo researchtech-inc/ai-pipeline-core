@@ -258,5 +258,7 @@ class TestRetryDefaults:
         from ai_pipeline_core.settings import Settings
 
         s = Settings()
-        assert s.conversation_retries == 2
-        assert s.conversation_retry_delay_seconds == 20
+        assert s.conversation_retries == 3
+        assert s.conversation_retry_delay_seconds == 30
+        assert s.conversation_retry_backoff_multiplier == 3
+        assert s.conversation_retry_max_delay_seconds == 300

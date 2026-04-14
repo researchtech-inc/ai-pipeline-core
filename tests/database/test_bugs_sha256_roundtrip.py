@@ -420,7 +420,7 @@ class TestFilesystemRoundtripSha256:
 
 
 @pytest.fixture(scope="module")
-def clickhouse_container():
+def clickhouse_container(require_docker):
     from testcontainers.clickhouse import ClickHouseContainer
 
     container = ClickHouseContainer(port=8123)

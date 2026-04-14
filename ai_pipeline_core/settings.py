@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     # Document summary generation (store-level)
     doc_summary_enabled: bool = True
     doc_summary_model: str = "gemini-3.1-flash-lite"
+    doc_summary_concurrency: int = 50
 
     # Pub/Sub event delivery
     pubsub_project_id: str = ""
@@ -74,12 +75,14 @@ class Settings(BaseSettings):
     orphan_reap_require_prefect_client: bool = True
 
     # Retry defaults (used when class-level retries/retry_delay_seconds is None)
-    task_retries: int = 0
+    task_retries: int = 2
     task_retry_delay_seconds: int = 30
     flow_retries: int = 0
     flow_retry_delay_seconds: int = 30
-    conversation_retries: int = 2
-    conversation_retry_delay_seconds: int = 20
+    conversation_retries: int = 3
+    conversation_retry_delay_seconds: int = 30
+    conversation_retry_backoff_multiplier: int = 3
+    conversation_retry_max_delay_seconds: int = 300
 
     @field_validator(
         "task_retries",
@@ -88,11 +91,20 @@ class Settings(BaseSettings):
         "task_retry_delay_seconds",
         "flow_retry_delay_seconds",
         "conversation_retry_delay_seconds",
+        "conversation_retry_backoff_multiplier",
+        "conversation_retry_max_delay_seconds",
     )
     @classmethod
     def _validate_non_negative(cls, v: int) -> int:
         if v < 0:
             raise ValueError(f"Must be >= 0, got {v}")
+        return v
+
+    @field_validator("doc_summary_concurrency")
+    @classmethod
+    def _validate_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"doc_summary_concurrency must be >= 1, got {v}")
         return v
 
     @model_validator(mode="after")

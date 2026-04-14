@@ -218,7 +218,7 @@ class TestTaskRetryDefaults:
         from ai_pipeline_core.settings import Settings
 
         s = Settings()
-        assert s.task_retries == 0
+        assert s.task_retries == 2
         assert s.task_retry_delay_seconds == 30
         assert s.flow_retries == 0
         assert s.flow_retry_delay_seconds == 30

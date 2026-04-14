@@ -36,7 +36,7 @@ HTTP_PORT = 8123
 
 
 @pytest.fixture(scope="module")
-def clickhouse_container():
+def clickhouse_container(require_docker):
     """Start a ClickHouse container once per module, exposing the HTTP port."""
     container = ClickHouseContainer(port=HTTP_PORT)
     container.with_exposed_ports(HTTP_PORT)

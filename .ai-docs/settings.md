@@ -1,7 +1,7 @@
 # MODULE: settings
 # CLASSES: Settings
 # DEPENDS: BaseSettings
-# VERSION: 0.22.0
+# VERSION: 0.22.1
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -48,18 +48,21 @@ class Settings(BaseSettings):
     clickhouse_retry_backoff_sec: int = 10
     doc_summary_enabled: bool = True
     doc_summary_model: str = "gemini-3.1-flash-lite"
+    doc_summary_concurrency: int = 50
     pubsub_project_id: str = ""
     pubsub_topic_id: str = ""
     lmnr_project_api_key: str = ""
     sentry_dsn: str = ""
     log_format: str = "text"
     orphan_reap_require_prefect_client: bool = True
-    task_retries: int = 0
+    task_retries: int = 2
     task_retry_delay_seconds: int = 30
     flow_retries: int = 0
     flow_retry_delay_seconds: int = 30
-    conversation_retries: int = 2
-    conversation_retry_delay_seconds: int = 20
+    conversation_retries: int = 3
+    conversation_retry_delay_seconds: int = 30
+    conversation_retry_backoff_multiplier: int = 3
+    conversation_retry_max_delay_seconds: int = 300
 ```
 
 ## Examples

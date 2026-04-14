@@ -110,7 +110,7 @@ class TestTaskRetrySettings:
 
     def test_settings_defaults(self) -> None:
         s = Settings()
-        assert s.task_retries == 0
+        assert s.task_retries == 2
         assert s.task_retry_delay_seconds == 30
 
     def test_explicit_zero_is_not_none(self) -> None:
@@ -147,8 +147,10 @@ class TestConversationRetrySettings:
 
     def test_settings_defaults(self) -> None:
         s = Settings()
-        assert s.conversation_retries == 2
-        assert s.conversation_retry_delay_seconds == 20
+        assert s.conversation_retries == 3
+        assert s.conversation_retry_delay_seconds == 30
+        assert s.conversation_retry_backoff_multiplier == 3
+        assert s.conversation_retry_max_delay_seconds == 300
 
 
 # --- Deployment class defaults ---

@@ -754,24 +754,32 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
 
     @staticmethod
     async def _generate_summaries(documents: Sequence[Document]) -> None:
-        """Generate missing summaries via LLM and set them directly on documents."""
-        for document in documents:
-            if document.summary:
-                continue
-            if not settings.doc_summary_enabled or not document.is_text:
-                continue
-            try:
-                excerpt = document.text[:SUMMARY_EXCERPT_MAX_CHARS]
-                response = await core_generate(
-                    [CoreMessage(role=Role.USER, content=_SUMMARY_PROMPT.format(name=document.name, excerpt=excerpt))],
-                    model=settings.doc_summary_model,
-                    purpose="doc_summary",
-                )
-                generated = response.content.strip()
-                if generated:
-                    object.__setattr__(document, "summary", generated)
-            except SUMMARY_GENERATION_EXCEPTIONS as exc:
-                logger.warning("Inline summary generation failed for '%s': %s", document.name, exc)
+        """Generate missing summaries via LLM with bounded concurrency."""
+        if not settings.doc_summary_enabled:
+            return
+
+        candidates = [doc for doc in documents if not doc.summary and doc.is_text]
+        if not candidates:
+            return
+
+        semaphore = asyncio.Semaphore(settings.doc_summary_concurrency)
+
+        async def _summarize_one(document: Document) -> None:
+            async with semaphore:
+                try:
+                    excerpt = document.text[:SUMMARY_EXCERPT_MAX_CHARS]
+                    response = await core_generate(
+                        [CoreMessage(role=Role.USER, content=_SUMMARY_PROMPT.format(name=document.name, excerpt=excerpt))],
+                        model=settings.doc_summary_model,
+                        purpose="doc_summary",
+                    )
+                    generated = response.content.strip()
+                    if generated:
+                        object.__setattr__(document, "summary", generated)
+                except SUMMARY_GENERATION_EXCEPTIONS as exc:
+                    logger.warning("Inline summary generation failed for '%s': %s", document.name, exc)
+
+        await asyncio.gather(*(_summarize_one(doc) for doc in candidates))
 
     @staticmethod
     def _build_output_refs(documents: Sequence[Document]) -> tuple[DocumentRef, ...]:
