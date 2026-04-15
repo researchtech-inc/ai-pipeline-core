@@ -239,7 +239,7 @@ class ExternalProvider:
                     params=params,
                     timeout=effective_timeout,
                 )
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last_error = exc
                 if attempt < max_attempts - 1:
                     delay = self.retry_delay * (2**attempt)
@@ -255,7 +255,7 @@ class ExternalProvider:
                     await asyncio.sleep(delay)
                     continue
                 raise ProviderError(
-                    f"All {max_attempts} attempts failed for {method} {path}: {exc}",
+                    f"All {max_attempts} attempts failed for {method} {path}: {type(exc).__name__}: {exc}",
                 ) from exc
 
             if response.status_code in {401, 403}:

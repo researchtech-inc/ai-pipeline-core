@@ -250,6 +250,62 @@ class TestExternalProviderRetries:
         assert abs(sleep_durations[1] - 0.2) < 0.05
 
 
+class TestNetworkErrorRetries:
+    """Transport retry coverage for all httpx.NetworkError subclasses."""
+
+    @pytest.mark.asyncio
+    async def test_read_error_retries_then_succeeds(self):
+        transport = _transport_sequence([
+            httpx.ReadError("Connection reset"),
+            _json_response({"ok": True}),
+        ])
+        provider = _make_provider(transport)
+        result = await provider.post_json("/test", {})
+        assert result == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_write_error_retries_then_succeeds(self):
+        transport = _transport_sequence([
+            httpx.WriteError("Broken pipe"),
+            _json_response({"ok": True}),
+        ])
+        provider = _make_provider(transport)
+        result = await provider.post_json("/test", {})
+        assert result == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_close_error_retries_then_succeeds(self):
+        transport = _transport_sequence([
+            httpx.CloseError("Socket close failed"),
+            _json_response({"ok": True}),
+        ])
+        provider = _make_provider(transport)
+        result = await provider.post_json("/test", {})
+        assert result == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_read_error_exhausts_retries_raises_provider_error(self):
+        transport = _transport_sequence([
+            httpx.ReadError("reset 1"),
+            httpx.ReadError("reset 2"),
+        ])
+        provider = _make_provider(transport)
+        with pytest.raises(ProviderError, match="ReadError") as exc_info:
+            await provider.post_json("/test", {})
+        assert isinstance(exc_info.value.__cause__, httpx.ReadError)
+
+    @pytest.mark.asyncio
+    async def test_connect_error_still_retried(self):
+        """Regression guard: ConnectError (subclass of NetworkError) still retried."""
+        transport = _transport_sequence([
+            httpx.ConnectError("refused"),
+            _json_response({"ok": True}),
+        ])
+        provider = _make_provider(transport)
+        result = await provider.post_json("/test", {})
+        assert result == {"ok": True}
+
+
 class TestExternalProviderAuthErrors:
     @pytest.mark.asyncio
     async def test_401_raises_immediately(self):

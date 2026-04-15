@@ -1,14 +1,28 @@
 # MODULE: database
-# CLASSES: DatabaseReader, SpanKind, SpanStatus, SpanRecord, DocumentRecord, CostTotals, HydratedDocument
+# CLASSES: DatabaseReader, SpanKind, SpanStatus, SpanRecord, DocumentRecord, CostTotals, HydratedDocument, DeploymentSummaryRecord, DocumentProducerRecord, DocumentEventRecord, DocumentEventPage
 # DEPENDS: Protocol, StrEnum
 # PURPOSE: Unified database module for the span-based schema.
-# VERSION: 0.22.1
+# VERSION: 0.22.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
 
 ```python
-from ai_pipeline_core.database import CostTotals, Database, DatabaseReader, DocumentRecord, HydratedDocument, SpanKind, SpanRecord, SpanStatus
+from ai_pipeline_core.database import (
+    CostTotals,
+    Database,
+    DatabaseReader,
+    DeploymentSummaryRecord,
+    DocumentEventPage,
+    DocumentEventRecord,
+    DocumentProducerRecord,
+    DocumentRecord,
+    HydratedDocument,
+    SpanKind,
+    SpanRecord,
+    SpanStatus,
+    aggregate_cost_totals,
+)
 ```
 
 ## Types & Constants
@@ -105,6 +119,21 @@ class DatabaseReader(Protocol):
         """Load logs for many deployments."""
         ...
 
+    async def get_deployment_scoped_spans(
+        self,
+        root_deployment_id: UUID,
+        deployment_id: UUID,
+        *,
+        include_meta: bool = True,
+    ) -> list[SpanRecord]:
+        """Load latest spans for exactly one deployment within a root tree.
+
+        When *include_meta* is True (default), ``meta_json`` and ``metrics_json``
+        are populated; heavy payload columns are always blanked. When False, all
+        JSON fields are blanked (topology mode). Use ``get_span()`` for full payloads.
+        """
+        ...
+
     async def get_deployment_span_count(
         self,
         root_deployment_id: UUID,
@@ -124,6 +153,30 @@ class DatabaseReader(Protocol):
 
     async def get_document(self, document_sha256: str) -> DocumentRecord | None:
         """Load one document record."""
+        ...
+
+    async def get_document_events(
+        self,
+        root_deployment_id: UUID,
+        *,
+        deployment_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        since: datetime | None = None,
+        event_types: list[str] | None = None,
+    ) -> DocumentEventPage:
+        """Return filtered document events plus total count, ordered by recency.
+
+        ``total_events`` reflects the count after since/event_types filtering,
+        before limit/offset.
+        """
+        ...
+
+    async def get_document_producers(
+        self,
+        root_deployment_id: UUID,
+    ) -> dict[str, DocumentProducerRecord]:
+        """Return the earliest producer span for each document in a root tree."""
         ...
 
     async def get_document_with_content(
@@ -167,14 +220,26 @@ class DatabaseReader(Protocol):
         """Return latest tree activity for recovery."""
         ...
 
+    async def list_deployment_summaries(
+        self,
+        limit: int,
+        *,
+        status: str | None = None,
+        root_only: bool = False,
+        offset: int = 0,
+    ) -> list[DeploymentSummaryRecord]:
+        """List deployment spans with minimal columns and aggregated cost_usd."""
+        ...
+
     async def list_deployments(
         self,
         limit: int,
         *,
         status: str | None = None,
         root_only: bool = False,
+        offset: int = 0,
     ) -> list[SpanRecord]:
-        """List deployment spans."""
+        """List deployment spans, ordered by started_at DESC."""
         ...
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
@@ -187,6 +252,13 @@ class DatabaseReader(Protocol):
         limit: int = 1000,
     ) -> list[SpanRecord]:
         """List running root deployments, oldest first."""
+        ...
+
+    async def list_tree_deployments(
+        self,
+        root_deployment_id: UUID,
+    ) -> list[DeploymentSummaryRecord]:
+        """List deployment spans within one root tree, with aggregated cost_usd per deployment."""
         ...
 
 
@@ -324,6 +396,56 @@ class HydratedDocument:
 
     def __post_init__(self) -> None:
         _validate_bytes_mapping("attachment_contents", self.attachment_contents)
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentSummaryRecord:
+    """Lightweight deployment record for list/summary views."""
+
+    deployment_id: UUID
+    root_deployment_id: UUID
+    run_id: str
+    deployment_name: str
+    name: str
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+    parent_span_id: UUID | None
+    cost_usd: float
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentProducerRecord:
+    """Maps a document to the span that first produced it."""
+
+    document_sha256: str
+    span_id: UUID
+    span_name: str
+    span_kind: str
+    deployment_id: UUID
+    deployment_name: str
+    started_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentEventRecord:
+    """Lightweight record for document input/output events."""
+
+    document_sha256: str
+    span_id: UUID
+    span_name: str
+    span_kind: str
+    deployment_id: UUID
+    timestamp: datetime
+    direction: str  # "input" | "output"
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentEventPage:
+    """Filtered document events plus total count."""
+
+    events: tuple[DocumentEventRecord, ...]
+    total_events: int
 ```
 
 ## Functions
@@ -362,11 +484,35 @@ def create_debug_sink(
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     return db
+
+
+def aggregate_cost_totals(items: Iterable[tuple[str, float, str, str]]) -> CostTotals:
+    cost_usd = 0.0
+    tokens_input = 0
+    tokens_output = 0
+    tokens_cache_read = 0
+    tokens_reasoning = 0
+    for kind, span_cost_usd, metrics_json, context in items:
+        cost_usd += float(span_cost_usd)
+        if kind != SpanKind.LLM_ROUND:
+            continue
+        metrics = parse_json_object(metrics_json, context=context, field_name="metrics_json")
+        tokens_input += get_token_count(metrics, TOKENS_INPUT_KEY)
+        tokens_output += get_token_count(metrics, TOKENS_OUTPUT_KEY)
+        tokens_cache_read += get_token_count(metrics, TOKENS_CACHE_READ_KEY)
+        tokens_reasoning += get_token_count(metrics, TOKENS_REASONING_KEY)
+    return CostTotals(
+        cost_usd=cost_usd,
+        tokens_input=tokens_input,
+        tokens_output=tokens_output,
+        tokens_cache_read=tokens_cache_read,
+        tokens_reasoning=tokens_reasoning,
+    )
 ```
 
 ## Examples
 
-**Database reader is runtime checkable** (`tests/database/test_protocol.py:98`)
+**Database reader is runtime checkable** (`tests/database/test_protocol.py:103`)
 
 ```python
 def test_database_reader_is_runtime_checkable() -> None:
@@ -402,7 +548,7 @@ def test_creates_database(self, tmp_path) -> None:
     assert isinstance(db, FilesystemDatabase)
 ```
 
-**Database writer method signatures** (`tests/database/test_protocol.py:204`)
+**Database writer method signatures** (`tests/database/test_protocol.py:209`)
 
 ```python
 def test_database_writer_method_signatures() -> None:
@@ -412,7 +558,16 @@ def test_database_writer_method_signatures() -> None:
     _assert_signature(DatabaseWriter, "save_logs_batch", parameter_types={"logs": list[LogRecord]}, return_type=type(None))
 ```
 
-**Memory database conforms to protocols** (`tests/database/test_protocol.py:91`)
+**Empty tree** (`tests/database/test_new_reader_methods.py:844`)
+
+```python
+async def test_empty_tree(self) -> None:
+    db = _MemoryDatabase()
+    page = await db.get_document_events(uuid4())
+    assert page == DocumentEventPage(events=(), total_events=0)
+```
+
+**Memory database conforms to protocols** (`tests/database/test_protocol.py:96`)
 
 ```python
 def test_memory_database_conforms_to_protocols() -> None:
@@ -428,19 +583,6 @@ def test_memory_database_conforms_to_protocols() -> None:
 def test_no_parent_no_meta(self, tmp_path) -> None:
     create_debug_sink(tmp_path / "out")
     assert not (tmp_path / "out" / "overlay_meta.json").exists()
-```
-
-**Span status members** (`tests/database/test_types.py:34`)
-
-```python
-def test_span_status_members() -> None:
-    assert tuple(status.value for status in SpanStatus) == (
-        "running",
-        "completed",
-        "failed",
-        "cached",
-        "skipped",
-    )
 ```
 
 

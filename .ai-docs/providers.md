@@ -1,7 +1,7 @@
 # MODULE: providers
 # CLASSES: ProviderError, ProviderAuthError, ProviderOutcome, ExternalProvider, StatelessPollingProvider
 # DEPENDS: Exception
-# VERSION: 0.22.1
+# VERSION: 0.22.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -212,7 +212,7 @@ class StatelessPollingProvider(ExternalProvider):
 
 ## Examples
 
-**Importable from providers module** (`tests/test_providers.py:605`)
+**Importable from providers module** (`tests/test_providers.py:661`)
 
 ```python
 def test_importable_from_providers_module(self):
@@ -264,7 +264,7 @@ def test_defaults(self):
     assert outcome.cost_usd is None
 ```
 
-**Fire and forget** (`tests/test_providers.py:501`)
+**Fire and forget** (`tests/test_providers.py:557`)
 
 ```python
 @pytest.mark.asyncio
@@ -278,7 +278,7 @@ async def test_fire_and_forget(self):
     assert len(poller.poll_calls) == 0
 ```
 
-**Importable from top level** (`tests/test_providers.py:590`)
+**Importable from top level** (`tests/test_providers.py:646`)
 
 ```python
 def test_importable_from_top_level(self):
@@ -305,14 +305,6 @@ def test_lazy_client_initialization(self):
     assert provider._client is None
 ```
 
-**Provider auth error carries status code** (`tests/test_providers.py:87`)
-
-```python
-def test_provider_auth_error_carries_status_code(self):
-    err = ProviderAuthError("auth fail", status_code=401)
-    assert err.status_code == 401
-```
-
 
 ## Error Examples
 
@@ -325,7 +317,7 @@ def test_frozen(self):
         outcome.key = "new"  # type: ignore[misc]
 ```
 
-**401 raises immediately** (`tests/test_providers.py:255`)
+**401 raises immediately** (`tests/test_providers.py:311`)
 
 ```python
 @pytest.mark.asyncio
@@ -347,7 +339,7 @@ async def test_401_raises_immediately(self):
     assert request_count == 1
 ```
 
-**403 raises immediately** (`tests/test_providers.py:273`)
+**403 raises immediately** (`tests/test_providers.py:329`)
 
 ```python
 @pytest.mark.asyncio
@@ -369,7 +361,7 @@ async def test_403_raises_immediately(self):
     assert request_count == 1
 ```
 
-**404 raises provider error no retry** (`tests/test_providers.py:291`)
+**404 raises provider error no retry** (`tests/test_providers.py:347`)
 
 ```python
 @pytest.mark.asyncio
@@ -390,6 +382,21 @@ async def test_404_raises_provider_error_no_retry(self):
     assert not isinstance(exc_info.value, ProviderAuthError)
     assert exc_info.value.status_code == 404
     assert request_count == 1
+```
+
+**Read error exhausts retries raises provider error** (`tests/test_providers.py:287`)
+
+```python
+@pytest.mark.asyncio
+async def test_read_error_exhausts_retries_raises_provider_error(self):
+    transport = _transport_sequence([
+        httpx.ReadError("reset 1"),
+        httpx.ReadError("reset 2"),
+    ])
+    provider = _make_provider(transport)
+    with pytest.raises(ProviderError, match="ReadError") as exc_info:
+        await provider.post_json("/test", {})
+    assert isinstance(exc_info.value.__cause__, httpx.ReadError)
 ```
 
 **Timeout retries then raises** (`tests/test_providers.py:193`)

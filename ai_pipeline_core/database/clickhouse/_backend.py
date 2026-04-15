@@ -21,6 +21,10 @@ from ai_pipeline_core.database._serialization import (
 from ai_pipeline_core.database._sorting import span_sort_key
 from ai_pipeline_core.database._types import (
     CostTotals,
+    DeploymentSummaryRecord,
+    DocumentEventPage,
+    DocumentEventRecord,
+    DocumentProducerRecord,
     DocumentRecord,
     HydratedDocument,
     LogRecord,
@@ -82,6 +86,38 @@ _TOPOLOGY_SPAN_COLUMNS = (
     "'' AS error_json",
     "'' AS meta_json",
     "'' AS metrics_json",
+    "input_blob_shas",
+    "output_blob_shas",
+)
+_MIDDLEWEIGHT_SPAN_COLUMNS = (
+    "span_id",
+    "parent_span_id",
+    "deployment_id",
+    "root_deployment_id",
+    "run_id",
+    "deployment_name",
+    "kind",
+    "name",
+    "description",
+    "status",
+    "sequence_no",
+    "started_at",
+    "ended_at",
+    "version",
+    "cache_key",
+    "previous_conversation_id",
+    "cost_usd",
+    "error_type",
+    "error_message",
+    "input_document_shas",
+    "output_document_shas",
+    "target",
+    "'' AS receiver_json",
+    "'' AS input_json",
+    "'' AS output_json",
+    "'' AS error_json",
+    "meta_json",
+    "metrics_json",
     "input_blob_shas",
     "output_blob_shas",
 )
@@ -294,10 +330,11 @@ class ClickHouseDatabase:
         *,
         status: str | None = None,
         root_only: bool = False,
+        offset: int = 0,
     ) -> list[SpanRecord]:
         if limit <= 0:
             return []
-        parameters: dict[str, Any] = {"kind": SpanKind.DEPLOYMENT, "limit": limit}
+        parameters: dict[str, Any] = {"kind": SpanKind.DEPLOYMENT, "limit": limit, "offset": offset}
         # kind is immutable → inner filter; status is mutable → outer filter
         outer_filters: list[str] = []
         if root_only:
@@ -312,7 +349,7 @@ class ClickHouseDatabase:
             "WHERE kind = {kind:String} "
             "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
             f") {outer_where}"
-            "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64}",
+            "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64} OFFSET {offset:UInt64}",
             parameters=parameters,
         )
         return [row_to_span(tuple(row)) for row in result.result_rows]
@@ -402,6 +439,262 @@ class ClickHouseDatabase:
             (decode_text(kind), float(span_cost_usd), decode_text(metrics_json), f"Span tree {root_deployment_id}")
             for kind, span_cost_usd, metrics_json in result.result_rows
         )
+
+    async def get_deployment_scoped_spans(
+        self,
+        root_deployment_id: UUID,
+        deployment_id: UUID,
+        *,
+        include_meta: bool = True,
+    ) -> list[SpanRecord]:
+        """Load spans for one deployment within a root tree.
+
+        Blanks ``receiver_json``, ``input_json``, ``output_json``, and ``error_json``
+        to avoid heavy ZSTD decompression. When *include_meta* is True (default),
+        ``meta_json`` and ``metrics_json`` are kept. When False, all JSON fields are
+        blanked (topology mode). Use ``get_span()`` for individual full-payload reads.
+        """
+        columns = _MIDDLEWEIGHT_SPAN_COLUMNS if include_meta else _TOPOLOGY_SPAN_COLUMNS
+        result = await self._query(
+            "WITH latest AS ("
+            f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE root_deployment_id = {root_deployment_id:UUID} "
+            "AND deployment_id = {deployment_id:UUID} "
+            "GROUP BY span_id"
+            ") "
+            f"SELECT {', '.join(columns)} "
+            f"FROM {SPANS_TABLE} AS s "
+            "INNER JOIN latest USING (span_id, version) "
+            "WHERE s.root_deployment_id = {root_deployment_id:UUID} "
+            "AND s.deployment_id = {deployment_id:UUID}",
+            parameters={"root_deployment_id": root_deployment_id, "deployment_id": deployment_id},
+        )
+        return sorted(
+            (row_to_span(tuple(row)) for row in result.result_rows),
+            key=span_sort_key,
+        )
+
+    async def list_deployment_summaries(
+        self,
+        limit: int,
+        *,
+        status: str | None = None,
+        root_only: bool = False,
+        offset: int = 0,
+    ) -> list[DeploymentSummaryRecord]:
+        if limit <= 0:
+            return []
+        parameters: dict[str, Any] = {"kind": SpanKind.DEPLOYMENT, "limit": limit, "offset": offset}
+        outer_filters: list[str] = []
+        if root_only:
+            outer_filters.append("span_id = root_deployment_id")
+        if status is not None:
+            outer_filters.append("status = {status:String}")
+            parameters["status"] = status
+        outer_where = f"WHERE {' AND '.join(outer_filters)} " if outer_filters else ""
+        result = await self._query(
+            "WITH deployment_rows AS ("
+            "SELECT span_id, root_deployment_id, run_id, deployment_name, name, "
+            "status, started_at, ended_at, parent_span_id "
+            "FROM (SELECT span_id, root_deployment_id, run_id, deployment_name, name, "
+            f"status, started_at, ended_at, parent_span_id, version FROM {SPANS_TABLE} "
+            "WHERE kind = {kind:String} "
+            "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
+            f") {outer_where}"
+            "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64} OFFSET {offset:UInt64}"
+            "), "
+            "latest AS ("
+            f"SELECT root_deployment_id, span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE root_deployment_id IN (SELECT root_deployment_id FROM deployment_rows) "
+            "GROUP BY root_deployment_id, span_id"
+            "), "
+            "costs AS ("
+            f"SELECT s.root_deployment_id, sum(s.cost_usd) AS cost_usd FROM {SPANS_TABLE} AS s "
+            "INNER JOIN latest AS l ON s.root_deployment_id = l.root_deployment_id "
+            "AND s.span_id = l.span_id AND s.version = l.version "
+            "GROUP BY s.root_deployment_id"
+            ") "
+            "SELECT d.span_id, d.root_deployment_id, d.run_id, d.deployment_name, d.name, "
+            "d.status, d.started_at, d.ended_at, d.parent_span_id, "
+            "coalesce(c.cost_usd, 0.0) "
+            "FROM deployment_rows AS d "
+            "LEFT JOIN costs AS c ON d.root_deployment_id = c.root_deployment_id "
+            "ORDER BY d.started_at DESC, d.span_id DESC",
+            parameters=parameters,
+        )
+        return [
+            DeploymentSummaryRecord(
+                deployment_id=row[0],
+                root_deployment_id=row[1],
+                run_id=decode_text(row[2]),
+                deployment_name=decode_text(row[3]),
+                name=decode_text(row[4]),
+                status=decode_text(row[5]),
+                started_at=row[6],
+                ended_at=row[7] if row[7] else None,
+                parent_span_id=row[8] if row[8] else None,
+                cost_usd=float(row[9]),
+            )
+            for row in result.result_rows
+        ]
+
+    async def list_tree_deployments(self, root_deployment_id: UUID) -> list[DeploymentSummaryRecord]:
+        result = await self._query(
+            "WITH latest_deployments AS ("
+            f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE root_deployment_id = {root_deployment_id:UUID} AND kind = {kind:String} "
+            "GROUP BY span_id"
+            "), "
+            "latest_all AS ("
+            f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE root_deployment_id = {root_deployment_id:UUID} "
+            "GROUP BY span_id"
+            "), "
+            "costs AS ("
+            f"SELECT s.deployment_id, sum(s.cost_usd) AS cost_usd FROM {SPANS_TABLE} AS s "
+            "INNER JOIN latest_all USING (span_id, version) "
+            "WHERE s.root_deployment_id = {root_deployment_id:UUID} "
+            "GROUP BY s.deployment_id"
+            ") "
+            "SELECT s.span_id, s.root_deployment_id, s.run_id, s.deployment_name, s.name, "
+            "s.status, s.started_at, s.ended_at, s.parent_span_id, "
+            "coalesce(dc.cost_usd, 0.0) "
+            f"FROM {SPANS_TABLE} AS s "
+            "INNER JOIN latest_deployments USING (span_id, version) "
+            "LEFT JOIN costs AS dc ON s.span_id = dc.deployment_id "
+            "WHERE s.root_deployment_id = {root_deployment_id:UUID} AND s.kind = {kind:String} "
+            "ORDER BY s.started_at, s.span_id",
+            parameters={"root_deployment_id": root_deployment_id, "kind": SpanKind.DEPLOYMENT},
+        )
+        return [
+            DeploymentSummaryRecord(
+                deployment_id=row[0],
+                root_deployment_id=row[1],
+                run_id=decode_text(row[2]),
+                deployment_name=decode_text(row[3]),
+                name=decode_text(row[4]),
+                status=decode_text(row[5]),
+                started_at=row[6],
+                ended_at=row[7] if row[7] else None,
+                parent_span_id=row[8] if row[8] else None,
+                cost_usd=float(row[9]),
+            )
+            for row in result.result_rows
+        ]
+
+    async def get_document_producers(self, root_deployment_id: UUID) -> dict[str, DocumentProducerRecord]:
+        result = await self._query(
+            "WITH latest AS ("
+            f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE root_deployment_id = {root_deployment_id:UUID} "
+            "AND kind NOT IN ('deployment', 'attempt') "
+            "AND length(output_document_shas) > 0 "
+            "GROUP BY span_id"
+            "), "
+            "expanded AS ("
+            "SELECT arrayJoin(s.output_document_shas) AS document_sha256, "
+            "s.span_id, s.name, s.kind, s.deployment_id, s.deployment_name, s.started_at "
+            f"FROM {SPANS_TABLE} AS s "
+            "INNER JOIN latest USING (span_id, version) "
+            "WHERE s.root_deployment_id = {root_deployment_id:UUID} "
+            "AND length(s.output_document_shas) > 0"
+            ") "
+            "SELECT document_sha256, "
+            "argMin(span_id, started_at), argMin(name, started_at), argMin(kind, started_at), "
+            "argMin(deployment_id, started_at), argMin(deployment_name, started_at), "
+            "min(started_at) "
+            "FROM expanded GROUP BY document_sha256",
+            parameters={"root_deployment_id": root_deployment_id},
+        )
+        return {
+            decode_text(row[0]): DocumentProducerRecord(
+                document_sha256=decode_text(row[0]),
+                span_id=row[1],
+                span_name=decode_text(row[2]),
+                span_kind=decode_text(row[3]),
+                deployment_id=row[4],
+                deployment_name=decode_text(row[5]),
+                started_at=row[6],
+            )
+            for row in result.result_rows
+        }
+
+    async def get_document_events(
+        self,
+        root_deployment_id: UUID,
+        *,
+        deployment_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        since: datetime | None = None,
+        event_types: list[str] | None = None,
+    ) -> DocumentEventPage:
+        parameters: dict[str, Any] = {
+            "root_deployment_id": root_deployment_id,
+            "limit": limit,
+            "offset": offset,
+            "event_types": event_types or [],
+        }
+        deployment_filter = ""
+        if deployment_id is not None:
+            deployment_filter = " AND deployment_id = {deployment_id:UUID}"
+            parameters["deployment_id"] = deployment_id
+        since_filter = ""
+        if since is not None:
+            since_filter = " AND ts > {since:DateTime64(3)}"
+            parameters["since"] = since
+
+        events_cte = (
+            "WITH latest AS ("
+            f"SELECT span_id, max(version) AS version FROM {SPANS_TABLE} "
+            "WHERE root_deployment_id = {root_deployment_id:UUID} "
+            f"AND kind NOT IN ('deployment', 'attempt'){deployment_filter} "
+            "GROUP BY span_id"
+            "), "
+            "events AS ("
+            "SELECT arrayJoin(s.output_document_shas) AS doc_sha, "
+            "s.span_id, s.name AS span_name, s.kind AS span_kind, s.deployment_id, "
+            "coalesce(s.ended_at, s.started_at) AS ts, 'output' AS direction, "
+            "concat(s.kind, '_output') AS event_type "
+            f"FROM {SPANS_TABLE} AS s INNER JOIN latest USING (span_id, version) "
+            f"WHERE s.root_deployment_id = {{root_deployment_id:UUID}}{deployment_filter} "
+            "AND length(s.output_document_shas) > 0 "
+            "UNION ALL "
+            "SELECT arrayJoin(s.input_document_shas) AS doc_sha, "
+            "s.span_id, s.name AS span_name, s.kind AS span_kind, s.deployment_id, "
+            "s.started_at AS ts, 'input' AS direction, "
+            "concat(s.kind, '_input') AS event_type "
+            f"FROM {SPANS_TABLE} AS s INNER JOIN latest USING (span_id, version) "
+            f"WHERE s.root_deployment_id = {{root_deployment_id:UUID}}{deployment_filter} "
+            "AND length(s.input_document_shas) > 0"
+            ")"
+        )
+        event_filter = f"WHERE 1=1{since_filter}"
+        if event_types:
+            event_filter += " AND event_type IN {event_types:Array(String)}"
+
+        result = await self._query(
+            f"{events_cte} "
+            "SELECT doc_sha, span_id, span_name, span_kind, deployment_id, ts, direction, "
+            "count() OVER () AS total_count "
+            f"FROM events {event_filter} "
+            "ORDER BY ts DESC LIMIT {limit:UInt64} OFFSET {offset:UInt64}",
+            parameters=parameters,
+        )
+        total = int(result.result_rows[0][7]) if result.result_rows else 0
+        events = tuple(
+            DocumentEventRecord(
+                document_sha256=decode_text(row[0]),
+                span_id=row[1],
+                span_name=decode_text(row[2]),
+                span_kind=decode_text(row[3]),
+                deployment_id=row[4],
+                timestamp=row[5],
+                direction=decode_text(row[6]),
+            )
+            for row in result.result_rows
+        )
+        return DocumentEventPage(events=events, total_events=total)
 
     async def get_deployment_span_count(
         self,

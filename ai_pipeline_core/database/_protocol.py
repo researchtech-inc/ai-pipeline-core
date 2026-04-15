@@ -6,6 +6,9 @@ from uuid import UUID
 
 from ai_pipeline_core.database._types import (
     CostTotals,
+    DeploymentSummaryRecord,
+    DocumentEventPage,
+    DocumentProducerRecord,
     DocumentRecord,
     HydratedDocument,
     LogRecord,
@@ -101,8 +104,9 @@ class DatabaseReader(Protocol):
         *,
         status: str | None = None,
         root_only: bool = False,
+        offset: int = 0,
     ) -> list[SpanRecord]:
-        """List deployment spans."""
+        """List deployment spans, ordered by started_at DESC."""
         ...
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
@@ -210,6 +214,63 @@ class DatabaseReader(Protocol):
         category: str | None = None,
     ) -> list[LogRecord]:
         """Load logs for many deployments."""
+        ...
+
+    async def get_deployment_scoped_spans(
+        self,
+        root_deployment_id: UUID,
+        deployment_id: UUID,
+        *,
+        include_meta: bool = True,
+    ) -> list[SpanRecord]:
+        """Load latest spans for exactly one deployment within a root tree.
+
+        When *include_meta* is True (default), ``meta_json`` and ``metrics_json``
+        are populated; heavy payload columns are always blanked. When False, all
+        JSON fields are blanked (topology mode). Use ``get_span()`` for full payloads.
+        """
+        ...
+
+    async def list_deployment_summaries(
+        self,
+        limit: int,
+        *,
+        status: str | None = None,
+        root_only: bool = False,
+        offset: int = 0,
+    ) -> list[DeploymentSummaryRecord]:
+        """List deployment spans with minimal columns and aggregated cost_usd."""
+        ...
+
+    async def list_tree_deployments(
+        self,
+        root_deployment_id: UUID,
+    ) -> list[DeploymentSummaryRecord]:
+        """List deployment spans within one root tree, with aggregated cost_usd per deployment."""
+        ...
+
+    async def get_document_producers(
+        self,
+        root_deployment_id: UUID,
+    ) -> dict[str, DocumentProducerRecord]:
+        """Return the earliest producer span for each document in a root tree."""
+        ...
+
+    async def get_document_events(
+        self,
+        root_deployment_id: UUID,
+        *,
+        deployment_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        since: datetime | None = None,
+        event_types: list[str] | None = None,
+    ) -> DocumentEventPage:
+        """Return filtered document events plus total count, ordered by recency.
+
+        ``total_events`` reflects the count after since/event_types filtering,
+        before limit/offset.
+        """
         ...
 
     async def find_documents_by_name(

@@ -34,19 +34,24 @@ def _make_reader_stub() -> object:
         "get_deployment_latest_activity",
         "get_deployment_logs",
         "get_deployment_logs_batch",
+        "get_deployment_scoped_spans",
         "get_deployment_span_count",
         "get_deployment_tree",
         "get_deployment_tree_topology",
         "get_document",
+        "get_document_events",
+        "get_document_producers",
         "get_document_with_content",
         "get_documents_batch",
         "get_span",
         "get_span_logs",
         "get_spans_referencing_document",
         "latest_span_activity_for_deployment",
+        "list_deployment_summaries",
         "list_deployments",
         "list_deployments_by_run_id",
         "list_running_deployment_roots",
+        "list_tree_deployments",
         "find_documents_by_name",
     }
     return type("ReaderStub", (), {name: _async_method for name in method_names})()
@@ -168,9 +173,9 @@ def test_database_reader_method_signatures() -> None:
     _assert_signature(
         DatabaseReader,
         "list_deployments",
-        parameter_types={"limit": int, "status": str | None, "root_only": bool},
+        parameter_types={"limit": int, "status": str | None, "root_only": bool, "offset": int},
         return_type=list[SpanRecord],
-        keyword_only={"status", "root_only"},
+        keyword_only={"status", "root_only", "offset"},
     )
     _assert_signature(
         DatabaseReader,

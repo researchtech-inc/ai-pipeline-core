@@ -154,7 +154,7 @@ class TestRunRemoteDeployment:
         assert second_call.kwargs["as_subflow"] is False
         assert first_call.kwargs["idempotency_key"] == "abc-123"
         assert second_call.kwargs["idempotency_key"] == "abc-123"
-        mock_poll.assert_awaited_once_with(remote_client, UUID(int=7))
+        mock_poll.assert_awaited_once_with(remote_client, UUID(int=7), max_poll_seconds=10_800)
 
     async def test_missing_everywhere_raises_not_found_error(self) -> None:
         from ai_pipeline_core.deployment.remote import RemoteDeploymentNotFoundError, _run_remote_deployment
@@ -456,7 +456,7 @@ class TestPollRemoteFlowRun:
         client = AsyncMock()
         client.read_flow_run = AsyncMock(side_effect=[_make_flow_run(), _make_flow_run(), _make_flow_run()])
 
-        with pytest.raises(RemoteDeploymentPollingError, match=r"exceeded 0\.0s"):
+        with pytest.raises(RemoteDeploymentPollingError, match=r"exceeded 0\.02s"):
             await _poll_remote_flow_run(
                 client,
                 UUID(int=1),

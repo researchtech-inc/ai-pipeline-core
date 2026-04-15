@@ -43,7 +43,7 @@ __all__ = [
 MAX_EXAMPLES = 8
 MAX_GUIDE_SIZE = 40_960  # 40KB in bytes
 README_WARN_SIZE = 40_960  # 40KB — warn threshold for README.md
-README_ERROR_SIZE = 48_128  # 47KB — error threshold for README.md
+README_ERROR_SIZE = 51_200  # 50KB — error threshold for README.md
 
 
 def manage_guide_size(

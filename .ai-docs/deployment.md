@@ -2,7 +2,7 @@
 # CLASSES: DeploymentResult, PipelineDeployment, RemoteDeploymentError, RemoteDeploymentNotFoundError, RemoteDeploymentSubmissionError, RemoteDeploymentPollingError, RemoteDeploymentExecutionError, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
 # DEPENDS: BaseModel, Generic, RuntimeError
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.22.1
+# VERSION: 0.22.2
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -216,6 +216,7 @@ Set ``deployment_class`` to enable inline mode (test/local):
     options_type: ClassVar[type[FlowOptions]]
     result_type: ClassVar[type[DeploymentResult]]
     deployment_class: ClassVar[str] = ''
+    max_poll_seconds: ClassVar[int] = _MAX_POLL_SECONDS
 
     @property
     def deployment_path(self) -> str:
@@ -243,6 +244,12 @@ Set ``deployment_class`` to enable inline mode (test/local):
 
         cls.options_type = options_type
         cls.result_type = result_type
+
+        if cls.max_poll_seconds <= 0:
+            raise TypeError(
+                f"{cls.__name__}.max_poll_seconds must be > 0, got {cls.max_poll_seconds}. "
+                "Set a positive value representing the maximum seconds to poll the remote deployment."
+            )
 
     @final
     async def run(

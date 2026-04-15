@@ -17,6 +17,10 @@ __all__ = [
     "TOKENS_OUTPUT_KEY",
     "TOKENS_REASONING_KEY",
     "CostTotals",
+    "DeploymentSummaryRecord",
+    "DocumentEventPage",
+    "DocumentEventRecord",
+    "DocumentProducerRecord",
     "DocumentRecord",
     "HydratedDocument",
     "LogRecord",
@@ -235,6 +239,56 @@ class HydratedDocument:
 
     def __post_init__(self) -> None:
         _validate_bytes_mapping("attachment_contents", self.attachment_contents)
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentSummaryRecord:
+    """Lightweight deployment record for list/summary views."""
+
+    deployment_id: UUID
+    root_deployment_id: UUID
+    run_id: str
+    deployment_name: str
+    name: str
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+    parent_span_id: UUID | None
+    cost_usd: float
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentProducerRecord:
+    """Maps a document to the span that first produced it."""
+
+    document_sha256: str
+    span_id: UUID
+    span_name: str
+    span_kind: str
+    deployment_id: UUID
+    deployment_name: str
+    started_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentEventRecord:
+    """Lightweight record for document input/output events."""
+
+    document_sha256: str
+    span_id: UUID
+    span_name: str
+    span_kind: str
+    deployment_id: UUID
+    timestamp: datetime
+    direction: str  # "input" | "output"
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentEventPage:
+    """Filtered document events plus total count."""
+
+    events: tuple[DocumentEventRecord, ...]
+    total_events: int
 
 
 def aggregate_cost_totals(items: Iterable[tuple[str, float, str, str]]) -> CostTotals:

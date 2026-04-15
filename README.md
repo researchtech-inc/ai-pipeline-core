@@ -63,10 +63,10 @@ dev = [
 ]
 ```
 
-To pin to a specific version, append `@v0.22.1` (or a commit hash) before `#subdirectory`:
+To pin to a specific version, append `@v0.22.2` (or a commit hash) before `#subdirectory`:
 
 ```toml
-    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.1#subdirectory=tools/dev-cli"
+    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.2#subdirectory=tools/dev-cli"
 ```
 
 This installs three additional CLI commands:

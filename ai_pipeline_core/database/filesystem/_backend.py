@@ -32,6 +32,10 @@ from ai_pipeline_core.database._sorting import (
 )
 from ai_pipeline_core.database._types import (
     CostTotals,
+    DeploymentSummaryRecord,
+    DocumentEventPage,
+    DocumentEventRecord,
+    DocumentProducerRecord,
     DocumentRecord,
     HydratedDocument,
     LogRecord,
@@ -547,7 +551,7 @@ class FilesystemDatabase:
             return None
         return max(matches, key=deployment_sort_key)
 
-    def _list_deployments_sync(self, limit: int, status: str | None, root_only: bool) -> list[SpanRecord]:
+    def _list_deployments_sync(self, limit: int, status: str | None, root_only: bool, offset: int) -> list[SpanRecord]:
         if limit <= 0:
             return []
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT]
@@ -555,7 +559,7 @@ class FilesystemDatabase:
             matches = [span for span in matches if span.span_id == span.root_deployment_id]
         if status is not None:
             matches = [span for span in matches if span.status == status]
-        return sorted(matches, key=deployment_sort_key, reverse=True)[:limit]
+        return sorted(matches, key=deployment_sort_key, reverse=True)[offset : offset + limit]
 
     def _list_deployments_by_run_id_sync(self, run_id: str) -> list[SpanRecord]:
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.run_id == run_id]
@@ -695,6 +699,135 @@ class FilesystemDatabase:
             key=log_sort_key,
         )
 
+    def _get_deployment_scoped_spans_sync(self, root_deployment_id: UUID, deployment_id: UUID, include_meta: bool) -> list[SpanRecord]:
+        matches = [s for s in self._spans.values() if s.root_deployment_id == root_deployment_id and s.deployment_id == deployment_id]
+        return sorted(matches, key=span_sort_key)
+
+    def _list_deployment_summaries_sync(self, limit: int, status: str | None, root_only: bool, offset: int) -> list[DeploymentSummaryRecord]:
+        if limit <= 0:
+            return []
+        matches = [s for s in self._spans.values() if s.kind == SpanKind.DEPLOYMENT]
+        if root_only:
+            matches = [s for s in matches if s.span_id == s.root_deployment_id]
+        if status is not None:
+            matches = [s for s in matches if s.status == status]
+        matches = sorted(matches, key=deployment_sort_key, reverse=True)[offset : offset + limit]
+        results: list[DeploymentSummaryRecord] = []
+        for span in matches:
+            cost = sum(s.cost_usd for s in self._spans.values() if s.root_deployment_id == span.root_deployment_id)
+            results.append(
+                DeploymentSummaryRecord(
+                    deployment_id=span.span_id,
+                    root_deployment_id=span.root_deployment_id,
+                    run_id=span.run_id,
+                    deployment_name=span.deployment_name,
+                    name=span.name,
+                    status=span.status,
+                    started_at=span.started_at,
+                    ended_at=span.ended_at,
+                    parent_span_id=span.parent_span_id,
+                    cost_usd=cost,
+                )
+            )
+        return results
+
+    def _list_tree_deployments_sync(self, root_deployment_id: UUID) -> list[DeploymentSummaryRecord]:
+        dep_spans = [s for s in self._spans.values() if s.root_deployment_id == root_deployment_id and s.kind == SpanKind.DEPLOYMENT]
+        cost_by_dep: dict[UUID, float] = {}
+        for s in self._spans.values():
+            if s.root_deployment_id == root_deployment_id:
+                cost_by_dep[s.deployment_id] = cost_by_dep.get(s.deployment_id, 0.0) + s.cost_usd
+        return sorted(
+            [
+                DeploymentSummaryRecord(
+                    deployment_id=s.span_id,
+                    root_deployment_id=s.root_deployment_id,
+                    run_id=s.run_id,
+                    deployment_name=s.deployment_name,
+                    name=s.name,
+                    status=s.status,
+                    started_at=s.started_at,
+                    ended_at=s.ended_at,
+                    parent_span_id=s.parent_span_id,
+                    cost_usd=cost_by_dep.get(s.span_id, 0.0),
+                )
+                for s in dep_spans
+            ],
+            key=lambda r: (r.started_at, str(r.deployment_id)),
+        )
+
+    def _get_document_producers_sync(self, root_deployment_id: UUID) -> dict[str, DocumentProducerRecord]:
+        producers: dict[str, DocumentProducerRecord] = {}
+        for s in sorted(self._spans.values(), key=lambda s: s.started_at):
+            if s.root_deployment_id != root_deployment_id or s.kind in {SpanKind.DEPLOYMENT, SpanKind.ATTEMPT}:
+                continue
+            for sha in s.output_document_shas:
+                if sha not in producers:
+                    producers[sha] = DocumentProducerRecord(
+                        document_sha256=sha,
+                        span_id=s.span_id,
+                        span_name=s.name,
+                        span_kind=s.kind,
+                        deployment_id=s.deployment_id,
+                        deployment_name=s.deployment_name,
+                        started_at=s.started_at,
+                    )
+        return producers
+
+    def _get_document_events_sync(  # noqa: PLR0917 — positional args match async wrapper
+        self,
+        root_deployment_id: UUID,
+        deployment_id: UUID | None,
+        limit: int,
+        offset: int,
+        since: datetime | None,
+        event_types: list[str] | None,
+    ) -> DocumentEventPage:
+        event_type_set = set(event_types) if event_types else None
+        events: list[DocumentEventRecord] = []
+        for s in self._spans.values():
+            if s.root_deployment_id != root_deployment_id:
+                continue
+            if deployment_id is not None and s.deployment_id != deployment_id:
+                continue
+            if s.kind in {SpanKind.DEPLOYMENT, SpanKind.ATTEMPT}:
+                continue
+            for sha in s.output_document_shas:
+                ts = s.ended_at or s.started_at
+                et = f"{s.kind}_output"
+                if (since is not None and ts <= since) or (event_type_set is not None and et not in event_type_set):
+                    continue
+                events.append(
+                    DocumentEventRecord(
+                        document_sha256=sha,
+                        span_id=s.span_id,
+                        span_name=s.name,
+                        span_kind=s.kind,
+                        deployment_id=s.deployment_id,
+                        timestamp=ts,
+                        direction="output",
+                    )
+                )
+            for sha in s.input_document_shas:
+                ts = s.started_at
+                et = f"{s.kind}_input"
+                if (since is not None and ts <= since) or (event_type_set is not None and et not in event_type_set):
+                    continue
+                events.append(
+                    DocumentEventRecord(
+                        document_sha256=sha,
+                        span_id=s.span_id,
+                        span_name=s.name,
+                        span_kind=s.kind,
+                        deployment_id=s.deployment_id,
+                        timestamp=ts,
+                        direction="input",
+                    )
+                )
+        total = len(events)
+        events.sort(key=lambda e: e.timestamp, reverse=True)
+        return DocumentEventPage(events=tuple(events[offset : offset + limit]), total_events=total)
+
     def _find_documents_by_name_sync(self, names: list[str], document_type: str | None) -> dict[str, DocumentRecord]:
         if not names:
             return {}
@@ -761,8 +894,9 @@ class FilesystemDatabase:
         *,
         status: str | None = None,
         root_only: bool = False,
+        offset: int = 0,
     ) -> list[SpanRecord]:
-        return await self._run(self._list_deployments_sync, limit, status, root_only)
+        return await self._run(self._list_deployments_sync, limit, status, root_only, offset)
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
         return await self._run(self._list_deployments_by_run_id_sync, run_id)
@@ -851,6 +985,37 @@ class FilesystemDatabase:
         category: str | None = None,
     ) -> list[LogRecord]:
         return await self._run(self._get_deployment_logs_batch_sync, deployment_ids, level, category)
+
+    async def get_deployment_scoped_spans(self, root_deployment_id: UUID, deployment_id: UUID, *, include_meta: bool = True) -> list[SpanRecord]:
+        return await self._run(self._get_deployment_scoped_spans_sync, root_deployment_id, deployment_id, include_meta)
+
+    async def list_deployment_summaries(
+        self,
+        limit: int,
+        *,
+        status: str | None = None,
+        root_only: bool = False,
+        offset: int = 0,
+    ) -> list[DeploymentSummaryRecord]:
+        return await self._run(self._list_deployment_summaries_sync, limit, status, root_only, offset)
+
+    async def list_tree_deployments(self, root_deployment_id: UUID) -> list[DeploymentSummaryRecord]:
+        return await self._run(self._list_tree_deployments_sync, root_deployment_id)
+
+    async def get_document_producers(self, root_deployment_id: UUID) -> dict[str, DocumentProducerRecord]:
+        return await self._run(self._get_document_producers_sync, root_deployment_id)
+
+    async def get_document_events(
+        self,
+        root_deployment_id: UUID,
+        *,
+        deployment_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        since: datetime | None = None,
+        event_types: list[str] | None = None,
+    ) -> DocumentEventPage:
+        return await self._run(self._get_document_events_sync, root_deployment_id, deployment_id, limit, offset, since, event_types)
 
     async def find_documents_by_name(
         self,

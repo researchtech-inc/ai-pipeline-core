@@ -49,7 +49,7 @@ TOptions = TypeVar("TOptions", bound=FlowOptions, default=FlowOptions)
 TResult = TypeVar("TResult", bound=DeploymentResult, default=DeploymentResult)
 
 _POLL_INTERVAL = 5.0
-_MAX_POLL_SECONDS = 7_200.0
+_MAX_POLL_SECONDS = 10_800
 _MAX_CONSECUTIVE_POLL_ERRORS = 10
 _MAX_SUBMISSION_ATTEMPTS = 3
 _INITIAL_SUBMISSION_RETRY_DELAY_SECONDS = 1.0
@@ -236,6 +236,7 @@ async def _submit_and_poll_remote_flow_run(
     parameters: dict[str, Any],
     idempotency_key: str,
     as_subflow: bool,
+    max_poll_seconds: float = _MAX_POLL_SECONDS,
 ) -> Any:
     """Submit a remote flow run via Prefect and poll it to completion."""
     flow_run = await _submit_remote_flow_run(
@@ -245,7 +246,7 @@ async def _submit_and_poll_remote_flow_run(
         idempotency_key=idempotency_key,
         as_subflow=as_subflow,
     )
-    return await _poll_remote_flow_run(client, flow_run.id)
+    return await _poll_remote_flow_run(client, flow_run.id, max_poll_seconds=max_poll_seconds)
 
 
 async def _publish_remote_task_started(
@@ -318,6 +319,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
     options_type: ClassVar[type[FlowOptions]]
     result_type: ClassVar[type[DeploymentResult]]
     deployment_class: ClassVar[str] = ""
+    max_poll_seconds: ClassVar[int] = _MAX_POLL_SECONDS
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -340,6 +342,12 @@ class RemoteDeployment(Generic[TOptions, TResult]):
 
         cls.options_type = options_type
         cls.result_type = result_type
+
+        if cls.max_poll_seconds <= 0:
+            raise TypeError(
+                f"{cls.__name__}.max_poll_seconds must be > 0, got {cls.max_poll_seconds}. "
+                "Set a positive value representing the maximum seconds to poll the remote deployment."
+            )
 
     @property
     def deployment_path(self) -> str:
@@ -566,6 +574,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         result = await _run_remote_deployment(
             self.deployment_path,
             parameters,
+            max_poll_seconds=self.max_poll_seconds,
         )
 
         if isinstance(result, DeploymentResult):
@@ -578,6 +587,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
 async def _run_remote_deployment(
     deployment_name: str,
     parameters: dict[str, Any],
+    *,
+    max_poll_seconds: float = _MAX_POLL_SECONDS,
 ) -> Any:
     """Run a remote Prefect deployment and poll until completion."""
     run_id = parameters.get("run_id")
@@ -595,6 +606,7 @@ async def _run_remote_deployment(
                 parameters=parameters,
                 idempotency_key=run_id,
                 as_subflow=True,
+                max_poll_seconds=max_poll_seconds,
             )
         except ObjectNotFound:
             pass
@@ -620,6 +632,7 @@ async def _run_remote_deployment(
                     parameters=parameters,
                     idempotency_key=run_id,
                     as_subflow=False,
+                    max_poll_seconds=max_poll_seconds,
                 )
         except ObjectNotFound as exc:
             raise RemoteDeploymentNotFoundError(
@@ -644,8 +657,8 @@ async def _poll_remote_flow_run(
     while True:
         if time.monotonic() - started_at >= max_poll_seconds:
             raise RemoteDeploymentPollingError(
-                f"Polling remote flow run {flow_run_id} exceeded {max_poll_seconds:.1f}s. "
-                "Increase max_poll_seconds only if the remote deployment is expected to run longer, "
+                f"Polling remote flow run {flow_run_id} exceeded {max_poll_seconds}s. "
+                "Increase RemoteDeployment.max_poll_seconds on your deployment subclass, "
                 "or inspect the Prefect UI to confirm the remote flow run is still progressing."
             )
         try:
