@@ -94,7 +94,7 @@ class SummaryFlow(PipelineFlow):
 class DatabaseShowcaseResult(DeploymentResult):
     """Small result model for the example deployment."""
 
-    summary_preview: str = ""
+    summary_document: SummaryReportDocument
     document_count: int = 0
 
 
@@ -116,10 +116,10 @@ class DatabaseShowcasePipeline(PipelineDeployment[FlowOptions, DatabaseShowcaseR
         outputs = FlowOutputs(documents)
         summary = outputs.latest(SummaryReportDocument)
         if summary is None:
-            return DatabaseShowcaseResult(success=False, error="No summary produced")
+            raise RuntimeError("DatabaseShowcasePipeline expected a SummaryReportDocument after the full plan completed.")
         return DatabaseShowcaseResult(
             success=True,
-            summary_preview=summary.text[:RESULT_PREVIEW_CHARS],
+            summary_document=summary,
             document_count=len(documents),
         )
 
@@ -170,7 +170,7 @@ async def main() -> None:
     print("Deployment result:")
     print(f"  - success: {result.success}")
     print(f"  - document_count: {result.document_count}")
-    print(f"  - summary_preview: {result.summary_preview}")
+    print(f"  - summary_preview: {result.summary_document.text[:RESULT_PREVIEW_CHARS]}")
 
     print("\nRecorded span:")
     print(f"  - kind: {summary_task_span.kind}")

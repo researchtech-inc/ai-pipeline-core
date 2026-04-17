@@ -41,5 +41,5 @@ def test_create_without_summary_defaults_empty() -> None:
 def test_summary_survives_serialization_roundtrip() -> None:
     doc = _SummaryDoc.create_root(name="test.txt", content=b"hello", reason="test", summary="roundtrip")
     serialized = doc.serialize_model()
-    restored = _SummaryDoc.from_dict(serialized)
+    restored = _SummaryDoc.model_validate(serialized)
     assert restored.summary == "roundtrip"

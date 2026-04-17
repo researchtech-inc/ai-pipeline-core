@@ -42,8 +42,9 @@ rules:
   - id: no-document-model-validate
     pattern: $DOC.model_validate(...)
     message: >
-      Document.model_validate() is blocked to prevent cross-type casting.
-      Use from_dict() for deserialization, or create()/derive()/create_root()/create_external() for new documents.
+      Do not call DocumentSubclass.model_validate(...) in application code.
+      Use create_root(), derive(), create(), or create_external() for new Documents.
+      Reserve model_validate(...) for framework-owned deserialization of previously serialized Document payloads.
     severity: ERROR
     languages: [python]
     paths:
@@ -124,7 +125,7 @@ rules:
               ...
     message: >
       Do not instantiate Document subclasses directly. Use derive(), create(),
-      create_external(), create_root(), or from_dict().
+      create_external(), or create_root().
     severity: ERROR
     languages: [python]
     paths:
@@ -136,6 +137,38 @@ rules:
         - "**/test_*"
         - "**/ai_pipeline_core/documents/document.py"
         - "**/ai_pipeline_core/database/_hydrate.py"
+
+  - id: no-document-from-dict
+    pattern: $DOC.from_dict(...)
+    message: >
+      Document.from_dict() has been removed.
+      Deserialize previously serialized payloads with DocumentSubclass.model_validate(...),
+      or create a new Document with create_root(), derive(), create(), or create_external().
+    severity: ERROR
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*"
+        - "**/ai_pipeline_core/documents/document.py"
+
+  - id: no-build-partial-result
+    patterns:
+      - pattern: |
+          class $DEPLOY(...):
+              ...
+              def build_partial_result(...):
+                  ...
+    message: >
+      build_partial_result() is not supported.
+      Deployments return a result only after the full plan completes.
+      Remove build_partial_result() and inspect incomplete runs with ai-trace instead.
+    severity: ERROR
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*"
 
   - id: no-function-local-codec-class
     patterns:

@@ -203,6 +203,9 @@ def _reconstruct_deployment_events(
 
     if span.status == SpanStatus.COMPLETED:
         output = _parse_output(span)
+        result_payload = output.get("result")
+        if not isinstance(result_payload, dict):
+            result_payload = None
         events.append(
             _ReconstructedEvent(
                 event_type=EventType.RUN_COMPLETED,
@@ -215,7 +218,7 @@ def _reconstruct_deployment_events(
                         root_deployment_id=root_id_str,
                         parent_deployment_task_id=parent_task_id_str,
                         status=str(span.status),
-                        result=output.get("result", {}),
+                        result=result_payload,
                         deployment_name=span.deployment_name or span.name,
                         deployment_class=meta.get("deployment_class", ""),
                         duration_ms=_duration_ms(span),

@@ -272,22 +272,22 @@ The conversations converged on a key idea: some misuse is best prevented by rest
 ## 5.1 Allowed orchestration patterns
 The allowed patterns inside flow `run()` should be narrow and explicit:
 
-1. Sequential task call  
+1. Sequential task call
    `await TaskClass.run(...)`
 
-2. Handle dispatch  
+2. Handle dispatch
    `TaskClass.run(...)` without `await`
 
-3. Single-level fan-out comprehension  
+3. Single-level fan-out comprehension
    `[TaskClass.run(...) for item in items]`
 
-4. Batch collection  
+4. Batch collection
    `await collect_tasks(*handles)`
 
-5. Minor conditional step  
+5. Minor conditional step
    `if condition: await TaskClass.run(...)`
 
-6. Serial update loop  
+6. Serial update loop
    `for item in items: await TaskClass.run(...)`
 
 Everything else becomes suspect.

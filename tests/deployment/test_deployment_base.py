@@ -22,6 +22,7 @@ from ai_pipeline_core import (
     Document,
     FieldGate,
     FlowOptions,
+    FlowOutputs,
     FlowStep,
     PipelineDeployment,
     PipelineFlow,
@@ -102,6 +103,45 @@ class TestDeploymentResult:
         """Test custom result subclass."""
         result = ValidResult(success=True, count=42)
         assert result.count == 42
+
+    def test_required_document_field_round_trip(self):
+        class ResultWithDocument(DeploymentResult):
+            report: OutputDoc
+
+        report = OutputDoc.create_root(name="report.txt", content="report", reason="test")
+        result = ResultWithDocument(success=True, report=report)
+
+        validated = ResultWithDocument.model_validate(result.model_dump(mode="json"))
+
+        assert validated.report.sha256 == report.sha256
+        assert validated.report.class_name == "OutputDoc"
+
+    def test_optional_document_field_rejected(self):
+        with pytest.raises(TypeError, match="required and non-nullable"):
+
+            class _OptionalDocumentResult(DeploymentResult):
+                report: OutputDoc | None
+
+    def test_bare_document_field_rejected(self):
+        with pytest.raises(TypeError, match="uses bare 'Document'"):
+
+            class _BareDocumentResult(DeploymentResult):
+                report: Document
+
+    def test_dict_document_field_rejected(self):
+        with pytest.raises(TypeError, match="Dicts containing Documents are not supported"):
+
+            class _DictDocumentResult(DeploymentResult):
+                reports: dict[str, OutputDoc]
+
+    def test_nested_optional_document_field_rejected(self):
+        class NestedPayload(BaseModel):
+            report: OutputDoc | None = None
+
+        with pytest.raises(TypeError, match=r"contains nested Document fields but is not required|optional but contains a Document type"):
+
+            class _NestedOptionalDocumentResult(DeploymentResult):
+                payload: NestedPayload
 
 
 # --- Contract models tests ---
@@ -319,6 +359,99 @@ class ValidDeployment(PipelineDeployment[FlowOptions, ValidResult]):
         return ValidResult(success=True, count=len(documents))
 
 
+class ResumeStepOne(Document):
+    """Resume test step 1 output."""
+
+
+class ResumeStepTwo(Document):
+    """Resume test step 2 output."""
+
+
+class ResumeStepThree(Document):
+    """Resume test step 3 output."""
+
+
+class ResumeStepFour(Document):
+    """Resume test step 4 output."""
+
+
+class ResumeStepFive(Document):
+    """Resume test step 5 output."""
+
+
+class ResumeResult(DeploymentResult):
+    """Result for the partial-run resume test deployment."""
+
+    final_document: ResumeStepFive
+
+
+class ResumeFlowOne(PipelineFlow):
+    """Resume test flow 1."""
+
+    async def run(self, input_docs: tuple[InputDoc, ...], options: FlowOptions) -> tuple[ResumeStepOne, ...]:
+        _ = options
+        return (ResumeStepOne.derive(derived_from=(input_docs[0],), name="step1.txt", content="step-1"),)
+
+
+class ResumeFlowTwo(PipelineFlow):
+    """Resume test flow 2."""
+
+    async def run(self, step_one_docs: tuple[ResumeStepOne, ...], options: FlowOptions) -> tuple[ResumeStepTwo, ...]:
+        _ = options
+        return (ResumeStepTwo.derive(derived_from=(step_one_docs[0],), name="step2.txt", content="step-2"),)
+
+
+class ResumeFlowThree(PipelineFlow):
+    """Resume test flow 3."""
+
+    async def run(self, step_two_docs: tuple[ResumeStepTwo, ...], options: FlowOptions) -> tuple[ResumeStepThree, ...]:
+        _ = options
+        return (ResumeStepThree.derive(derived_from=(step_two_docs[0],), name="step3.txt", content="step-3"),)
+
+
+class ResumeFlowFour(PipelineFlow):
+    """Resume test flow 4."""
+
+    async def run(self, step_three_docs: tuple[ResumeStepThree, ...], options: FlowOptions) -> tuple[ResumeStepFour, ...]:
+        _ = options
+        return (ResumeStepFour.derive(derived_from=(step_three_docs[0],), name="step4.txt", content="step-4"),)
+
+
+class ResumeFlowFive(PipelineFlow):
+    """Resume test flow 5."""
+
+    async def run(self, step_four_docs: tuple[ResumeStepFour, ...], options: FlowOptions) -> tuple[ResumeStepFive, ...]:
+        _ = options
+        return (ResumeStepFive.derive(derived_from=(step_four_docs[0],), name="step5.txt", content="step-5"),)
+
+
+class ResumeDeployment(PipelineDeployment[FlowOptions, ResumeResult]):
+    """Five-step deployment used to verify partial-run resume behavior."""
+
+    flow_retries = 0
+
+    def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+        _ = options
+        return DeploymentPlan(
+            steps=(
+                FlowStep(ResumeFlowOne()),
+                FlowStep(ResumeFlowTwo()),
+                FlowStep(ResumeFlowThree()),
+                FlowStep(ResumeFlowFour()),
+                FlowStep(ResumeFlowFive()),
+            )
+        )
+
+    @staticmethod
+    def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ResumeResult:
+        _ = (run_id, options)
+        outputs = FlowOutputs(documents)
+        final_document = outputs.latest(ResumeStepFive)
+        if final_document is None:
+            raise RuntimeError("ResumeDeployment expected ResumeStepFive after the full plan completed.")
+        return ResumeResult(success=True, final_document=final_document)
+
+
 # --- Database integration tests ---
 
 
@@ -532,27 +665,77 @@ class TestCliFieldsFrozenset:
         assert isinstance(_CLI_FIELDS, frozenset)
 
 
-class TestStepValidation:
-    """Test start_step/end_step validation in run()."""
+class TestPartialResultRemoval:
+    """Partial deployment result hooks are structurally forbidden."""
+
+    def test_build_partial_result_override_rejected(self):
+        with pytest.raises(TypeError, match="build_partial_result"):
+
+            class _InvalidPartialDeployment(PipelineDeployment[FlowOptions, ValidResult]):
+                def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+                    _ = options
+                    return DeploymentPlan(steps=(FlowStep(ValidFlow()),))
+
+                @staticmethod
+                def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
+                    _ = (run_id, documents, options)
+                    return ValidResult(success=True)
+
+                def build_partial_result(self, run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
+                    _ = (run_id, documents, options)
+                    return ValidResult(success=True)
+
+
+class TestPartialRunExecution:
+    """Partial step-range executions persist artifacts without fabricating results."""
 
     @pytest.fixture
     def deployment(self):
-        return ValidDeployment()
+        return ResumeDeployment()
 
     @pytest.mark.asyncio
     async def test_start_step_zero_raises(self, deployment):
+        docs = [InputDoc.create_root(name="input.txt", content="input", reason="test")]
         with pytest.raises(ValueError, match="start_step must be 1"):
-            await deployment.run("proj", [], FlowOptions(), start_step=0)
+            await deployment.run("resume-run", docs, FlowOptions(), start_step=0, database=_MemoryDatabase())
 
     @pytest.mark.asyncio
     async def test_start_step_too_large_raises(self, deployment):
+        docs = [InputDoc.create_root(name="input.txt", content="input", reason="test")]
         with pytest.raises(ValueError, match="start_step must be 1"):
-            await deployment.run("proj", [], FlowOptions(), start_step=99)
+            await deployment.run("resume-run", docs, FlowOptions(), start_step=99, database=_MemoryDatabase())
 
     @pytest.mark.asyncio
     async def test_end_step_less_than_start_raises(self, deployment):
+        docs = [InputDoc.create_root(name="input.txt", content="input", reason="test")]
         with pytest.raises(ValueError, match="end_step must be"):
-            await deployment.run("proj", [], FlowOptions(), start_step=1, end_step=0)
+            await deployment.run("resume-run", docs, FlowOptions(), start_step=4, end_step=3, database=_MemoryDatabase())
+
+    @pytest.mark.asyncio
+    async def test_partial_run_returns_none(self, deployment):
+        database = _MemoryDatabase()
+        docs = [InputDoc.create_root(name="input.txt", content="input", reason="test")]
+
+        result = await deployment.run("resume-run", docs, FlowOptions(), end_step=3, database=database)
+
+        assert result is None
+        produced_types = {record.document_type for record in database._documents.values()}
+        assert "ResumeStepThree" in produced_types
+        assert "ResumeStepFour" not in produced_types
+        assert "ResumeStepFive" not in produced_types
+
+    @pytest.mark.asyncio
+    async def test_resume_after_partial_run_returns_full_result(self, deployment):
+        database = _MemoryDatabase()
+        docs = [InputDoc.create_root(name="input.txt", content="input", reason="test")]
+
+        first_result = await deployment.run("resume-run", docs, FlowOptions(), end_step=3, database=database)
+        resumed_result = await deployment.run("resume-run", docs, FlowOptions(), start_step=4, database=database)
+
+        assert first_result is None
+        assert isinstance(resumed_result, ResumeResult)
+        assert resumed_result.final_document.name == "step5.txt"
+        assert resumed_result.final_document.text == "step-5"
 
 
 class TestRunPassesOptionsObject:

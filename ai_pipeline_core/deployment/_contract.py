@@ -74,7 +74,7 @@ class CompletedRun(_RunBase):
     """Pipeline finished (Prefect COMPLETED). Check result.success for business outcome."""
 
     type: Literal["completed"] = "completed"
-    result: DeploymentResultData
+    result: DeploymentResultData | None
 
 
 class FailedRun(_RunBase):

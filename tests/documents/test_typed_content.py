@@ -199,11 +199,11 @@ class TestParsedProperty:
         with pytest.raises(TypeError, match="UntypedDoc has no declared content type"):
             doc.parsed
 
-    def test_parsed_works_after_from_dict_roundtrip(self):
+    def test_parsed_works_after_model_validate_roundtrip(self):
         model = SampleModel(goal="roundtrip", score=55)
         doc = SampleTypedDoc.create_root(name="data.json", content=model, reason="test")
         serialized = doc.serialize_model()
-        restored = SampleTypedDoc.from_dict(serialized)
+        restored = SampleTypedDoc.model_validate(serialized)
         assert restored.parsed.goal == "roundtrip"
         assert restored.parsed.score == 55
 
@@ -297,12 +297,12 @@ class TestNonStructuredExtension:
 
 
 class TestSerializationRoundtrip:
-    def test_serialize_and_from_dict_preserves_content(self):
+    def test_serialize_and_model_validate_preserves_content(self):
         model = SampleModel(goal="serialize", score=42)
         doc = SampleTypedDoc.create_root(name="data.json", content=model, reason="test")
         serialized = doc.serialize_model()
 
-        restored = SampleTypedDoc.from_dict(serialized)
+        restored = SampleTypedDoc.model_validate(serialized)
 
         assert restored.parsed.goal == "serialize"
         assert restored.parsed.score == 42

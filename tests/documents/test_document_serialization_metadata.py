@@ -1,4 +1,4 @@
-"""Test document serialization debug fields."""
+"""Tests for Document class-name serialization and model_validate round-trips."""
 
 import pytest
 
@@ -23,10 +23,10 @@ def _suppress_registration():
 
 
 @pytest.mark.asyncio
-async def test_serialize_includes_class_name():
-    """Test that serialize_model includes class_name."""
+async def test_model_dump_includes_class_name():
+    """model_dump() always includes the concrete document subclass name."""
     doc = DebugSampleDocument(name="test.txt", content=b"test content")
-    serialized = doc.serialize_model()
+    serialized = doc.model_dump(mode="json")
 
     assert "class_name" in serialized
     assert serialized["class_name"] == "DebugSampleDocument"
@@ -34,26 +34,36 @@ async def test_serialize_includes_class_name():
 
 
 @pytest.mark.asyncio
+async def test_model_dump_json_includes_class_name():
+    """model_dump_json() carries class_name for JSON round-trips."""
+    doc = DebugSampleDocument(name="test.txt", content=b"test content")
+
+    serialized = doc.model_dump_json(indent=2)
+
+    assert '"class_name": "DebugSampleDocument"' in serialized
+
+
+@pytest.mark.asyncio
 async def test_long_named_document_class_name():
-    """Test class_name for longer document names."""
+    """class_name derives from the actual subclass name, even when long."""
     doc = VeryLongNamedDebugSampleDocument(name="test.txt", content=b"test")
-    serialized = doc.serialize_model()
+    serialized = doc.model_dump(mode="json")
 
     assert serialized["class_name"] == "VeryLongNamedDebugSampleDocument"
 
 
 @pytest.mark.asyncio
-async def test_from_dict_ignores_class_name():
-    """Test that from_dict ignores class_name."""
+async def test_model_validate_roundtrip_preserves_content():
+    """A dumped Document round-trips via model_validate()."""
     doc = DebugSampleDocument(name="test.txt", content=b"test content")
-    serialized = doc.serialize_model()
+    serialized = doc.model_dump(mode="json")
 
     assert "class_name" in serialized
 
-    restored = DebugSampleDocument.from_dict(serialized)
+    restored = DebugSampleDocument.model_validate(serialized)
     assert restored.name == doc.name
     assert restored.content == doc.content
-    assert not hasattr(restored, "class_name")
+    assert restored.class_name == "DebugSampleDocument"
 
 
 @pytest.mark.asyncio
@@ -66,7 +76,7 @@ async def test_different_document_types_have_correct_class_name():
 
 @pytest.mark.asyncio
 async def test_roundtrip_preserves_content():
-    """Test that serialize/deserialize roundtrip preserves content."""
+    """serialize_model() remains an enriched wrapper around model_validate()."""
     doc = DebugSampleDocument(
         name="test.txt",
         content=b"test content",
@@ -75,7 +85,7 @@ async def test_roundtrip_preserves_content():
     )
 
     serialized = doc.serialize_model()
-    restored = DebugSampleDocument.from_dict(serialized)
+    restored = DebugSampleDocument.model_validate(serialized)
 
     assert restored.name == doc.name
     assert restored.content == doc.content
@@ -87,49 +97,49 @@ async def test_roundtrip_preserves_content():
 
 
 @pytest.mark.asyncio
-async def test_from_dict_rejects_wrong_class_name():
-    """Test that from_dict rejects cross-type casting via mismatched class_name."""
+async def test_model_validate_rejects_wrong_class_name():
+    """model_validate() rejects mismatched class_name values."""
     doc = DebugSampleDocument(name="test.txt", content=b"test content")
-    serialized = doc.serialize_model()
+    serialized = doc.model_dump(mode="json")
     serialized["class_name"] = "WrongClass"
 
     with pytest.raises(TypeError, match="Cannot deserialize 'WrongClass' as 'DebugSampleDocument'"):
-        DebugSampleDocument.from_dict(serialized)
+        DebugSampleDocument.model_validate(serialized)
 
 
 @pytest.mark.asyncio
-async def test_cross_type_casting_blocked_via_from_dict():
-    """Deserializing one Document type as another is rejected."""
+async def test_cross_type_casting_blocked_via_model_dump_roundtrip():
+    """Plain model_dump() output still blocks cross-type deserialization."""
     doc = DebugSampleDocument(name="test.txt", content=b"content")
-    serialized = doc.serialize_model()
+    serialized = doc.model_dump(mode="json")
     assert serialized["class_name"] == "DebugSampleDocument"
 
     with pytest.raises(TypeError, match="Cannot deserialize 'DebugSampleDocument' as 'VeryLongNamedDebugSampleDocument'"):
-        VeryLongNamedDebugSampleDocument.from_dict(serialized)
+        VeryLongNamedDebugSampleDocument.model_validate(serialized)
 
 
 @pytest.mark.asyncio
-async def test_from_dict_allows_matching_class_name():
-    """from_dict accepts when class_name matches the target type."""
+async def test_model_validate_allows_matching_class_name():
+    """model_validate() accepts matching serialized payloads."""
     doc = DebugSampleDocument(name="test.txt", content=b"content")
-    serialized = doc.serialize_model()
-    restored = DebugSampleDocument.from_dict(serialized)
+    serialized = doc.model_dump(mode="json")
+    restored = DebugSampleDocument.model_validate(serialized)
     assert restored.content == doc.content
 
 
 @pytest.mark.asyncio
-async def test_from_dict_allows_missing_class_name():
-    """from_dict accepts dicts without class_name (e.g. manually constructed)."""
+async def test_model_validate_allows_missing_class_name_for_valid_plain_dicts():
+    """Pure JSON-like dicts without class_name still validate if structurally valid."""
     data = {"name": "test.txt", "content": "hello"}
-    restored = DebugSampleDocument.from_dict(data)
+    restored = DebugSampleDocument.model_validate(data)
     assert restored.name == "test.txt"
 
 
 @pytest.mark.asyncio
-async def test_model_validate_blocked_on_document():
-    """model_validate is blocked on Document subclasses."""
-    with pytest.raises(TypeError, match=r"model_validate.*not supported"):
-        DebugSampleDocument.model_validate({"name": "x.txt", "content": "x"})
+async def test_model_validate_rejects_non_string_class_name():
+    """class_name must be a string when present."""
+    with pytest.raises(TypeError, match=r"class_name.*must be a string"):
+        DebugSampleDocument.model_validate({"name": "x.txt", "content": "x", "class_name": 123})
 
 
 # --- Attachment serialization metadata tests ---
@@ -196,7 +206,7 @@ async def test_serialize_empty_attachments():
 
 @pytest.mark.asyncio
 async def test_roundtrip_with_attachments_ignores_extra_fields():
-    """Test that from_dict ignores mime_type and size in attachment dicts."""
+    """Attachment metadata injected by serialize_model() is stripped before validation."""
     att = Attachment(name="screenshot.jpg", content=JPEG_HEADER)
     doc = DebugSampleDocument(name="report.txt", content=b"body", attachments=(att,))
 
@@ -204,7 +214,7 @@ async def test_roundtrip_with_attachments_ignores_extra_fields():
     assert "mime_type" in serialized["attachments"][0]
     assert "size" in serialized["attachments"][0]
 
-    restored = DebugSampleDocument.from_dict(serialized)
+    restored = DebugSampleDocument.model_validate(serialized)
     assert restored.name == doc.name
     assert restored.content == doc.content
     assert len(restored.attachments) == 1

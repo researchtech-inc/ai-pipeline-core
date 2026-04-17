@@ -1,4 +1,4 @@
-"""Tests for binary content serialization roundtrip via serialize_model/from_dict and model_validate blocking."""
+"""Tests for binary content serialization roundtrip via serialize_model/model_validate."""
 
 import base64
 
@@ -31,35 +31,30 @@ def _suppress_registration():
     return
 
 
-class TestDocumentModelValidateBlocked:
-    """model_validate is blocked on Document to prevent cross-type casting."""
+class TestDocumentModelValidate:
+    """model_validate deserializes Documents and enforces class-name boundaries."""
 
-    def test_model_validate_raises_type_error(self):
+    def test_model_validate_roundtrips_standard_dump(self):
         original = ConcreteDocument.create_root(name="test.txt", content="hello", reason="test")
         dumped = original.model_dump(mode="json")
-        with pytest.raises(TypeError, match=r"model_validate.*not supported"):
-            ConcreteDocument.model_validate(dumped)
+        restored = ConcreteDocument.model_validate(dumped)
 
-    def test_model_validate_error_guides_to_from_dict(self):
-        dumped = ConcreteDocument(name="x.txt", content=b"x").model_dump(mode="json")
-        with pytest.raises(TypeError, match=r"from_dict"):
-            ConcreteDocument.model_validate(dumped)
-
-    def test_model_validate_blocked_even_with_valid_data(self):
-        """model_validate is blocked regardless of whether the data is valid."""
-        with pytest.raises(TypeError, match=r"model_validate.*not supported"):
-            ConcreteDocument.model_validate({"name": "test.txt", "content": "hello"})
-
-    def test_from_dict_still_works_after_model_validate_blocked(self):
-        """from_dict uses model_validate internally but is not affected by the block."""
-        original = ConcreteDocument.create_root(name="test.txt", content="hello", reason="test")
-        serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
         assert restored.sha256 == original.sha256
+
+    def test_cross_type_cast_raises_type_error(self):
+        original = ConcreteDocument.create_root(name="test.txt", content="hello", reason="test")
+        dumped = original.model_dump(mode="json")
+        dumped["class_name"] = "WrongDocumentType"
+        with pytest.raises(TypeError, match=r"Cannot deserialize 'WrongDocumentType' as 'ConcreteDocument'"):
+            ConcreteDocument.model_validate(dumped)
+
+    def test_model_validate_allows_valid_dict_without_class_name(self):
+        restored = ConcreteDocument.model_validate({"name": "test.txt", "content": "hello"})
+        assert restored.content == b"hello"
 
 
 class TestDocumentSerializationRoundtrip:
-    """Tests proving Document content roundtrips correctly via serialize_model/from_dict."""
+    """Tests proving Document content roundtrips correctly via serialize_model/model_validate."""
 
     def test_text_content_roundtrip(self):
         original = ConcreteDocument.create_root(
@@ -68,7 +63,7 @@ class TestDocumentSerializationRoundtrip:
             reason="test input",
         )
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
         assert restored.content == original.content
@@ -76,7 +71,7 @@ class TestDocumentSerializationRoundtrip:
     def test_binary_content_roundtrip(self):
         original = ConcreteDocument(name="image.png", content=MINIMAL_PNG)
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
         assert restored.content == original.content
@@ -84,21 +79,21 @@ class TestDocumentSerializationRoundtrip:
     def test_jpeg_content_roundtrip(self):
         original = ConcreteDocument(name="photo.jpg", content=MINIMAL_JPEG)
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
 
     def test_arbitrary_binary_roundtrip(self):
         original = ConcreteDocument(name="data.bin", content=BINARY_DATA)
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
 
     def test_serialize_model_roundtrip_works(self):
         original = ConcreteDocument(name="image.png", content=MINIMAL_PNG)
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
         assert restored.content == original.content
@@ -157,7 +152,7 @@ class TestAttachmentPydanticSerializationBug:
 
 
 class TestDocumentWithBinaryAttachmentsRoundtrip:
-    """Tests proving Document with binary attachments roundtrips via serialize_model/from_dict."""
+    """Tests proving Document with binary attachments roundtrips via serialize_model/model_validate."""
 
     def test_document_with_binary_attachment_roundtrip(self):
         original = ConcreteDocument.create_root(
@@ -167,7 +162,7 @@ class TestDocumentWithBinaryAttachmentsRoundtrip:
             reason="test input",
         )
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
         assert restored.attachments[0].content == original.attachments[0].content
@@ -184,7 +179,7 @@ class TestDocumentWithBinaryAttachmentsRoundtrip:
             reason="test input",
         )
         serialized = original.serialize_model()
-        restored = ConcreteDocument.from_dict(serialized)
+        restored = ConcreteDocument.model_validate(serialized)
 
         assert restored.sha256 == original.sha256
         for i, (orig_att, rest_att) in enumerate(zip(original.attachments, restored.attachments, strict=True)):
@@ -205,11 +200,11 @@ class TestSerializationFormat:
         assert "sha256" in serialize_dump
         assert "class_name" in serialize_dump
 
-    def test_from_dict_restores_binary_correctly(self):
+    def test_model_validate_restores_binary_correctly(self):
         doc = ConcreteDocument(name="image.png", content=MINIMAL_PNG)
 
         serialize_dump = doc.serialize_model()
-        restored = ConcreteDocument.from_dict(serialize_dump)
+        restored = ConcreteDocument.model_validate(serialize_dump)
 
         assert restored.content == MINIMAL_PNG
         assert restored.sha256 == doc.sha256

@@ -1,4 +1,4 @@
-"""Tests for Document serialize_model / from_dict with attachments."""
+"""Tests for Document serialize_model / model_validate with attachments."""
 
 import base64
 
@@ -93,7 +93,7 @@ class TestRoundtrip:
         att = Attachment(name="notes.txt", content=b"Hello world", description="My notes")
         doc = SerFlowDoc(name="report.txt", content=b"body text", attachments=(att,))
         serialized = doc.serialize_model()
-        restored = SerFlowDoc.from_dict(serialized)
+        restored = SerFlowDoc.model_validate(serialized)
 
         assert restored.name == doc.name
         assert restored.content == doc.content
@@ -106,7 +106,7 @@ class TestRoundtrip:
         att = Attachment(name="image.png", content=PNG_HEADER)
         doc = SerFlowDoc(name="report.txt", content=b"body", attachments=(att,))
         serialized = doc.serialize_model()
-        restored = SerFlowDoc.from_dict(serialized)
+        restored = SerFlowDoc.model_validate(serialized)
 
         assert len(restored.attachments) == 1
         assert restored.attachments[0].name == "image.png"
@@ -115,7 +115,7 @@ class TestRoundtrip:
     def test_no_attachments_roundtrip(self):
         doc = SerFlowDoc(name="report.txt", content=b"body")
         serialized = doc.serialize_model()
-        restored = SerFlowDoc.from_dict(serialized)
+        restored = SerFlowDoc.model_validate(serialized)
 
         assert restored.attachments == ()
         assert restored.content == doc.content
@@ -124,7 +124,7 @@ class TestRoundtrip:
         att = Attachment(name="a.txt", content=b"data")
         doc = SerFlowDoc(name="test.txt", content=b"content", attachments=(att,))
         serialized = doc.serialize_model()
-        restored = SerFlowDoc.from_dict(serialized)
+        restored = SerFlowDoc.model_validate(serialized)
         assert restored.sha256 == doc.sha256
 
 
@@ -153,7 +153,7 @@ class TestMultipleAttachmentsOrdering:
         )
         doc = SerFlowDoc(name="report.txt", content=b"body", attachments=atts)
         serialized = doc.serialize_model()
-        restored = SerFlowDoc.from_dict(serialized)
+        restored = SerFlowDoc.model_validate(serialized)
 
         assert len(restored.attachments) == 3
         for i, name in enumerate(["a.txt", "b.txt", "c.txt"]):
@@ -195,7 +195,7 @@ class TestMixedAttachments:
             attachments=(text_att, binary_att),
         )
         serialized = doc.serialize_model()
-        restored = SerFlowDoc.from_dict(serialized)
+        restored = SerFlowDoc.model_validate(serialized)
 
         assert len(restored.attachments) == 2
         assert restored.attachments[0].name == "notes.txt"

@@ -8,7 +8,6 @@ import base64
 import json
 import logging
 from collections.abc import Sequence
-from contextvars import ContextVar
 from enum import StrEnum
 from functools import cached_property
 from io import BytesIO
@@ -29,6 +28,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     ValidationInfo,
+    computed_field,
     field_serializer,
     field_validator,
     model_validator,
@@ -85,9 +85,6 @@ _DOCUMENT_SERIALIZE_METADATA_KEYS: frozenset[str] = frozenset({
     "mime_type",
     "class_name",
 })
-
-# Context variable to allow from_dict() to call model_validate() internally.
-_from_dict_active: ContextVar[bool] = ContextVar("_from_dict_active", default=False)
 
 
 def _is_test_module(cls: type) -> bool:
@@ -411,11 +408,11 @@ class Document[TContent: BaseModel = Any](BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
             derived_from=(),
             triggered_by=(),
-            attachments=attachments,
+            attachments=attachments or (),
         )
 
     @classmethod
@@ -451,11 +448,11 @@ class Document[TContent: BaseModel = Any](BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
-            derived_from=tuple(d.sha256 for d in derived_from) if derived_from else None,
+            derived_from=tuple(d.sha256 for d in derived_from) if derived_from else (),
             triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by),
-            attachments=attachments,
+            attachments=attachments or (),
         )
 
     @classmethod
@@ -487,11 +484,11 @@ class Document[TContent: BaseModel = Any](BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
             derived_from=tuple(d.sha256 for d in derived_from),
-            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else None,
-            attachments=attachments,
+            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else (),
+            attachments=attachments or (),
         )
 
     @classmethod
@@ -526,38 +523,11 @@ class Document[TContent: BaseModel = Any](BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
             derived_from=tuple(from_sources),
-            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else None,
-            attachments=attachments,
-        )
-
-    def __init__(
-        self,
-        *,
-        name: str,
-        content: bytes,
-        description: str | None = None,
-        summary: str = "",
-        derived_from: tuple[str, ...] | None = None,
-        triggered_by: tuple[DocumentSha256, ...] | None = None,
-        attachments: tuple[Attachment, ...] | None = None,
-    ) -> None:
-        """Initialize with raw bytes content. Most users should use `create()` or `derive()` instead."""
-        if type(self) is Document or "[" in type(self).__name__:
-            raise TypeError("Cannot instantiate Document directly — define a named subclass")
-
-        # None → default conversions for convenience (callers can pass None).
-        # Field validators handle description (None → "").
-        super().__init__(
-            name=name,
-            content=content,
-            description=description,
-            summary=summary,
-            derived_from=derived_from if derived_from is not None else (),
-            triggered_by=triggered_by if triggered_by is not None else (),
-            attachments=attachments if attachments is not None else (),
+            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else (),
+            attachments=attachments or (),
         )
 
     name: str
@@ -741,6 +711,13 @@ class Document[TContent: BaseModel = Any](BaseModel):
         return v
 
     @model_validator(mode="after")
+    def _validate_concrete_subclass(self) -> Self:
+        """Reject bare Document and parameterized intermediate classes at construction time."""
+        if type(self) is Document or "[" in type(self).__name__:
+            raise TypeError("Cannot instantiate Document directly — define a named subclass")
+        return self
+
+    @model_validator(mode="after")
     def _validate_no_provenance_overlap(self) -> Self:
         """Reject documents where the same SHA256 appears in both derived_from and triggered_by."""
         derived_sha256s = {src for src in self.derived_from if _is_document_sha256(src)}
@@ -763,10 +740,50 @@ class Document[TContent: BaseModel = Any](BaseModel):
             raise DocumentSizeError(f"Total document size ({total} bytes) including attachments exceeds maximum allowed size ({self.MAX_CONTENT_SIZE} bytes)")
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_serialized_document(cls, data: Any) -> Any:
+        """Strip serialized metadata and enforce cross-type deserialization boundaries."""
+        if not isinstance(data, dict):
+            return data
+
+        raw = cast(dict[str, Any], data)
+        stored_class = raw.get("class_name")
+        if stored_class is not None:
+            if not isinstance(stored_class, str):
+                raise TypeError(
+                    "Document payload field 'class_name' must be a string. "
+                    "Serialize Documents with model_dump()/model_dump_json() or serialize_model(). "
+                    "To create a new document, use create_root(), derive(), create(), or create_external()."
+                )
+            if stored_class != cls.__name__:
+                raise TypeError(
+                    f"Cannot deserialize '{stored_class}' as '{cls.__name__}'. "
+                    f"Use {stored_class}.model_validate(data) if you have the matching serialized payload, "
+                    f"or create a new {cls.__name__} with create_root(), derive(), create(), or create_external()."
+                )
+
+        cleaned = {key: value for key, value in raw.items() if key not in _DOCUMENT_SERIALIZE_METADATA_KEYS}
+        attachments = cleaned.get("attachments")
+        if isinstance(attachments, list):
+            cleaned["attachments"] = [
+                attachment
+                if not isinstance(attachment, dict)
+                else {key: value for key, value in attachment.items() if key not in Attachment.SERIALIZE_METADATA_KEYS}
+                for attachment in attachments
+            ]
+        return cleaned
+
     @field_serializer("content")
     def _serialize_content(self, v: bytes) -> str:
         """Serialize content: plain string for text, data URI (RFC 2397) for binary."""
         return _serialize_content_bytes(v, self.mime_type)
+
+    @computed_field(return_type=str)
+    @property
+    def class_name(self) -> str:
+        """Concrete document subclass name included in all serialized output."""
+        return type(self).__name__
 
     @final
     @property
@@ -956,20 +973,19 @@ class Document[TContent: BaseModel = Any](BaseModel):
 
     @final
     def serialize_model(self) -> dict[str, Any]:
-        """Serialize to JSON-compatible dict for storage/transmission. Roundtrips with from_dict().
+        """Serialize to JSON-compatible dict for storage/transmission. Roundtrips with model_validate().
 
         Delegates to model_dump() for content serialization (unified format), then adds metadata.
         """
         # Get base serialization from Pydantic (uses field_serializer for content)
         result = self.model_dump(mode="json")
 
-        # Add metadata not present in standard model_dump (keys must match _DOCUMENT_SERIALIZE_METADATA_KEYS, used by from_dict() to strip them)
+        # Add metadata not present in standard model_dump (keys must match _DOCUMENT_SERIALIZE_METADATA_KEYS, used by model_validate() to strip them)
         result["id"] = self.id
         result["sha256"] = self.sha256
         result["content_sha256"] = self.content_sha256
         result["size"] = self.size
         result["mime_type"] = self.mime_type
-        result["class_name"] = self.__class__.__name__
 
         # Add metadata to attachments
         for att_dict, att_obj in zip(result.get("attachments", []), self.attachments, strict=False):
@@ -977,51 +993,6 @@ class Document[TContent: BaseModel = Any](BaseModel):
             att_dict["size"] = att_obj.size
 
         return result
-
-    @override
-    @classmethod
-    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Blocked: model_validate bypasses Document lifecycle tracking and enables cross-type casting.
-
-        Use from_dict() for deserialization, or create()/derive()/create_root()/create_external() for new documents.
-        """
-        if not _from_dict_active.get():
-            raise TypeError(
-                f"{cls.__name__}.model_validate() is not supported — it bypasses Document lifecycle tracking "
-                "and enables cross-type casting between Document subclasses. "
-                "Use from_dict() for deserialization, or create()/derive()/create_root()/create_external() for new documents."
-            )
-        return super().model_validate(obj, *args, **kwargs)
-
-    @final
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        """Deserialize from dict produced by serialize_model(). Roundtrip guarantee.
-
-        Delegates to model_validate() which handles content decoding via field_validator.
-        Metadata keys are stripped before validation since custom __init__ receives raw data.
-        """
-        # Reject cross-type casting: if serialized data carries a class_name, it must match
-        stored_class = data.get("class_name")
-        if stored_class is not None and stored_class != cls.__name__:
-            raise TypeError(
-                f"Cannot deserialize '{stored_class}' as '{cls.__name__}' — document type casting is not allowed. "
-                f"Use the original document type's from_dict(), or create a new document with derive()/create()."
-            )
-
-        # Strip metadata keys added by serialize_model() (model_validator mode="before"
-        # doesn't work with custom __init__ - Pydantic passes raw data to __init__ first)
-        cleaned = {k: v for k, v in data.items() if k not in _DOCUMENT_SERIALIZE_METADATA_KEYS}
-
-        # Strip attachment metadata added by serialize_model()
-        if cleaned.get("attachments"):
-            cleaned["attachments"] = [{k: v for k, v in att.items() if k not in Attachment.SERIALIZE_METADATA_KEYS} for att in cleaned["attachments"]]
-
-        token = _from_dict_active.set(True)
-        try:
-            return cls.model_validate(cleaned)
-        finally:
-            _from_dict_active.reset(token)
 
     @override
     def model_copy(self, *args: Any, **kwargs: Any) -> Self:

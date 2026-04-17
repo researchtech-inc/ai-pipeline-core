@@ -88,7 +88,7 @@ def build_prefect_flow(deployment: Any) -> Any:
             if root_deployment_id is not None or parent_deployment_task_id is not None:
                 root_dep_uuid = UUID(root_deployment_id) if root_deployment_id else None
                 parent_task_uuid = UUID(parent_deployment_task_id) if parent_deployment_task_id else None
-                return await deployment._run_with_context(
+                result = await deployment._run_with_context(
                     run_id,
                     typed_docs,
                     cast(Any, options),
@@ -98,7 +98,8 @@ def build_prefect_flow(deployment: Any) -> Any:
                     parent_execution_id=parent_uuid,
                     database=database,
                 )
-            return await deployment.run(
+                return result.model_dump(mode="json")
+            result = await deployment.run(
                 run_id,
                 typed_docs,
                 cast(Any, options),
@@ -106,6 +107,7 @@ def build_prefect_flow(deployment: Any) -> Any:
                 parent_execution_id=parent_uuid,
                 database=database,
             )
+            return result.model_dump(mode="json")
         finally:
             await publisher.close()
             await database.flush()

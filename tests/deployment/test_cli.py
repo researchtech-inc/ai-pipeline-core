@@ -354,3 +354,18 @@ class TestCliDatabaseFallback:
             run_cli_for_deployment(deployment)
 
         assert events == ["shutdown"]
+
+    def test_partial_flags_run_without_result_file(self, tmp_path: Path) -> None:
+        from ai_pipeline_core.deployment._cli import run_cli_for_deployment
+
+        deployment = _CliDeployment()
+        wd = tmp_path / "output"
+
+        with (
+            patch("sys.argv", ["test-cli-order", str(wd), "--start", "1"]),
+            patch.object(PipelineDeployment, "run", AsyncMock(return_value=None)),
+            patch("ai_pipeline_core.deployment._cli.settings", Settings(clickhouse_host="")),
+        ):
+            run_cli_for_deployment(deployment)
+
+        assert not (wd / "result.json").exists()

@@ -27,8 +27,8 @@ def _make_doc(
     return SampleDoc(
         name=name,
         content=content.encode("utf-8"),
-        derived_from=derived_from,
-        triggered_by=triggered_by,
+        derived_from=derived_from or (),
+        triggered_by=triggered_by or (),
     )
 
 

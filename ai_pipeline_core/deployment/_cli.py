@@ -44,7 +44,7 @@ def run_cli_for_deployment(
     initializer: Callable[..., tuple[str, tuple[Document, ...]]] | None = None,
     cli_mixin: type[BaseSettings] | None = None,
 ) -> None:
-    """Execute pipeline from CLI arguments with --start/--end step control."""
+    """Execute a deployment from CLI arguments, optionally over a partial step range."""
     setup_logging()
     if len(sys.argv) == 1:
         sys.argv.append("--help")
@@ -90,7 +90,6 @@ def run_cli_for_deployment(
 
     wd = cast(Path, cli_opts.working_directory)
     wd.mkdir(parents=True, exist_ok=True)
-
     start_step = getattr(cli_opts, "start", 1)
     end_step = getattr(cli_opts, "end", None)
 
@@ -131,10 +130,16 @@ def run_cli_for_deployment(
             finally:
                 if hasattr(publisher, "close"):
                     asyncio.run(publisher.close())
-
-        result_file = wd / "result.json"
-        result_file.write_text(result.model_dump_json(indent=2))
-        logger.info("Result saved to %s", result_file)
+        if result is not None:
+            result_file = wd / "result.json"
+            result_file.write_text(result.model_dump_json(indent=2))
+            logger.info("Result saved to %s", result_file)
+        else:
+            logger.info(
+                "Partial run completed for steps %d-%s. No result.json written; inspect artifacts with ai-trace.",
+                start_step,
+                end_step if end_step is not None else "end",
+            )
 
     finally:
         asyncio.run(_shutdown_database(database))

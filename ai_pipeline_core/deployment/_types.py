@@ -178,6 +178,8 @@ class RunCompletedEvent:
     output_document_sha256s contains the SHA256 hashes of the LAST flow's
     output documents — these are the pipeline's final deliverables. Intermediate
     documents from earlier flows are available via the database (ai-trace show).
+    Partial-range runs set ``result`` to ``None`` and persist artifacts without
+    fabricating a typed DeploymentResult.
     """
 
     run_id: str
@@ -185,7 +187,7 @@ class RunCompletedEvent:
     root_deployment_id: str
     parent_deployment_task_id: str | None
     status: str
-    result: dict[str, Any]
+    result: dict[str, Any] | None
     deployment_name: str = ""
     deployment_class: str = ""
     duration_ms: int = 0

@@ -146,7 +146,7 @@ class TestDocumentDerivedFrom:
         assert data["derived_from"][0] == "https://example.com/ref1"
         assert data["derived_from"][1] == "P3AEMA2PSYILKFYVBUALJLMIYW"
 
-    def test_from_dict_with_derived_from(self):
+    def test_model_validate_with_derived_from(self):
         """Test deserialization includes derived_from."""
         data = {
             "name": "test.txt",
@@ -157,7 +157,7 @@ class TestDocumentDerivedFrom:
             ],
         }
 
-        doc = SampleFlowDoc.from_dict(data)
+        doc = SampleFlowDoc.model_validate(data)
         assert len(doc.derived_from) == 2
         assert doc.derived_from[0] == "https://example.com/ref1"
         assert doc.derived_from[1] == "P3AEMA2PSYILKFYVBUALJLMIYW"
@@ -286,7 +286,7 @@ class TestDocumentDerivedFrom:
 
         # Serialize and deserialize
         serialized = original.serialize_model()
-        restored = SampleFlowDoc.from_dict(serialized)
+        restored = SampleFlowDoc.model_validate(serialized)
 
         # Everything should match
         assert restored.name == original.name

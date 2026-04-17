@@ -49,15 +49,15 @@ class SimpleResult(DeploymentResult):
 class NestedDocResult(DeploymentResult):
     """Result containing a Document field — tests nested deserialization."""
 
-    output_doc: AlphaDoc | None = None
-
-
-class InlineRemoteChildResult(DeploymentResult):
-    report: str = ""
+    output_doc: AlphaDoc
 
 
 class InlineRemoteChildOutput(Document):
     """Output doc for inline remote deployment tests."""
+
+
+class InlineRemoteChildResult(DeploymentResult):
+    output_doc: InlineRemoteChildOutput
 
 
 class InlineRemoteChildFlow(PipelineFlow):
@@ -75,8 +75,11 @@ class InlineRemoteChildDeployment(PipelineDeployment[FlowOptions, InlineRemoteCh
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> InlineRemoteChildResult:
-        _ = (run_id, documents, options)
-        return InlineRemoteChildResult(success=True, report="inline child")
+        _ = (run_id, options)
+        outputs = [document for document in documents if isinstance(document, InlineRemoteChildOutput)]
+        if not outputs:
+            raise RuntimeError("InlineRemoteChildDeployment expected an InlineRemoteChildOutput artifact.")
+        return InlineRemoteChildResult(success=True, output_doc=outputs[-1])
 
 
 # ===================================================================
@@ -473,7 +476,10 @@ class TestInlineModeDetection:
             ctx.current_span_id = ctx.deployment_id
             ctx.deployment_name = "parent-deployment"
 
-            await Foo().run((doc,), FlowOptions())
+            result = await Foo().run((doc,), FlowOptions())
+
+        expected_output = InlineRemoteChildOutput.derive(derived_from=(doc,), name="remote.txt", content="remote")
+        assert result.output_doc.sha256 == expected_output.sha256
 
         task_spans = [span for span in database._spans.values() if span.kind == SpanKind.TASK]
         deployment_spans = [span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT]
@@ -632,6 +638,27 @@ class TestRunResultDeserialization:
         assert isinstance(result, SimpleResult)
         assert result.report == "from dict"
 
+    async def test_document_result_round_trip_preserves_sha256(self):
+        """Document-valued results hydrate through the dict path with identical sha256."""
+
+        class Foo(RemoteDeployment[FlowOptions, NestedDocResult]):
+            pass
+
+        output_doc = AlphaDoc.create_root(name="nested.txt", content="nested", reason="test input")
+        foo = Foo()
+        with patch(_RUN_REMOTE) as mock_prefect:
+            mock_prefect.return_value = NestedDocResult(success=True, output_doc=output_doc).model_dump(mode="json")
+            result = await foo._run_remote(
+                "project",
+                [],
+                FlowOptions(),
+                root_deployment_id=uuid4(),
+                parent_deployment_task_id=uuid4(),
+            )
+
+        assert isinstance(result, NestedDocResult)
+        assert result.output_doc.sha256 == output_doc.sha256
+
     async def test_deployment_result_returned_directly_in_run_remote(self):
         """_run_remote returns DeploymentResult instances directly."""
 
@@ -700,11 +727,11 @@ class TestSerializationRoundTrip:
         assert serialized["class_name"] == "AlphaDoc"
         assert serialized["sha256"] == doc.sha256
 
-        restored = AlphaDoc.from_dict(serialized)
+        restored = AlphaDoc.model_validate(serialized)
         assert isinstance(restored, AlphaDoc)
         assert restored.sha256 == doc.sha256
 
-    def test_from_dict_round_trip_with_known_types(self):
+    def test_model_validate_round_trip_with_known_types(self):
         alpha = AlphaDoc.create_root(name="a.txt", content="alpha content", reason="test input")
         beta = BetaDoc.create_root(name="b.txt", content="beta content", reason="test input")
 
@@ -712,7 +739,7 @@ class TestSerializationRoundTrip:
         for original in [alpha, beta]:
             serialized = original.serialize_model()
             cls = type_map[serialized["class_name"]]
-            restored = cls.from_dict(serialized)
+            restored = cls.model_validate(serialized)
             assert type(restored) is type(original)
             assert restored.sha256 == original.sha256
 

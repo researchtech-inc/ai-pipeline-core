@@ -2,7 +2,7 @@
 # CLASSES: Attachment, Document, DocumentValidationError, DocumentSizeError, DocumentNameError
 # DEPENDS: BaseModel, Exception
 # PURPOSE: Document system for AI pipeline flows.
-# VERSION: 0.22.2
+# VERSION: 0.22.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -119,33 +119,6 @@ class Document(BaseModel):
     attachments: tuple[Attachment, ...] = ()
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, extra="forbid")
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        content: bytes,
-        description: str | None = None,
-        summary: str = "",
-        derived_from: tuple[str, ...] | None = None,
-        triggered_by: tuple[DocumentSha256, ...] | None = None,
-        attachments: tuple[Attachment, ...] | None = None,
-    ) -> None:
-        """Initialize with raw bytes content. Most users should use `create()` or `derive()` instead."""
-        if type(self) is Document or "[" in type(self).__name__:
-            raise TypeError("Cannot instantiate Document directly — define a named subclass")
-
-        # None → default conversions for convenience (callers can pass None).
-        # Field validators handle description (None → "").
-        super().__init__(
-            name=name,
-            content=content,
-            description=description,
-            summary=summary,
-            derived_from=derived_from if derived_from is not None else (),
-            triggered_by=triggered_by if triggered_by is not None else (),
-            attachments=attachments if attachments is not None else (),
-        )
-
     @cached_property
     def approximate_tokens_count(self) -> int:
         """Approximate token count across primary content and attachments."""
@@ -169,6 +142,12 @@ class Document(BaseModel):
                 total += estimate_binary_tokens()
 
         return total
+
+    @computed_field(return_type=str)
+    @property
+    def class_name(self) -> str:
+        """Concrete document subclass name included in all serialized output."""
+        return type(self).__name__
 
     @property
     def content_documents(self) -> tuple[str, ...]:
@@ -291,11 +270,11 @@ class Document(BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
-            derived_from=tuple(d.sha256 for d in derived_from) if derived_from else None,
+            derived_from=tuple(d.sha256 for d in derived_from) if derived_from else (),
             triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by),
-            attachments=attachments,
+            attachments=attachments or (),
         )
 
     @classmethod
@@ -330,11 +309,11 @@ class Document(BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
             derived_from=tuple(from_sources),
-            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else None,
-            attachments=attachments,
+            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else (),
+            attachments=attachments or (),
         )
 
     @classmethod
@@ -363,11 +342,11 @@ class Document(BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
             derived_from=(),
             triggered_by=(),
-            attachments=attachments,
+            attachments=attachments or (),
         )
 
     @classmethod
@@ -399,42 +378,12 @@ class Document(BaseModel):
         return cls(
             name=name,
             content=content_bytes,
-            description=description,
+            description=description if description is not None else "",
             summary=summary,
             derived_from=tuple(d.sha256 for d in derived_from),
-            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else None,
-            attachments=attachments,
+            triggered_by=tuple(DocumentSha256(d.sha256) for d in triggered_by) if triggered_by else (),
+            attachments=attachments or (),
         )
-
-    @final
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        """Deserialize from dict produced by serialize_model(). Roundtrip guarantee.
-
-        Delegates to model_validate() which handles content decoding via field_validator.
-        Metadata keys are stripped before validation since custom __init__ receives raw data.
-        """
-        # Reject cross-type casting: if serialized data carries a class_name, it must match
-        stored_class = data.get("class_name")
-        if stored_class is not None and stored_class != cls.__name__:
-            raise TypeError(
-                f"Cannot deserialize '{stored_class}' as '{cls.__name__}' — document type casting is not allowed. "
-                f"Use the original document type's from_dict(), or create a new document with derive()/create()."
-            )
-
-        # Strip metadata keys added by serialize_model() (model_validator mode="before"
-        # doesn't work with custom __init__ - Pydantic passes raw data to __init__ first)
-        cleaned = {k: v for k, v in data.items() if k not in _DOCUMENT_SERIALIZE_METADATA_KEYS}
-
-        # Strip attachment metadata added by serialize_model()
-        if cleaned.get("attachments"):
-            cleaned["attachments"] = [{k: v for k, v in att.items() if k not in Attachment.SERIALIZE_METADATA_KEYS} for att in cleaned["attachments"]]
-
-        token = _from_dict_active.set(True)
-        try:
-            return cls.model_validate(cleaned)
-        finally:
-            _from_dict_active.reset(token)
 
     @final
     @classmethod
@@ -464,21 +413,6 @@ class Document(BaseModel):
         if len(values) == 0:
             return None
         return values
-
-    @override
-    @classmethod
-    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> Self:
-        """Blocked: model_validate bypasses Document lifecycle tracking and enables cross-type casting.
-
-        Use from_dict() for deserialization, or create()/derive()/create_root()/create_external() for new documents.
-        """
-        if not _from_dict_active.get():
-            raise TypeError(
-                f"{cls.__name__}.model_validate() is not supported — it bypasses Document lifecycle tracking "
-                "and enables cross-type casting between Document subclasses. "
-                "Use from_dict() for deserialization, or create()/derive()/create_root()/create_external() for new documents."
-            )
-        return super().model_validate(obj, *args, **kwargs)
 
     def __copy__(self) -> Self:
         """Blocked: copy.copy() is not supported for Documents."""
@@ -627,20 +561,19 @@ class Document(BaseModel):
 
     @final
     def serialize_model(self) -> dict[str, Any]:
-        """Serialize to JSON-compatible dict for storage/transmission. Roundtrips with from_dict().
+        """Serialize to JSON-compatible dict for storage/transmission. Roundtrips with model_validate().
 
         Delegates to model_dump() for content serialization (unified format), then adds metadata.
         """
         # Get base serialization from Pydantic (uses field_serializer for content)
         result = self.model_dump(mode="json")
 
-        # Add metadata not present in standard model_dump (keys must match _DOCUMENT_SERIALIZE_METADATA_KEYS, used by from_dict() to strip them)
+        # Add metadata not present in standard model_dump (keys must match _DOCUMENT_SERIALIZE_METADATA_KEYS, used by model_validate() to strip them)
         result["id"] = self.id
         result["sha256"] = self.sha256
         result["content_sha256"] = self.content_sha256
         result["size"] = self.size
         result["mime_type"] = self.mime_type
-        result["class_name"] = self.__class__.__name__
 
         # Add metadata to attachments
         for att_dict, att_obj in zip(result.get("attachments", []), self.attachments, strict=False):

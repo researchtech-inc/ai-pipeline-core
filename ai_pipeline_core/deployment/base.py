@@ -4,7 +4,7 @@ Provides the PipelineDeployment base class and related types for
 creating unified, type-safe pipeline deployments with:
 - Per-flow resume (skip completed flows via execution DAG)
 - Per-flow uploads (immediate, not just at end)
-- Upload on failure (partial results saved)
+- Terminal-only result assembly after the full plan completes
 """
 
 import asyncio
@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, ClassVar, Generic, Literal, TypeVar, cast, final
+from typing import Any, ClassVar, Generic, TypeVar, cast, final
 from uuid import UUID, uuid7
 
 from prefect import get_client, runtime
@@ -80,7 +80,9 @@ from ._helpers import (
     extract_generic_params,
     validate_run_id,
 )
+from ._plan_helpers import apply_group_stop_gates, evaluate_field_gate, gate_reason, warn_on_unused_flow_outputs
 from ._prefect import build_prefect_flow
+from ._result_validation import validate_deployment_result_annotation
 from ._types import (
     DeploymentPlan,
     FieldGate,
@@ -104,6 +106,20 @@ class DeploymentResult(BaseModel):
     error: str | None = None
 
     model_config = ConfigDict(frozen=True)
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:  # noqa: PLW3201 - Pydantic hook validates DeploymentResult subclasses after model_fields are built.
+        super().__pydantic_init_subclass__(**kwargs)
+        if cls is DeploymentResult:
+            return
+        for field_name, field_info in cls.model_fields.items():
+            validate_deployment_result_annotation(
+                cls_name=cls.__name__,
+                field_path=field_name,
+                annotation=field_info.annotation,
+                required=field_info.is_required(),
+                seen_models=set(),
+            )
 
 
 TOptions = TypeVar("TOptions", bound=FlowOptions, default=FlowOptions)
@@ -188,111 +204,63 @@ async def _record_nonexecuted_flow(
     )
 
 
-_MISSING_FIELD_VALUE = object()
-
-
-def _missing_gate_result(gate: FieldGate, *, context: Literal["run", "stop"]) -> bool:
-    """Resolve FieldGate.on_missing semantics for run vs stop contexts."""
-    if context == "run":
-        return gate.on_missing == "run"
-    return gate.on_missing == "skip"
-
-
-def _evaluate_field_gate(
-    gate: FieldGate,
-    docs: list[Document],
+async def _restore_resume_blackboard(
     *,
-    context: Literal["run", "stop"] = "run",
-) -> bool:
-    """Evaluate a FieldGate against the latest matching control document."""
-    result = _missing_gate_result(gate, context=context)
-    latest_match: Document[Any] | None = None
-    for document in reversed(docs):
-        if isinstance(document, gate.document_type):
-            latest_match = document
-            break
-
-    if latest_match is not None:
-        parsed: Any | None = None
-        try:
-            parsed = latest_match.parsed
-        except Exception as exc:
-            logger.warning(
-                "FieldGate could not parse '%s' (%s) for %s.%s with op=%s. Treating the document as missing because .parsed failed: %s",
-                latest_match.name,
-                type(latest_match).__name__,
-                gate.document_type.__name__,
-                gate.field_name,
-                gate.op,
-                exc,
-            )
-        if parsed is not None:
-            value = getattr(parsed, gate.field_name, _MISSING_FIELD_VALUE)
-            if value is not _MISSING_FIELD_VALUE:
-                if gate.op == "truthy":
-                    result = bool(value)
-                elif gate.op == "falsy":
-                    result = not bool(value)
-                elif gate.op == "eq":
-                    result = value == gate.value
-                elif gate.op == "ne":
-                    result = value != gate.value
-                else:
-                    result = True
-    return result
-
-
-def _gate_reason(gate: FieldGate) -> str:
-    if gate.op in {"eq", "ne"}:
-        return f"{gate.document_type.__name__}.{gate.field_name} {gate.op} {gate.value!r}"
-    return f"{gate.document_type.__name__}.{gate.field_name} {gate.op}"
-
-
-def _apply_group_stop_gates(plan: DeploymentPlan, accumulated_docs: list[Document], stopped_groups: set[str]) -> None:
-    """Mark groups as stopped when their group_stop_if gate passes."""
-    for group_name, stop_gate in plan.group_stop_if.items():
-        if group_name in stopped_groups:
-            continue
-        if _evaluate_field_gate(stop_gate, accumulated_docs, context="stop"):
-            stopped_groups.add(group_name)
-
-
-def _later_consumed_document_types(plan: DeploymentPlan, step_index: int) -> set[type[Document]]:
-    """Return document types consumed by later flow inputs or gate evaluation."""
-    consumed: set[type[Document]] = set()
-    later_steps = plan.steps[step_index + 1 :]
-    for later_step in later_steps:
-        consumed.update(type(later_step.flow).input_document_types)
-        if later_step.run_if is not None:
-            consumed.add(later_step.run_if.document_type)
-    remaining_groups = {step.group for step in later_steps if step.group is not None}
-    for group_name, stop_gate in plan.group_stop_if.items():
-        if group_name in remaining_groups:
-            consumed.add(stop_gate.document_type)
-    return consumed
-
-
-def _warn_on_unused_flow_outputs(deployment_name: str, plan: DeploymentPlan) -> None:
-    """Warn when a non-terminal flow returns document types that nothing later consumes."""
-    total_steps = len(plan.steps)
-    for index, flow_step in enumerate(plan.steps[:-1]):
-        produced_types = type(flow_step.flow).output_document_types
-        if not produced_types:
-            continue
-        later_consumed = _later_consumed_document_types(plan, index)
-        unused_types = [document_type for document_type in produced_types if not any(issubclass(document_type, consumed) for consumed in later_consumed)]
-        if not unused_types:
-            continue
-        unused_names = ", ".join(document_type.__name__ for document_type in unused_types)
-        logger.warning(
-            "PipelineDeployment '%s' flow '%s' (step %d/%d) returns document type(s) that no downstream flow or gate consumes: %s. "
-            "Flows should return only phase handoff artifacts. Remove the unused type, keep it task-local, or consume it in a later flow or gate.",
-            deployment_name,
-            flow_step.flow.name,
-            index + 1,
-            total_steps,
-            unused_names,
+    plan: DeploymentPlan,
+    start_step: int,
+    total_steps: int,
+    accumulated_docs: list[Document],
+    stopped_groups: set[str],
+    input_fingerprint: str,
+    database: Any,
+    cache_ttl: timedelta | None,
+) -> list[Document]:
+    """Populate the blackboard with cached outputs for steps before ``start_step``."""
+    if start_step <= 1:
+        return accumulated_docs
+    if database is None:
+        raise ValueError(
+            f"Cannot resume from start_step={start_step} without a database. Run the earlier steps against a persistent database first, or resume from step 1."
         )
+
+    restored_docs = list(accumulated_docs)
+    for index in range(start_step - 1):
+        step = index + 1
+        flow_step = plan.steps[index]
+        flow_instance = flow_step.flow
+        flow_class = type(flow_instance)
+        flow_name = flow_instance.name
+
+        if flow_step.group is not None and flow_step.group in stopped_groups:
+            continue
+        if flow_step.run_if is not None and not evaluate_field_gate(flow_step.run_if, restored_docs):
+            continue
+
+        flow_cache_key = _build_flow_cache_key(
+            input_fingerprint=input_fingerprint,
+            flow_class=flow_class,
+            step=step,
+            flow_params=flow_instance.get_params(),
+        )
+        cached_result = await _reuse_cached_flow_output(
+            database=database,
+            cache_ttl=cache_ttl,
+            flow_cache_key=flow_cache_key,
+            flow_class=flow_class,
+            flow_name=flow_name,
+            step=step,
+            total_steps=total_steps,
+            accumulated_docs=restored_docs,
+            disable_cache=False,
+        )
+        if cached_result is None:
+            raise ValueError(
+                f"Cannot resume from start_step={start_step} because step {step} ('{flow_name}') has no cached completed output to restore. "
+                "Run the earlier steps first with the same inputs and database, or resume from an earlier step."
+            )
+        _cached_span, _previous_outputs, restored_docs = cached_result
+        apply_group_stop_gates(plan, restored_docs, stopped_groups)
+    return restored_docs
 
 
 class PipelineDeployment(Generic[TOptions, TResult]):
@@ -336,6 +304,12 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         build_result_fn = getattr(cls, "build_result", None)
         if build_result_fn is None or getattr(build_result_fn, "__isabstractmethod__", False):
             raise TypeError(f"{cls.__name__} must implement 'build_result' static method")
+        if "build_partial_result" in cls.__dict__:
+            raise TypeError(
+                f"{cls.__name__} defines build_partial_result(), but partial deployment results are not supported. "
+                "Deployments return a result only after the full plan completes. "
+                "Remove build_partial_result() and inspect incomplete runs with ai-trace."
+            )
 
         flows_declaring_class = _first_declaring_class(cls, "build_flows")
         plan_declaring_class = _first_declaring_class(cls, "build_plan")
@@ -372,20 +346,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
     @staticmethod
     @abstractmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: TOptions) -> TResult:
-        """Extract typed result from pipeline documents.
-
-        Called for both full runs and partial runs (--start/--end). For partial runs,
-        build_partial_result() delegates here by default — override build_partial_result()
-        to customize partial run results.
-        """
+        """Extract the terminal typed result from a fully completed deployment run."""
         ...
-
-    def build_partial_result(self, run_id: str, documents: tuple[Document, ...], options: TOptions) -> TResult:
-        """Build a result for partial pipeline runs (--start/--end that don't reach the last step).
-
-        Override this method to customize partial run results. Default delegates to build_result.
-        """
-        return self.build_result(run_id, documents, options)
 
     def _all_document_types(self, flows: Sequence[PipelineFlow]) -> list[type[Document]]:
         """Collect all document types from all flows (inputs + outputs), deduplicated."""
@@ -428,7 +390,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         end_step: int | None = None,
         parent_execution_id: UUID | None = None,
         database: Any = None,
-    ) -> TResult:
+    ) -> TResult | None:
         """Internal entry point with pre-allocated DAG-linking parameters.
 
         Called by public run() (standalone), remote deployment (Prefect), and inline mode.
@@ -461,10 +423,11 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         end_step: int | None = None,
         parent_execution_id: UUID | None = None,
         database: Any = None,
-    ) -> TResult:
-        """Execute flows with resume, per-flow uploads, and step control.
+    ) -> TResult | None:
+        """Execute the deployment plan with resume, optional step ranges, and per-flow uploads.
 
         run_id must match ``[a-zA-Z0-9_-]+``, max 100 chars.
+        Returns ``None`` for partial-range executions that stop before the full plan completes.
         """
         return await self._run_with_context(
             run_id,
@@ -493,7 +456,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         end_step: int | None = None,
         parent_execution_id: UUID | None = None,
         database: Any = None,
-    ) -> TResult:
+    ) -> TResult | None:
         """Core deployment execution with append-only span tracking."""
         validate_run_id(run_id)
 
@@ -507,10 +470,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             )
         flows = [step.flow for step in plan.steps]
         _validate_flow_chain(type(self).__name__, flows)
-        _warn_on_unused_flow_outputs(type(self).__name__, plan)
+        warn_on_unused_flow_outputs(type(self).__name__, plan)
 
         total_steps = len(plan.steps)
-
         if end_step is None:
             end_step = total_steps
         if start_step < 1 or start_step > total_steps:
@@ -663,7 +625,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     root_deployment_id=root_id_str,
                     parent_deployment_task_id=parent_task_id_str,
                     status=str(SpanStatus.COMPLETED),
-                    result=result.model_dump(),
+                    result=result.model_dump(mode="json") if result is not None else None,
                     deployment_name=self.name,
                     deployment_class=type(self).__name__,
                     duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
@@ -724,7 +686,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         parent_task_id_str: str | None,
         deployment_span_ctx: Any,
         flow_run_id: str,
-    ) -> tuple[TResult, tuple[str, ...]]:
+    ) -> tuple[TResult | None, tuple[str, ...]]:
         heartbeat_task: asyncio.Task[None] | None = None
         try:
             await publisher.publish_run_started(
@@ -751,11 +713,23 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             stopped_groups: set[str] = set()
             last_flow_output_sha256s: tuple[str, ...] = ()
             previous_output_documents: tuple[Document, ...] = ()
-            _apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
+            apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
+            accumulated_docs = await _restore_resume_blackboard(
+                plan=plan,
+                start_step=start_step,
+                total_steps=total_steps,
+                accumulated_docs=accumulated_docs,
+                stopped_groups=stopped_groups,
+                input_fingerprint=input_fingerprint,
+                database=database,
+                cache_ttl=self.cache_ttl,
+            )
+            if start_step > 1:
+                apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
 
             for i in range(start_step - 1, end_step):
-                step = i + 1
                 flow_step = plan.steps[i]
+                step = i + 1
                 flow_instance = flow_step.flow
                 flow_class = type(flow_instance)
                 flow_name = flow_instance.name
@@ -789,7 +763,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     )
                     continue
 
-                if flow_step.run_if is not None and not _evaluate_field_gate(flow_step.run_if, accumulated_docs):
+                if flow_step.run_if is not None and not evaluate_field_gate(flow_step.run_if, accumulated_docs):
                     previous_output_documents = ()
                     await _record_nonexecuted_flow(
                         flow_instance=flow_instance,
@@ -802,7 +776,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                         step=step,
                         total_steps=total_steps,
                         status=SpanStatus.SKIPPED,
-                        publish_reason=f"run_if gate did not pass: {_gate_reason(flow_step.run_if)}",
+                        publish_reason=f"run_if gate did not pass: {gate_reason(flow_step.run_if)}",
                         publisher=publisher,
                         run_id=run_id,
                         root_deployment_id=root_id_str,
@@ -834,7 +808,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 if cached_result is not None:
                     cached_span, previous_output_documents, accumulated_docs = cached_result
                     last_flow_output_sha256s = cached_span.output_document_shas
-                    _apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
+                    apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
                     await _record_nonexecuted_flow(
                         flow_instance=flow_instance,
                         flow_class=flow_class,
@@ -929,18 +903,12 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 last_flow_output_sha256s = tuple(document.sha256 for document in validated_docs)
                 previous_output_documents = tuple(validated_docs)
                 accumulated_docs = list(_deduplicate_documents_by_sha256([*accumulated_docs, *validated_docs]))
-                _apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
+                apply_group_stop_gates(plan, accumulated_docs, stopped_groups)
 
             all_docs = _deduplicate_documents_by_sha256(accumulated_docs)
-            result = self._build_run_result(
-                run_id=run_id,
-                all_docs=all_docs,
-                options=options,
-                start_step=start_step,
-                end_step=end_step,
-                total_steps=total_steps,
-            )
-            deployment_span_ctx.set_output_preview({"run_id": run_id, "result": result.model_dump(mode="json")})
+            is_partial_run = end_step < total_steps
+            result = None if is_partial_run else self.build_result(run_id, all_docs, options)
+            deployment_span_ctx.set_output_preview({"run_id": run_id, "result": result.model_dump(mode="json") if result is not None else None})
             deployment_span_ctx._set_output_value({
                 "result": result,
                 "output_documents": previous_output_documents,
@@ -957,22 +925,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat_task
 
-    def _build_run_result(
-        self,
-        *,
-        run_id: str,
-        all_docs: Sequence[Document],
-        options: TOptions,
-        start_step: int,
-        end_step: int,
-        total_steps: int,
-    ) -> TResult:
-        is_partial_run = end_step < total_steps
-        if is_partial_run:
-            logger.info("Partial run (steps %d-%d of %d) — skipping build_result", start_step, end_step, total_steps)
-            return self.build_partial_result(run_id, tuple(all_docs), options)
-        return self.build_result(run_id, tuple(all_docs), options)
-
     @final
     def run_local(
         self,
@@ -981,7 +933,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         options: TOptions,
         publisher: ResultPublisher | None = None,
         output_dir: Path | None = None,
-    ) -> TResult:
+    ) -> TResult | None:
         """Run locally with Prefect test harness and in-memory database.
 
         Args:
@@ -992,7 +944,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             output_dir: Optional directory for writing result.json.
 
         Returns:
-            Typed deployment result.
+            Typed deployment result, or ``None`` when the invocation executed only a partial step range.
         """
         if run_id is None:
             dir_name = output_dir.name if output_dir else "local"
@@ -1004,7 +956,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         with prefect_test_harness(), disable_run_logger():
             result = asyncio.run(self.run(run_id, documents, options, publisher=publisher, database=_MemoryDatabase()))
 
-        if output_dir:
+        if output_dir and result is not None:
             (output_dir / "result.json").write_text(result.model_dump_json(indent=2))
 
         return result
@@ -1015,7 +967,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         initializer: Callable[[TOptions], tuple[str, tuple[Document, ...]]] | None = None,
         cli_mixin: type | None = None,
     ) -> None:
-        """Execute pipeline from CLI with positional working_directory and --start/--end flags."""
+        """Execute the full pipeline from CLI with positional working_directory."""
         run_cli_for_deployment(self, initializer, cli_mixin)
 
     @final

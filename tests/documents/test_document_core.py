@@ -305,15 +305,15 @@ class TestDocumentProperties:
         expected_b64 = base64.b64encode(binary_content).decode()
         assert serialized_binary["content"] == f"data:{doc_binary.mime_type};base64,{expected_b64}"
 
-    def test_from_dict(self):
-        """Test from_dict deserialization."""
+    def test_model_validate(self):
+        """Test model_validate deserialization."""
         # Plain string content (text)
         data = {
             "name": "test.txt",
             "content": "Hello, world!",
             "description": "Test doc",
         }
-        doc = ConcreteTestDocument.from_dict(data)
+        doc = ConcreteTestDocument.model_validate(data)
         assert doc.name == "test.txt"
         assert doc.content == b"Hello, world!"
         assert doc.description == "Test doc"
@@ -324,7 +324,7 @@ class TestDocumentProperties:
             "name": "test.bin",
             "content": f"data:application/octet-stream;base64,{b64}",
         }
-        doc_binary = ConcreteTestDocument.from_dict(data_binary)
+        doc_binary = ConcreteTestDocument.model_validate(data_binary)
         assert doc_binary.content == b"\x00\x01\x02\x03"
 
     def test_document_type_name(self):
@@ -907,15 +907,15 @@ class TestDerivedFromTuple:
         assert doc.content_references == ("https://example.com",)
 
 
-class TestFromDictRoundtrip:
-    """Tests for from_dict() correctness including edge cases."""
+class TestModelValidateRoundtrip:
+    """Tests for model_validate() correctness including edge cases."""
 
     def test_empty_derived_from_roundtrip(self):
         """Empty derived_from survives serialize → deserialize roundtrip."""
         doc = ConcreteTestDocument.create_root(name="doc.txt", content="data", reason="test input")
         serialized = doc.serialize_model()
         assert serialized["derived_from"] == []  # serialized as list
-        restored = ConcreteTestDocument.from_dict(serialized)
+        restored = ConcreteTestDocument.model_validate(serialized)
         assert restored.derived_from == ()  # restored as tuple
         assert isinstance(restored.derived_from, tuple)
 
@@ -923,20 +923,20 @@ class TestFromDictRoundtrip:
         """Non-empty derived_from survives serialize → deserialize roundtrip."""
         doc = ConcreteTestDocument(name="doc.txt", content=b"data", derived_from=("https://example.com/ref1", "https://example.com/ref2"))
         serialized = doc.serialize_model()
-        restored = ConcreteTestDocument.from_dict(serialized)
+        restored = ConcreteTestDocument.model_validate(serialized)
         assert restored.derived_from == ("https://example.com/ref1", "https://example.com/ref2")
 
     def test_missing_derived_from_key_in_dict(self):
-        """from_dict with no 'derived_from' key defaults to empty tuple."""
-        restored = ConcreteTestDocument.from_dict({
+        """model_validate with no 'derived_from' key defaults to empty tuple."""
+        restored = ConcreteTestDocument.model_validate({
             "name": "doc.txt",
             "content": "data",
         })
         assert restored.derived_from == ()
 
     def test_missing_triggered_by_key_in_dict(self):
-        """from_dict with no 'triggered_by' key defaults to empty tuple."""
-        restored = ConcreteTestDocument.from_dict({
+        """model_validate with no 'triggered_by' key defaults to empty tuple."""
+        restored = ConcreteTestDocument.model_validate({
             "name": "doc.txt",
             "content": "data",
         })

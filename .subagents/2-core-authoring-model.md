@@ -19,16 +19,16 @@ The framework is supposed to absorb tracing, persistence, retry, logging, and ex
 
 A pipeline application has four layers:
 
-1. **Documents**  
+1. **Documents**
    Durable artifacts with provenance. They represent the business state of the system.
 
-2. **Tasks**  
+2. **Tasks**
    Atomic workers. A task takes typed inputs, performs one unit of work, and returns typed outputs.
 
-3. **Flows**  
+3. **Flows**
    Orchestrators. A flow calls tasks in order, branches when needed, and returns only the artifacts the next flow actually needs.
 
-4. **Deployment**  
+4. **Deployment**
    The top-level plan. The deployment determines all possible flows for the run ahead of time and decides, at runtime, which of those pre-planned flows are actually executed.
 
 That split matters:
@@ -353,10 +353,10 @@ class SourceAnalysisSpec(PromptSpec[SourceAnalysisModel]):
 
 There are two kinds of LLM input:
 
-1. **Prompt fields**  
+1. **Prompt fields**
    Short values or deliberately structured prompt data.
 
-2. **Documents**  
+2. **Documents**
    Durable artifacts added to LLM context because they are part of the pipeline state and should remain auditable.
 
 Use prompt fields for things like:

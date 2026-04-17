@@ -641,9 +641,9 @@ class SynthesisFlow(PipelineFlow):
 
 
 class CompetitiveIntelResult(DeploymentResult):
+    report_document: LandscapeReportDocument
     competitors_analyzed: int = 0
     high_threats: int = 0
-    report_length: int = 0
 
 
 class CompetitiveIntelPipeline(PipelineDeployment[CompetitiveIntelOptions, CompetitiveIntelResult]):
@@ -670,12 +670,14 @@ class CompetitiveIntelPipeline(PipelineDeployment[CompetitiveIntelOptions, Compe
         outputs = FlowOutputs(documents)
         analyses = outputs.all(CompetitorAnalysisDocument)
         reports = outputs.all(LandscapeReportDocument)
+        if not reports:
+            raise RuntimeError("CompetitiveIntelPipeline expected a LandscapeReportDocument after the full plan completed.")
         high_count = sum(1 for a in analyses if "critical" in a.text.lower() or "high" in a.text.lower())
         return CompetitiveIntelResult(
             success=True,
+            report_document=reports[0],
             competitors_analyzed=len(analyses),
             high_threats=high_count,
-            report_length=len(reports[0].text) if reports else 0,
         )
 
 

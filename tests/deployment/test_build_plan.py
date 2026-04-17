@@ -18,8 +18,8 @@ from ai_pipeline_core import (
     PipelineDeployment,
 )
 from ai_pipeline_core.deployment._deployment_runtime import _execute_single_flow_attempt, _resolve_flow_arguments
+from ai_pipeline_core.deployment._plan_helpers import evaluate_field_gate
 from ai_pipeline_core.deployment._types import FlowSkippedEvent, _MemoryPublisher
-from ai_pipeline_core.deployment.base import _evaluate_field_gate
 from ai_pipeline_core.pipeline import PipelineFlow
 
 
@@ -234,20 +234,20 @@ def test_field_gate_truthy_falsy_eq_ne() -> None:
         reason="gate-test",
     )
 
-    assert _evaluate_field_gate(FieldGate(_GateStateDoc, "should_run", op="truthy"), [gate_doc]) is True
-    assert _evaluate_field_gate(FieldGate(_GateStateDoc, "should_run", op="falsy"), [gate_doc]) is False
-    assert _evaluate_field_gate(FieldGate(_GateStateDoc, "status", op="eq", value="ready"), [gate_doc]) is True
-    assert _evaluate_field_gate(FieldGate(_GateStateDoc, "status", op="ne", value="stop"), [gate_doc]) is True
+    assert evaluate_field_gate(FieldGate(_GateStateDoc, "should_run", op="truthy"), [gate_doc]) is True
+    assert evaluate_field_gate(FieldGate(_GateStateDoc, "should_run", op="falsy"), [gate_doc]) is False
+    assert evaluate_field_gate(FieldGate(_GateStateDoc, "status", op="eq", value="ready"), [gate_doc]) is True
+    assert evaluate_field_gate(FieldGate(_GateStateDoc, "status", op="ne", value="stop"), [gate_doc]) is True
 
 
 def test_field_gate_on_missing_run_and_skip() -> None:
     run_gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="run")
     skip_gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="skip")
 
-    assert _evaluate_field_gate(run_gate, []) is True
-    assert _evaluate_field_gate(skip_gate, []) is False
-    assert _evaluate_field_gate(run_gate, [], context="stop") is False
-    assert _evaluate_field_gate(skip_gate, [], context="stop") is True
+    assert evaluate_field_gate(run_gate, []) is True
+    assert evaluate_field_gate(skip_gate, []) is False
+    assert evaluate_field_gate(run_gate, [], context="stop") is False
+    assert evaluate_field_gate(skip_gate, [], context="stop") is True
 
 
 def test_resolve_flow_arguments_takes_latest_singleton_and_all_collection_matches() -> None:
@@ -352,7 +352,7 @@ def test_field_gate_malformed_content_treated_as_missing(caplog: pytest.LogCaptu
 
     gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="skip")
 
-    assert _evaluate_field_gate(gate, [malformed_doc]) is False
+    assert evaluate_field_gate(gate, [malformed_doc]) is False
     assert "could not parse" in caplog.text
 
 

@@ -2,7 +2,7 @@
 # CLASSES: DeploymentResult, PipelineDeployment, RemoteDeploymentError, RemoteDeploymentNotFoundError, RemoteDeploymentSubmissionError, RemoteDeploymentPollingError, RemoteDeploymentExecutionError, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
 # DEPENDS: BaseModel, Generic, RuntimeError
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.22.2
+# VERSION: 0.22.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
@@ -19,6 +19,20 @@ class DeploymentResult(BaseModel):
     success: bool
     error: str | None = None
     model_config = ConfigDict(frozen=True)
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:  # noqa: PLW3201 - Pydantic hook validates DeploymentResult subclasses after model_fields are built.
+        super().__pydantic_init_subclass__(**kwargs)
+        if cls is DeploymentResult:
+            return
+        for field_name, field_info in cls.model_fields.items():
+            validate_deployment_result_annotation(
+                cls_name=cls.__name__,
+                field_path=field_name,
+                annotation=field_info.annotation,
+                required=field_info.is_required(),
+                seen_models=set(),
+            )
 
 
 class PipelineDeployment(Generic[TOptions, TResult]):
@@ -58,6 +72,12 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         build_result_fn = getattr(cls, "build_result", None)
         if build_result_fn is None or getattr(build_result_fn, "__isabstractmethod__", False):
             raise TypeError(f"{cls.__name__} must implement 'build_result' static method")
+        if "build_partial_result" in cls.__dict__:
+            raise TypeError(
+                f"{cls.__name__} defines build_partial_result(), but partial deployment results are not supported. "
+                "Deployments return a result only after the full plan completes. "
+                "Remove build_partial_result() and inspect incomplete runs with ai-trace."
+            )
 
         flows_declaring_class = _first_declaring_class(cls, "build_flows")
         plan_declaring_class = _first_declaring_class(cls, "build_plan")
@@ -86,13 +106,6 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         """Build flow instances for this run."""
         raise NotImplementedError(f"{type(self).__name__}.build_flows() must return a sequence of PipelineFlow.")
 
-    def build_partial_result(self, run_id: str, documents: tuple[Document, ...], options: TOptions) -> TResult:
-        """Build a result for partial pipeline runs (--start/--end that don't reach the last step).
-
-        Override this method to customize partial run results. Default delegates to build_result.
-        """
-        return self.build_result(run_id, documents, options)
-
     def build_plan(self, options: TOptions) -> DeploymentPlan:
         """Build the deployment execution plan for this run."""
         flows = tuple(self.build_flows(options))
@@ -106,12 +119,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
     @staticmethod
     @abstractmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: TOptions) -> TResult:
-        """Extract typed result from pipeline documents.
-
-        Called for both full runs and partial runs (--start/--end). For partial runs,
-        build_partial_result() delegates here by default — override build_partial_result()
-        to customize partial run results.
-        """
+        """Extract the terminal typed result from a fully completed deployment run."""
         ...
 
     @final
@@ -125,10 +133,11 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         end_step: int | None = None,
         parent_execution_id: UUID | None = None,
         database: Any = None,
-    ) -> TResult:
-        """Execute flows with resume, per-flow uploads, and step control.
+    ) -> TResult | None:
+        """Execute the deployment plan with resume, optional step ranges, and per-flow uploads.
 
         run_id must match ``[a-zA-Z0-9_-]+``, max 100 chars.
+        Returns ``None`` for partial-range executions that stop before the full plan completes.
         """
         return await self._run_with_context(
             run_id,
@@ -148,7 +157,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         initializer: Callable[[TOptions], tuple[str, tuple[Document, ...]]] | None = None,
         cli_mixin: type | None = None,
     ) -> None:
-        """Execute pipeline from CLI with positional working_directory and --start/--end flags."""
+        """Execute the full pipeline from CLI with positional working_directory."""
         run_cli_for_deployment(self, initializer, cli_mixin)
 
     @final
@@ -159,7 +168,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         options: TOptions,
         publisher: ResultPublisher | None = None,
         output_dir: Path | None = None,
-    ) -> TResult:
+    ) -> TResult | None:
         """Run locally with Prefect test harness and in-memory database.
 
         Args:
@@ -170,7 +179,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             output_dir: Optional directory for writing result.json.
 
         Returns:
-            Typed deployment result.
+            Typed deployment result, or ``None`` when the invocation executed only a partial step range.
         """
         if run_id is None:
             dir_name = output_dir.name if output_dir else "local"
@@ -182,7 +191,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         with prefect_test_harness(), disable_run_logger():
             result = asyncio.run(self.run(run_id, documents, options, publisher=publisher, database=_MemoryDatabase()))
 
-        if output_dir:
+        if output_dir and result is not None:
             (output_dir / "result.json").write_text(result.model_dump_json(indent=2))
 
         return result
@@ -515,7 +524,7 @@ class FlowOutputs:
 
 ## Examples
 
-**Format starts with base run id** (`tests/deployment/test_remote_deployment.py:851`)
+**Format starts with base run id** (`tests/deployment/test_remote_deployment.py:878`)
 
 ```python
 class AlphaDoc(Document):
@@ -537,7 +546,7 @@ def test_deployment_default_flow_retries_is_none(self) -> None:
     assert PipelineDeployment.flow_retry_delay_seconds is None
 ```
 
-**Deployment result data** (`tests/deployment/test_deployment_base.py:177`)
+**Deployment result data** (`tests/deployment/test_deployment_base.py:217`)
 
 ```python
 def test_deployment_result_data(self):
@@ -566,13 +575,13 @@ def test_field_gate_on_missing_run_and_skip() -> None:
     run_gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="run")
     skip_gate = FieldGate(_GateStateDoc, "should_run", op="truthy", on_missing="skip")
 
-    assert _evaluate_field_gate(run_gate, []) is True
-    assert _evaluate_field_gate(skip_gate, []) is False
-    assert _evaluate_field_gate(run_gate, [], context="stop") is False
-    assert _evaluate_field_gate(skip_gate, [], context="stop") is True
+    assert evaluate_field_gate(run_gate, []) is True
+    assert evaluate_field_gate(skip_gate, []) is False
+    assert evaluate_field_gate(run_gate, [], context="stop") is False
+    assert evaluate_field_gate(skip_gate, [], context="stop") is True
 ```
 
-**Two args returned by helper** (`tests/deployment/test_remote_deployment.py:126`)
+**Two args returned by helper** (`tests/deployment/test_remote_deployment.py:129`)
 
 ```python
 def test_two_args_returned_by_helper(self):
@@ -585,7 +594,7 @@ def test_two_args_returned_by_helper(self):
     assert args[1] is SimpleResult
 ```
 
-**Two params from remote deployment** (`tests/deployment/test_remote_deployment.py:798`)
+**Two params from remote deployment** (`tests/deployment/test_remote_deployment.py:825`)
 
 ```python
 def test_two_params_from_remote_deployment(self):
@@ -598,7 +607,7 @@ def test_two_params_from_remote_deployment(self):
     assert result[1] is SimpleResult
 ```
 
-**Accepts deployment result subclass** (`tests/deployment/test_remote_deployment.py:166`)
+**Accepts deployment result subclass** (`tests/deployment/test_remote_deployment.py:169`)
 
 ```python
 def test_accepts_deployment_result_subclass(self):
@@ -608,7 +617,7 @@ def test_accepts_deployment_result_subclass(self):
     assert Foo.result_type is SimpleResult
 ```
 
-**Accepts flow options subclass** (`tests/deployment/test_remote_deployment.py:146`)
+**Accepts flow options subclass** (`tests/deployment/test_remote_deployment.py:149`)
 
 ```python
 def test_accepts_flow_options_subclass(self):
@@ -646,6 +655,47 @@ def test_flow_step_rejects_invalid_inputs() -> None:
         FlowStep(_FirstFlow(), group="")
 ```
 
+**Bare document field rejected** (`tests/deployment/test_deployment_base.py:125`)
+
+```python
+def test_bare_document_field_rejected(self):
+    with pytest.raises(TypeError, match="uses bare 'Document'"):
+
+        class _BareDocumentResult(DeploymentResult):
+            report: Document
+```
+
+**Build partial result override rejected** (`tests/deployment/test_deployment_base.py:671`)
+
+```python
+def test_build_partial_result_override_rejected(self):
+    with pytest.raises(TypeError, match="build_partial_result"):
+
+        class _InvalidPartialDeployment(PipelineDeployment[FlowOptions, ValidResult]):
+            def build_plan(self, options: FlowOptions) -> DeploymentPlan:
+                _ = options
+                return DeploymentPlan(steps=(FlowStep(ValidFlow()),))
+
+            @staticmethod
+            def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
+                _ = (run_id, documents, options)
+                return ValidResult(success=True)
+
+            def build_partial_result(self, run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
+                _ = (run_id, documents, options)
+                return ValidResult(success=True)
+```
+
+**Dict document field rejected** (`tests/deployment/test_deployment_base.py:131`)
+
+```python
+def test_dict_document_field_rejected(self):
+    with pytest.raises(TypeError, match="Dicts containing Documents are not supported"):
+
+        class _DictDocumentResult(DeploymentResult):
+            reports: dict[str, OutputDoc]
+```
+
 **Field gate rejects untyped document** (`tests/deployment/test_build_plan.py:331`)
 
 ```python
@@ -654,49 +704,15 @@ def test_field_gate_rejects_untyped_document() -> None:
         FieldGate(_UntypedGateDoc, "missing", op="truthy")
 ```
 
-**Rejects empty run id** (`tests/deployment/test_remote_deployment.py:515`)
+**Nested optional document field rejected** (`tests/deployment/test_deployment_base.py:137`)
 
 ```python
-async def test_rejects_empty_run_id(self):
-    class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
-        pass
+def test_nested_optional_document_field_rejected(self):
+    class NestedPayload(BaseModel):
+        report: OutputDoc | None = None
 
-    with pytest.raises(ValueError, match="must not be empty"):
-        with pipeline_test_context(run_id=""):
-            await Foo().run((), FlowOptions())
-```
+    with pytest.raises(TypeError, match=r"contains nested Document fields but is not required|optional but contains a Document type"):
 
-**Rejects invalid run id** (`tests/deployment/test_remote_deployment.py:507`)
-
-```python
-async def test_rejects_invalid_run_id(self):
-    class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
-        pass
-
-    with pytest.raises(ValueError, match="contains invalid characters"):
-        with pipeline_test_context(run_id="invalid run id with spaces"):
-            await Foo().run((), FlowOptions())
-```
-
-**Rejects no generic params** (`tests/deployment/test_remote_deployment.py:174`)
-
-```python
-def test_rejects_no_generic_params(self):
-    with pytest.raises(TypeError, match="must specify 2 Generic parameters"):
-
-        class Bad(RemoteDeployment):  # type: ignore[type-arg]
-            pass
-```
-
-**Rejects non deployment result** (`tests/deployment/test_remote_deployment.py:157`)
-
-```python
-def test_rejects_non_deployment_result(self):
-    class NotAResult(BaseModel):
-        x: int = 1
-
-    with pytest.raises(TypeError, match="DeploymentResult subclass"):
-
-        class Bad(RemoteDeployment[FlowOptions, NotAResult]):  # type: ignore[type-var]
-            pass
+        class _NestedOptionalDocumentResult(DeploymentResult):
+            payload: NestedPayload
 ```

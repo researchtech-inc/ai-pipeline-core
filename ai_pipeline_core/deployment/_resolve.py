@@ -298,9 +298,9 @@ async def resolve_document_inputs(
                 content=content,
                 description=doc_input.description,
                 summary=doc_input.summary,
-                derived_from=doc_input.derived_from if doc_input.derived_from else None,
-                triggered_by=tuple(DocumentSha256(t) for t in doc_input.triggered_by) if doc_input.triggered_by else None,
-                attachments=attachments if attachments else None,
+                derived_from=doc_input.derived_from if doc_input.derived_from else (),
+                triggered_by=tuple(DocumentSha256(t) for t in doc_input.triggered_by) if doc_input.triggered_by else (),
+                attachments=attachments if attachments else (),
             )
 
         results = await asyncio.gather(*[_resolve_one(inp) for inp in inputs], return_exceptions=True)

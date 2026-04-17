@@ -1,7 +1,7 @@
 # MODULE: providers
 # CLASSES: ProviderError, ProviderAuthError, ProviderOutcome, ExternalProvider, StatelessPollingProvider
 # DEPENDS: Exception
-# VERSION: 0.22.2
+# VERSION: 0.22.3
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports
