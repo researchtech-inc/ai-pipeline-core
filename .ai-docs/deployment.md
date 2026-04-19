@@ -2,7 +2,7 @@
 # CLASSES: DeploymentResult, PipelineDeployment, RemoteDeploymentError, RemoteDeploymentNotFoundError, RemoteDeploymentSubmissionError, RemoteDeploymentPollingError, RemoteDeploymentExecutionError, RemoteDeployment, FieldGate, FlowStep, DeploymentPlan, FlowOutputs
 # DEPENDS: BaseModel, Generic, RuntimeError
 # PURPOSE: Pipeline deployment utilities for unified, type-safe deployments.
-# VERSION: 0.22.3
+# VERSION: 0.22.4
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports

@@ -373,17 +373,22 @@ class TestBundleNaming:
 
 
 class TestInstallScript:
-    """Install script must use offline mode (--no-index --find-links)."""
+    """Install script must install deps into a per-deployment immutable prefix."""
 
     def test_install_script_offline_mode(self) -> None:
         deployer = _make_deployer()
         script = deployer._build_install_script()
 
         assert "--no-index" in script, "Install must not contact PyPI"
-        assert "--find-links wheels/" in script, "Install must use bundled wheels"
-        assert "--system" in script, "Install must target system Python"
+        assert "--target" in script, "Install must use a per-deployment prefix (--target), not system Python"
+        assert "--system" not in script, "Install must not mutate shared system site-packages"
+        assert "--find-links" not in script, "Direct wheel args should be used, not --find-links"
+        assert "/opt/ai-pipeline-deps/" in script, "Per-deployment prefix must live under /opt/ai-pipeline-deps/"
+        assert "flock" in script, "Install must be guarded by a global lock to serialize concurrent first-installs"
         assert "tar xzf" in script, "Install must extract the bundle first"
-        assert "&&" not in script, "Must use newline separator (Prefect runs each line via shlex.split, not shell)"
+        assert ".ai_pipeline_deps_prefix" in script, "Pull dir must carry the deps prefix hint for the bootstrap"
+        assert ".ai_pipeline_bootstrap.py" in script, "Bootstrap module must be generated for the runtime entrypoint"
+        assert "unzip" in script, "Project wheel must be unzipped into the pull directory"
 
     def test_install_script_references_bundle_name(self) -> None:
         deployer = _make_deployer(bundle="custom_pkg-3.0.0-bundle.tar.gz")
@@ -501,7 +506,7 @@ class TestPullStepConfiguration:
     """Verify pull steps use the correct install script."""
 
     async def test_pull_step_uses_offline_install(self) -> None:
-        """The pull step install script must use bundled offline install."""
+        """The pull step install script must install into a per-deployment prefix."""
         deployment = await _capture_deployed_runner()
         storage = deployment.storage
 
@@ -510,7 +515,8 @@ class TestPullStepConfiguration:
         script = shell_step["prefect.deployments.steps.run_shell_script"]["script"]
 
         assert "--no-index" in script
-        assert "--find-links wheels/" in script
+        assert "--target" in script
+        assert "/opt/ai-pipeline-deps/" in script
         assert "tar xzf" in script
 
 

@@ -1,6 +1,6 @@
 # MODULE: observability
 # PURPOSE: Observability system for AI pipelines.
-# VERSION: 0.22.3
+# VERSION: 0.22.4
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Functions

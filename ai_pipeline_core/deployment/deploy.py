@@ -281,18 +281,85 @@ class _Deployer:
         self._success(f"Bundle uploaded to {flow_folder}/{bundle.name}")
 
     def _build_install_script(self) -> str:
-        """Build the worker-side install script for the pull step."""
+        """Build the worker-side install script for the pull step.
+
+        Installs dependencies into a per-deployment immutable prefix under
+        ``/opt/ai-pipeline-deps/<pkg>/<hash>/`` via ``uv pip install --target``
+        and unzips the project wheel into the per-run pull directory. A generated
+        bootstrap module becomes the runtime entrypoint: it reads the hint file,
+        prepends the deps prefix to ``sys.path`` via ``site.addsitedir``, then
+        loads the original flow via ``AI_PIPELINE_TARGET_ENTRYPOINT``.
+
+        Per-deployment content-addressed prefixes eliminate the shared-mutable
+        ``site-packages`` race where one flow run's install would delete files
+        another run was importing. Different deployments and different bundle
+        hashes never collide. A single global flock serializes first-install of
+        any new (pkg, hash) pair; steady-state is a marker stat plus an unzip.
+        """
+        pkg = shlex.quote(self.config["package"])
         bundle = shlex.quote(self.config["bundle"])
         wheel = shlex.quote(f"./{self._project_wheel_name}") if self._project_wheel_name else "./*.whl"
-        return f"tar xzf {bundle}\nuv pip install --system --no-index --find-links wheels/ {wheel}"
+        return f"""set -eu
+PKG={pkg}
+BUNDLE={bundle}
+WHEEL={wheel}
+LOCK=/tmp/ai-pipeline-core.install.lock
+tar xzf "$BUNDLE"
+HASH=$(sha256sum wheels/*.whl | awk '{{print $1}}' | sort | sha256sum | cut -c1-16)
+PREFIX="/opt/ai-pipeline-deps/$PKG/$HASH"
+MARKER="$PREFIX/.complete"
+(
+  flock -x 9
+  if [ ! -f "$MARKER" ]; then
+    # Clear any partial install left by a previous crashed run
+    rm -rf "$PREFIX"
+    mkdir -p "$PREFIX"
+    uv pip install --target "$PREFIX" --no-index --no-deps wheels/*.whl
+    touch "$MARKER"
+  fi
+) 9>"$LOCK"
+printf '%s\\n' "$PREFIX" > .ai_pipeline_deps_prefix
+cat > .ai_pipeline_bootstrap.py <<'PY'
+import os
+import site
+import sys
+from prefect.flows import load_flow_from_entrypoint
+
+hint = os.path.join(os.getcwd(), ".ai_pipeline_deps_prefix")
+if os.path.isfile(hint):
+    with open(hint, encoding="utf-8") as f:
+        prefix = f.read().strip()
+    if prefix:
+        # Prepend so deps from the per-deployment prefix outrank any residual
+        # packages in system site-packages. addsitedir still runs so .pth files
+        # inside the prefix are processed.
+        sys.path.insert(0, prefix)
+        site.addsitedir(prefix)
+
+target = os.environ.get("AI_PIPELINE_TARGET_ENTRYPOINT", "")
+if not target:
+    raise RuntimeError(
+        "Missing AI_PIPELINE_TARGET_ENTRYPOINT env var; "
+        "ai-pipeline-core deploy.py must set this in job_variables.env"
+    )
+
+runtime_flow = load_flow_from_entrypoint(target, use_placeholder_flow=False)
+PY
+unzip -q -o "$WHEEL" -d .
+"""
 
     async def _deploy_via_api(self) -> None:
         """Create or update Prefect deployment using RunnerDeployment pattern."""
-        entrypoint = f"{self.config['package']}:{self.config['package']}"
+        project_entrypoint = f"{self.config['package']}:{self.config['package']}"
+        # Runtime entrypoint is a bootstrap module written by the pull step
+        # (see _build_install_script). It runs after the per-deployment deps
+        # prefix is prepared, prepends it to sys.path, then loads the real flow
+        # referenced by AI_PIPELINE_TARGET_ENTRYPOINT.
+        runtime_entrypoint = "./.ai_pipeline_bootstrap.py:runtime_flow"
 
-        self._info(f"Loading flow from entrypoint: {entrypoint}")
+        self._info(f"Loading flow from entrypoint: {project_entrypoint}")
         try:
-            flow = load_flow_from_entrypoint(entrypoint)
+            flow = load_flow_from_entrypoint(project_entrypoint)
             self._success(f"Loaded flow: {flow.name}")
             self._check_stubs()
         except ImportError as e:
@@ -300,7 +367,7 @@ class _Deployer:
                 f"Failed to import flow: {e}\n\n"
                 f"The package must be installed locally to extract flow metadata.\n"
                 f"Install it with: pip install -e .\n\n"
-                f"Expected entrypoint: {entrypoint}\n"
+                f"Expected entrypoint: {project_entrypoint}\n"
                 f"This means: Python package '{self.config['package']}' "
                 f"with flow function '{self.config['package']}'"
             )
@@ -338,7 +405,7 @@ class _Deployer:
         deployment = RunnerDeployment(
             name=self.config["package"],
             flow_name=flow.name,  # pyright: ignore[reportPossiblyUnboundVariable]
-            entrypoint=entrypoint,
+            entrypoint=runtime_entrypoint,
             work_pool_name=self.config["work_pool"],
             work_queue_name=self.config["work_queue"],
             tags=[self.config["name"]],
@@ -346,7 +413,7 @@ class _Deployer:
             description=flow.description or f"Deployment for {self.config['package']} v{self.config['version']}",  # pyright: ignore[reportPossiblyUnboundVariable]
             storage=_PullStepStorage(pull_steps),
             parameters={},
-            job_variables={},
+            job_variables={"env": {"AI_PIPELINE_TARGET_ENTRYPOINT": project_entrypoint}},
             paused=False,
         )
 
