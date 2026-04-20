@@ -2,6 +2,8 @@
 
 # pyright: reportPrivateUsage=false, reportUnusedClass=false
 
+import shlex
+import shutil
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -349,6 +351,25 @@ def _make_deployer(**config_overrides: Any) -> Deployer:
     return deployer
 
 
+def _decode_install_body_from_script(script: str) -> str:
+    """Recover the bash install body from the emitted two-line Prefect script.
+
+    The script's first line is a shlex-quoted python3 -c invocation. Parse it
+    the same way Prefect does (shlex.split) so the outer quoting peels off,
+    then extract the base64 payload from the clean python source.
+    """
+    import base64
+
+    first_line = script.splitlines()[0]
+    tokens = shlex.split(first_line, posix=True)
+    assert tokens[:2] == ["python3", "-c"], f"unexpected first line: {first_line!r}"
+    py_source = tokens[2]
+    marker = "b64decode('"
+    start = py_source.index(marker) + len(marker)
+    end = py_source.index("'", start)
+    return base64.b64decode(py_source[start:end]).decode("utf-8")
+
+
 class TestBundleNaming:
     """Bundle tarball uses '-bundle' suffix to distinguish from legacy sdist."""
 
@@ -375,40 +396,63 @@ class TestBundleNaming:
 class TestInstallScript:
     """Install script must install deps into a per-deployment immutable prefix."""
 
-    def test_install_script_offline_mode(self) -> None:
+    def test_install_body_offline_mode(self) -> None:
         deployer = _make_deployer()
-        script = deployer._build_install_script()
+        body = deployer._build_install_body()
 
-        assert "--no-index" in script, "Install must not contact PyPI"
-        assert "--target" in script, "Install must use a per-deployment prefix (--target), not system Python"
-        assert "--system" not in script, "Install must not mutate shared system site-packages"
-        assert "--find-links" not in script, "Direct wheel args should be used, not --find-links"
-        assert "/opt/ai-pipeline-deps/" in script, "Per-deployment prefix must live under /opt/ai-pipeline-deps/"
-        assert "flock" in script, "Install must be guarded by a global lock to serialize concurrent first-installs"
-        assert "tar xzf" in script, "Install must extract the bundle first"
-        assert ".ai_pipeline_deps_prefix" in script, "Pull dir must carry the deps prefix hint for the bootstrap"
-        assert ".ai_pipeline_bootstrap.py" in script, "Bootstrap module must be generated for the runtime entrypoint"
-        assert "unzip" in script, "Project wheel must be unzipped into the pull directory"
+        assert "--no-index" in body, "Install must not contact PyPI"
+        assert "--target" in body, "Install must use a per-deployment prefix (--target), not system Python"
+        assert "--system" not in body, "Install must not mutate shared system site-packages"
+        assert "--find-links" not in body, "Direct wheel args should be used, not --find-links"
+        assert "/opt/ai-pipeline-deps/" in body, "Per-deployment prefix must live under /opt/ai-pipeline-deps/"
+        assert "flock" in body, "Install must be guarded by a global lock to serialize concurrent first-installs"
+        assert "tar xzf" in body, "Install must extract the bundle first"
+        assert ".ai_pipeline_deps_prefix" in body, "Pull dir must carry the deps prefix hint for the bootstrap"
+        assert ".ai_pipeline_bootstrap.py" in body, "Bootstrap module must be generated for the runtime entrypoint"
+        assert "unzip" in body, "Project wheel must be unzipped into the pull directory"
 
-    def test_install_script_references_bundle_name(self) -> None:
+    def test_install_body_references_bundle_name(self) -> None:
         deployer = _make_deployer(bundle="custom_pkg-3.0.0-bundle.tar.gz")
-        script = deployer._build_install_script()
+        body = deployer._build_install_body()
 
-        assert "custom_pkg-3.0.0-bundle.tar.gz" in script
+        assert "custom_pkg-3.0.0-bundle.tar.gz" in body
 
-    def test_install_script_uses_explicit_wheel_name(self) -> None:
+    def test_install_body_uses_explicit_wheel_name(self) -> None:
         deployer = _make_deployer()
         deployer._project_wheel_name = "test_project-1.0.0-py3-none-any.whl"
-        script = deployer._build_install_script()
+        body = deployer._build_install_body()
 
-        assert "test_project-1.0.0-py3-none-any.whl" in script
+        assert "test_project-1.0.0-py3-none-any.whl" in body
 
-    def test_install_script_falls_back_to_glob_without_wheel_name(self) -> None:
+    def test_install_body_falls_back_to_glob_without_wheel_name(self) -> None:
         deployer = _make_deployer()
         deployer._project_wheel_name = ""
-        script = deployer._build_install_script()
+        body = deployer._build_install_body()
 
-        assert "./*.whl" in script
+        assert "./*.whl" in body
+
+    def test_install_script_each_line_starts_with_real_binary(self) -> None:
+        """Prefect run_shell_script execs each line via open_process with no shell.
+
+        If any line starts with a shell builtin (set, cd, source, ...) or a shell
+        construct (variable assignment, subshell, heredoc), the worker crashes
+        with FileNotFoundError when it tries to exec that token as a binary.
+        This regression guards against v0.22.4's bug.
+        """
+        deployer = _make_deployer()
+        script = deployer._build_install_script()
+        for i, line in enumerate(script.splitlines()):
+            if not line.strip():
+                continue
+            tokens = shlex.split(line, posix=True)
+            assert tokens, f"Line {i} empty after shlex.split: {line!r}"
+            binary = tokens[0]
+            assert shutil.which(binary) is not None, (
+                f"Line {i} first token {binary!r} is not an exec'able binary. "
+                f"Prefect run_shell_script calls each line via open_process "
+                f"with no shell; shell builtins like 'set' or bash constructs "
+                f"like 'VAR=value' fail at exec time. Line was: {line!r}"
+            )
 
 
 class TestUvValidation:
@@ -513,29 +557,30 @@ class TestPullStepConfiguration:
         pull_steps = storage.pull_steps  # type: ignore[union-attr]
         shell_step = pull_steps[1]
         script = shell_step["prefect.deployments.steps.run_shell_script"]["script"]
+        body = _decode_install_body_from_script(script)
 
-        assert "--no-index" in script
-        assert "--target" in script
-        assert "/opt/ai-pipeline-deps/" in script
-        assert "tar xzf" in script
+        assert "--no-index" in body
+        assert "--target" in body
+        assert "/opt/ai-pipeline-deps/" in body
+        assert "tar xzf" in body
 
 
 class TestShellQuoting:
-    """Install script must properly quote filenames for shell safety."""
+    """Install body must properly quote filenames for shell safety."""
 
     def test_bundle_name_is_quoted(self) -> None:
         deployer = _make_deployer(bundle="my app-1.0-bundle.tar.gz")
-        script = deployer._build_install_script()
+        body = deployer._build_install_body()
 
-        assert "my app-1.0-bundle.tar.gz" in script
-        assert "'" in script
+        assert "my app-1.0-bundle.tar.gz" in body
+        assert "'" in body
 
     def test_wheel_name_is_quoted(self) -> None:
         deployer = _make_deployer()
         deployer._project_wheel_name = "my_pkg-1.0.0-py3-none-any.whl"
-        script = deployer._build_install_script()
+        body = deployer._build_install_body()
 
-        assert "my_pkg-1.0.0-py3-none-any.whl" in script
+        assert "my_pkg-1.0.0-py3-none-any.whl" in body
 
 
 class TestPlatformTargeting:
@@ -600,9 +645,9 @@ class TestPlatformTargeting:
 
         assert deployer._project_wheel_name == "test_project-1.0.0-py3-none-any.whl"
 
-        script = deployer._build_install_script()
-        assert "test_project-1.0.0-py3-none-any.whl" in script
-        assert "./*.whl" not in script
+        body = deployer._build_install_body()
+        assert "test_project-1.0.0-py3-none-any.whl" in body
+        assert "./*.whl" not in body
 
 
 class TestIsExcludedPackage:

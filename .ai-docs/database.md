@@ -2,7 +2,7 @@
 # CLASSES: DatabaseReader, SpanKind, SpanStatus, SpanRecord, DocumentRecord, CostTotals, HydratedDocument, DeploymentSummaryRecord, DocumentProducerRecord, DocumentEventRecord, DocumentEventPage
 # DEPENDS: Protocol, StrEnum
 # PURPOSE: Unified database module for the span-based schema.
-# VERSION: 0.22.4
+# VERSION: 0.22.5
 # AUTO-GENERATED from source code — do not edit. Run: make docs-ai-build
 
 ## Imports

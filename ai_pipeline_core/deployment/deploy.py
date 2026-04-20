@@ -22,6 +22,7 @@ Usage:
 import annotationlib
 import argparse
 import asyncio
+import base64
 import shlex
 import shutil
 import subprocess
@@ -76,7 +77,7 @@ class _Deployer:
         wheel build → dependency lock → download wheels → bundle tarball → GCS upload → Prefect deployment
 
     Worker install (pull step):
-        extract tarball → uv pip install --system --no-index --find-links wheels/ ./project.whl
+        extract tarball → uv pip install --target /opt/ai-pipeline-deps/<pkg>/<hash>/ → unzip project wheel → bootstrap entrypoint
     """
 
     def __init__(self) -> None:
@@ -280,21 +281,27 @@ class _Deployer:
         await bucket.write_path(bundle.name, bundle.read_bytes())
         self._success(f"Bundle uploaded to {flow_folder}/{bundle.name}")
 
-    def _build_install_script(self) -> str:
-        """Build the worker-side install script for the pull step.
+    def _build_install_body(self) -> str:
+        """Build the bash body of the worker-side install script.
 
         Installs dependencies into a per-deployment immutable prefix under
         ``/opt/ai-pipeline-deps/<pkg>/<hash>/`` via ``uv pip install --target``
-        and unzips the project wheel into the per-run pull directory. A generated
-        bootstrap module becomes the runtime entrypoint: it reads the hint file,
-        prepends the deps prefix to ``sys.path`` via ``site.addsitedir``, then
-        loads the original flow via ``AI_PIPELINE_TARGET_ENTRYPOINT``.
+        and unzips the project wheel into the per-run pull directory. Generates
+        a bootstrap module that becomes the runtime entrypoint: it reads the
+        hint file, prepends the deps prefix to ``sys.path`` via
+        ``site.addsitedir``, then loads the original flow via
+        ``AI_PIPELINE_TARGET_ENTRYPOINT``.
 
         Per-deployment content-addressed prefixes eliminate the shared-mutable
         ``site-packages`` race where one flow run's install would delete files
         another run was importing. Different deployments and different bundle
         hashes never collide. A single global flock serializes first-install of
         any new (pkg, hash) pair; steady-state is a marker stat plus an unzip.
+
+        This body contains shell builtins and constructs (``set``, subshells,
+        heredocs) and must be executed by bash. It cannot be the emitted Prefect
+        pull-step script directly because Prefect execs each line with no shell.
+        ``_build_install_script`` wraps this body for Prefect consumption.
         """
         pkg = shlex.quote(self.config["package"])
         bundle = shlex.quote(self.config["bundle"])
@@ -347,6 +354,26 @@ runtime_flow = load_flow_from_entrypoint(target, use_placeholder_flow=False)
 PY
 unzip -q -o "$WHEEL" -d .
 """
+
+    def _build_install_script(self) -> str:
+        """Build the Prefect-safe wrapper around the install body.
+
+        Prefect's ``run_shell_script`` execs each line directly via
+        ``shlex.split`` + ``open_process`` with no shell interpreter, so shell
+        builtins (``set``, variable assignment, subshells, heredocs) cannot be
+        top-level lines. The emitted script is therefore two lines: a ``python3``
+        one-liner that base64-decodes the body to a file in the pull dir,
+        followed by ``bash <file>`` which runs the body with full shell
+        semantics. First tokens are always exec'able binaries.
+        """
+        body = self._build_install_body()
+        encoded = base64.b64encode(body.encode("utf-8")).decode("ascii")
+        # Line 1 execs python3 directly (always present on the worker; it's the
+        # interpreter running Prefect) to write the real script. Line 2 execs
+        # bash with the written file. No nested shells, no pipes, no base64
+        # binary dependency. Each line's first token is an exec'able binary.
+        decoder = f"import base64,pathlib;pathlib.Path('.ai_install.sh').write_bytes(base64.b64decode('{encoded}'))"
+        return f"python3 -c {shlex.quote(decoder)}\nbash .ai_install.sh\n"
 
     async def _deploy_via_api(self) -> None:
         """Create or update Prefect deployment using RunnerDeployment pattern."""
