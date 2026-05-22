@@ -95,22 +95,3 @@ repos:
         pass_filenames: false
         stages:
           - pre-commit
-      - id: update-ai-docs
-        name: regenerate and stage .ai-docs/
-        entry: >-
-          bash -c 'ai-docs generate > /dev/null 2>&1 || true;
-          ruff format .ai-docs/ --quiet 2>/dev/null || true;
-          git add .ai-docs/'
-        language: system
-        pass_filenames: false
-        files: \.py$
-        stages:
-          - pre-commit
-      - id: test-collect
-        name: verify all test modules importable
-        entry: pytest --collect-only -q --no-header
-        language: system
-        pass_filenames: false
-        files: \.py$
-        stages:
-          - pre-commit

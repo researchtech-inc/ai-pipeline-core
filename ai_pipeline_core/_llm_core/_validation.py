@@ -1,53 +1,58 @@
-"""Content validation for LLM inputs.
+"""Content validation for LLM multimodal inputs.
 
-Validates image, PDF, and text content before sending to LLM.
-Single source of truth for all content validation across _llm_core and llm layers.
+Validation runs at message-prep time inside ``_transport`` so invalid bytes
+are dropped from the request body and reported via a warning, instead of
+being forwarded to the provider where they would either error out or be
+silently rendered as garbage.
 """
 
-import logging
 from io import BytesIO
 
 from PIL import Image
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
-logger = logging.getLogger(__name__)
+_MIN_IMAGE_DIMENSION = 1
+_MAX_IMAGE_DIMENSION = 10_000
 
 
-def validate_image_content(data: bytes, name: str = "image") -> str | None:
-    """Validate image content via PIL. Returns error message or None if valid."""
+def validate_image_content(data: bytes) -> str | None:
+    """Return an error message if ``data`` is not a usable image, else None.
+
+    Rejects empty bytes, non-image bytes, zero-pixel images, and images whose
+    width or height exceeds 10,000 px.
+    """
     if not data:
-        return f"empty image content in '{name}'"
+        return "empty image content"
     try:
         with Image.open(BytesIO(data)) as img:
+            width, height = img.size
             img.verify()
-        return None
-    except (OSError, ValueError, Image.DecompressionBombError) as e:
-        return f"invalid image in '{name}': {e}"
-
-
-def validate_pdf(data: bytes, name: str) -> str | None:
-    """Validate PDF with page count check. Returns error message or None if valid."""
-    if not data:
-        return f"empty PDF content in '{name}'"
-    if not data.lstrip().startswith(b"%PDF-"):
-        return f"invalid PDF header in '{name}'"
-    try:
-        reader = PdfReader(BytesIO(data))
-        if len(reader.pages) == 0:
-            return f"PDF has no pages in '{name}'"
-    except Exception as e:
-        return f"corrupted PDF in '{name}': {e}"
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+        return f"invalid image: {exc}"
+    if width < _MIN_IMAGE_DIMENSION or height < _MIN_IMAGE_DIMENSION:
+        return f"zero-pixel image ({width}x{height})"
+    if width > _MAX_IMAGE_DIMENSION or height > _MAX_IMAGE_DIMENSION:
+        return f"image dimensions {width}x{height} exceed {_MAX_IMAGE_DIMENSION}x{_MAX_IMAGE_DIMENSION} cap"
     return None
 
 
-def validate_text(data: bytes, name: str) -> str | None:
-    """Validate text content. Returns error message or None if valid."""
+def validate_pdf_content(data: bytes) -> str | None:
+    """Return an error message if ``data`` is not a usable PDF, else None.
+
+    Rejects empty bytes, missing ``%PDF-`` header, password-protected PDFs,
+    and PDFs with zero pages.
+    """
     if not data:
-        return f"empty text content in '{name}'"
-    if b"\x00" in data:
-        return f"binary content (null bytes) in text '{name}'"
+        return "empty PDF content"
+    if not data.lstrip().startswith(b"%PDF-"):
+        return "missing %PDF- header"
     try:
-        data.decode("utf-8")
-    except UnicodeDecodeError as e:
-        return f"invalid UTF-8 encoding in '{name}': {e}"
+        reader = PdfReader(BytesIO(data))
+    except (PdfReadError, OSError, ValueError) as exc:
+        return f"corrupted PDF: {exc}"
+    if reader.is_encrypted:
+        return "password-protected PDF"
+    if len(reader.pages) == 0:
+        return "PDF has no pages"
     return None

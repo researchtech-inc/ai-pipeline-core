@@ -2,6 +2,9 @@
   "name": "ai-pipeline-core",
   "image": "ghcr.io/researchtech-inc/devcontainers/python-ai",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:3": { "moby": false }
+  },
+  "remoteEnv": {
+    "PATH": "/opt/researchtech/project-env/bin:${containerEnv:PATH}"
   }
 }

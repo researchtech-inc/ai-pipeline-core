@@ -18,3 +18,4 @@ rules:
       exclude:
         - "**/ai_pipeline_core/**"
         - "**/tests/**"
+        - "**/benchmarks/**"

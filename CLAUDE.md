@@ -1,6 +1,6 @@
 # AI Pipeline Core — Coding Standards & Rules
 
-> Rules and standards for the ai-pipeline-core framework repository. Governs how framework code must be written, not what the framework provides (see `.ai-docs/` for API documentation).
+> Rules and standards for the ai-pipeline-core framework repository. Governs how framework code must be written.
 
 ## Design Principles
 
@@ -12,7 +12,7 @@
 
 4. **AI-Native Development** — Designed for AI coding agents to understand, modify, and debug. One correct way to do everything. Definition-time validation catches mistakes before runtime.
 
-5. **Single Source of Truth** — No duplicate documentation. Code defines behavior. Auto-generate documentation from code.
+5. **Single Source of Truth** — No duplicate documentation. Code, tests, and this standards file define behavior. Do not maintain parallel guides that can drift.
 
 6. **Self-Explanatory Code** — Code must be understandable without deep-diving into documentation or framework source code. Naming, structure, and types make intent obvious.
 
@@ -98,7 +98,8 @@ Tasks are atomic in **purpose**, not necessarily in wall-clock duration.
 - Module-level overrides when needed
 - No config duplication — define once, reuse everywhere
 - Model configuration includes model name AND model-specific options (e.g., `reasoning_effort`)
-- **Retry resolution hierarchy** — Retries on tasks, flows, and conversations default to `None` at the class level. At runtime they resolve via: class-level override → deployment-level override → `Settings` fallback (env-configurable: `TASK_RETRIES`, `FLOW_RETRIES`, `CONVERSATION_RETRIES` and corresponding `*_DELAY_SECONDS`). Settings defaults: task/flow retries `0`, conversation retries `2`
+- Model identity is always `AIModel`, never a string. `FlowOptions` fields, BaseModel fields, tool constructors, and Settings fields carrying model identity must be typed `AIModel`. Strings appear only inside `AIModel(name=...)` at the env/config-parsing boundary.
+- **Retry resolution hierarchy** — Retries on tasks, flows, and conversations default to `None` at the class level. At runtime they resolve via: class-level override → deployment-level override → `Settings` fallback (env-configurable: `TASK_RETRIES`, `FLOW_RETRIES`, `CONVERSATION_RETRIES` and corresponding `*_DELAY_SECONDS`). Settings defaults: `TASK_RETRIES=0`, `FLOW_RETRIES=0`, `CONVERSATION_RETRIES=2`, with conversation exponential backoff controlled by `CONVERSATION_RETRY_BACKOFF_MULTIPLIER=3` and `CONVERSATION_RETRY_MAX_DELAY_SECONDS=300`
 
 ---
 
@@ -143,15 +144,13 @@ Maximum image resolution is 3000x3000 pixels. The framework handles per-model do
 4. **If wider than limit** — Trim width (left-aligned crop). Web content is left-aligned, so right-side content is typically less important.
 5. **Describe the split in text prompt** — "Screenshot was split into N sequential parts with overlap"
 
-### 2.5 Model Cost Tiers
+### 2.5 Test Model Policy
 
-- **Expensive** (pro/flagship): gemini-3.1-pro, gpt-5.4. Use for complex reasoning, final synthesis.
-- **Cheap** (flash/fast): gemini-3-flash, grok-4.1-fast. Use for high-volume tasks, formatting, conversion, structured output extraction.
-- **Too small** (nano/lite): Insufficient for production pipeline tasks. Do not use.
+Tests use the model catalog in `tests/support/model_catalog.py`. Do not add legacy model names, provider-specific fixture identifiers, or compatibility aliases. If a model changes, update the catalog source of truth instead of scattering model literals through tests.
 
-### 2.6 Model Reference Preservation
+### 2.6 Model Reference Policy
 
-**Do not remove model references that appear unfamiliar.** Models are released frequently and the codebase may reference models that are newer than the AI coding agent's training data. If a model name exists in code, assume it is valid unless there is concrete evidence otherwise (e.g., provider returns "model not found" error).
+Model names are explicit configuration values. Do not infer model capabilities from provider or deployment naming conventions; set capability fields such as `preserve_input_urls` directly on `AIModel`.
 
 ### 2.7 Structured Output
 
@@ -224,6 +223,18 @@ Beyond the rules above (no batching §2.3, no CoT §2.9, no input trimming §2.1
 | Numeric confidence scores without criteria | Each call interprets scale differently; hallucinated results |
 | Explaining JSON structure in prompts | Redundant with schema sent via `response_format`; degrades quality |
 
+### 2.12 Model Identity
+
+Model identity is always an `AIModel`, never a raw string downstream of Settings, CLI, or environment parsing. Wrap model names at the boundary (`AIModel(name="gemini-3-flash")`) and preserve the resulting object through `FlowOptions`, config documents, tool constructors, and `Conversation`.
+
+`AIModel` owns four capability groups:
+- **Vision and URL behavior** — `vision_preset` controls image processing, and `preserve_input_urls` keeps URLs intact for search-style models.
+- **Caching and routing preference** — `cache_ttl` controls prompt cache TTL, and `skip_cost_optimized` asks the AIPL proxy to avoid cost-optimized deployments.
+- **Reliability** — `fallback` defines the next model on group exhaustion, while `timeout_s` and `min_output_tps` define wall-clock and stream watchdog limits.
+- **Generation parameters** — `temperature`, `reasoning_effort`, `verbosity`, `max_completion_tokens`, and `supports_stop_sequences` travel with model identity.
+
+Production LLM execution assumes an AIPL-compatible LiteLLM proxy for deployment IDs, group exhaustion, trace fetch, workload routing, warmup/cache metadata, and limiter headers. Plain LiteLLM-compatible endpoints may handle basic calls but do not provide the full framework behavior.
+
 ---
 
 ## 3. Code Quality Standards
@@ -256,63 +267,33 @@ This is the purpose of the framework's extensive tooling (ruff, basedpyright, se
 **No Blind Suppression of Tooling Warnings:**
 When linters, type checkers, semgrep, tests, or CI/CD checks report an issue, investigate it fully and fix the root cause. Do not suppress warnings without justification — no bare `# noqa`, `# type: ignore`, `# nosemgrep`, `pytest.skip()`, `xfail` (except for TDD bug proving above), disabling rules, commenting out code, deleting the check, or any other form of suppression. These tools detect real coding problems — silencing them hides bugs instead of fixing them. If a warning is genuinely a false positive or structurally unavoidable (e.g., imports after `warnings.filterwarnings`), add the narrowest possible suppression (single line, specific rule code) with a comment explaining why.
 
-### 3.3 AI-Focused Documentation
+### 3.3 Documentation
 
-The framework auto-generates documentation for AI coding agents via `tools/docs-generator/` (separate workspace package).
-Use the `ai-docs` CLI command:
-
-```bash
-ai-docs generate   # Regenerate .ai-docs/ from source code
-ai-docs check      # Validate completeness, size limits, and private reexports
-```
-
-`make docs-ai-build` / `make docs-ai-check` delegate to `ai-docs`. The pre-commit hook and CI run `ai-docs generate` and fail if `.ai-docs/` becomes stale.
-
-Guide properties:
-- Public/private determined by `_` prefix convention
-- Full source code with comments included
-- Examples extracted and scored from test suite
-- 40KB warning threshold per guide, 45KB hard limit for README.md
-- CI-enforced freshness
+Source code, tests, and this standards file are the source of truth. Do not add generated documentation tooling or generated guide artifacts.
 
 **Visibility by Naming Convention:**
-- No `_` prefix → public (included in docs)
-- Single `_` prefix → private (excluded)
+- No `_` prefix → public
+- Single `_` prefix → private
 - Dunder methods (`__init__`, `__eq__`, etc.) → always public
-- Files starting with `_` (e.g., `_helpers.py`) → private modules (excluded entirely)
+- Files starting with `_` (e.g., `_helpers.py`) → private modules
 - Exception: `__init__.py` is always processed
 
 **Docstring Rules:**
 - No `Example:` blocks — tests serve as examples
 - Inline comments within method bodies are preserved
-
-**Test Marking:**
-- `@pytest.mark.ai_docs` — Explicitly include a test as an example
-- Marked tests get priority — included first regardless of score
-- Auto-selected tests are scored by: symbol overlap (high bonus), test length (shorter preferred), mock usage (penalty)
-- Error examples using `pytest.raises` included in ERROR EXAMPLES section
-
-**Internal Types:**
-- Private classes matching `_CapitalizedName` pattern that appear in public API signatures are automatically included in INTERNAL TYPES section
-- Ensures guides are self-contained
-
-**Guide Structure Rules:**
-- Every guide includes `## Imports` with two-tier import paths: `from ai_pipeline_core import ...` (top-level) and `from ai_pipeline_core.<module> import ...` (sub-package symbols not at top level)
-- Module-level `NewType`, `type` aliases, and public `UPPER_CASE` constants must be extracted into `## Types & Constants` section
-- `.ai-docs/README.md` (generated) includes comprehensive per-module API summaries with all public symbols
 - When `__init_subclass__` calls private helpers, the class docstring must enumerate all constraints as rule lines
-- Prefer `class MyType(str)` over `NewType` for types that should appear in documentation with their own docstring
-- Protocol and Enum classes are tagged with a comment line (`# Protocol` / `# Enum`) above the class definition
+- Prefer `class MyType(str)` over `NewType` for types that need their own docstring
+- Protocol and Enum classes should be tagged with a comment line (`# Protocol` / `# Enum`) above the class definition
 
 ### 3.4 Module Cohesion
 
-Each framework module produces one AI-docs guide. That guide must be **self-sufficient for usage**: an AI coding agent must be able to correctly use the module's public API by reading only that guide.
+Each framework module's public API must be **self-sufficient for usage**: an AI coding agent must be able to correctly use it by reading only that module's source and docstrings.
 
-**The acid test**: "Can an AI agent correctly use this module by reading only its guide?" If using module A requires reading module B's guide, the module boundaries must be redrawn.
+**The acid test**: "Can an AI agent correctly use this module without reading another module's internals?" If using module A requires reading module B's source, the module boundaries must be redrawn.
 
 - **One concern, one module** — Related functionality lives in a single module directory
 - **Public API self-documentation** — Parameters triggering behavior in other modules must be documented on the public API
-- **Imports allowed, knowledge dependencies forbidden** — Module A may import from B internally, but using A's public API must not require reading B's documentation
+- **Imports allowed, knowledge dependencies forbidden** — Module A may import from B internally, but using A's public API must not require reading B's internals
 
 ---
 
@@ -433,6 +414,7 @@ logger.warning(
 - **Task-in-task detection** — Tasks must not call other tasks. A `RuntimeError` is raised if `Task.run()` is called from within another task's execution scope. Orchestration belongs in flows.
 - **Conversation-in-flow detection** — `Conversation.send()` and related send paths must not be called directly from a flow. A `RuntimeError` is raised if an LLM call is made from flow scope without a task.
 - **Document type freezing** — `input_document_types` and `output_document_types` on flows and tasks are frozen tuples after class definition. They cannot be reassigned.
+- **String model rejection** — `Conversation` rejects `str` models at construction. Wrap with `AIModel(name=...)` at the FlowOptions/Settings boundary, never downstream.
 
 ### 4.15 Return Discipline
 
@@ -504,7 +486,7 @@ Control documents are small typed documents used for runtime gating.
 | Decision | Choice | Notes |
 |----------|--------|-------|
 | Orchestrator | Prefect | Flow/task orchestration, state management |
-| LLM Proxy | LiteLLM (primary), OpenRouter (compatible) | Unified multi-provider access |
+| LLM Proxy | AIPL-compatible LiteLLM proxy | Deployment routing, fallback chains, group exhaustion, trace fetch |
 | Database | ClickHouse (production), filesystem (CLI/replay), in-memory (testing) | Unified storage: `spans`, `documents`, `blobs`, `logs`. Content-addressed with SHA256 deduplication |
 
 ---
@@ -518,75 +500,35 @@ Control documents are small typed documents used for runtime gating.
 
 ---
 
-## 8. Dev CLI — Test, Lint, and Check Workflows
+## 8. Testing
 
-**Use the `dev` CLI for all test, lint, and type-check operations.** Do not run `pytest`, `ruff`, or `basedpyright` directly — a Claude Code hook will block these commands with an actionable message pointing to the correct `dev` command.
+After editing code:
+  1. dev format          — auto-fix style (~3 s)
+  2. dev test            — affected tests, auto-scoped from git diff (~5-15 s)
+  3. dev check           — full local validation before commit (~30 s)
 
-### First thing: run `dev info`
+Test directories define the lane (timeout, parallelism, cost):
+  tests/unit/            — fast, pure-Python, no external services           (timeout 30 s)
+  tests/integration/     — real LLM + real testcontainers + multi-step flows (timeout 180 s)
+  tests/qualification/   — exhaustive: reliability, provider matrix, long    (timeout 900 s, gated)
+  benchmarks/            — measurement across the LiteLLM matrix (not tests)
+  examples/              — runnable application examples (not tests)
 
-Before running any tests or checks, **always start with `dev info`**. It prints the full usage guide, auto-detected check pipeline, available test scopes, runner configuration, and infrastructure status. Read its output — it tells you everything you need to know about the project's dev workflow.
+Never:
+  - Run raw pytest, ruff, basedpyright. The dev CLI is the only entrypoint.
+  - Add markers to assign tests to lanes — the directory IS the lane. The only
+    allowed per-test markers are: @pytest.mark.timeout(N) (for justified
+    overrides), @pytest.mark.serial (opt-out of xdist for process-stateful tests),
+    and @pytest.mark.ai_docs (mark a test as a documentation example).
+  - Add asyncio.sleep(>=1 s) outside tests/qualification/.
+  - Stack @pytest.mark.parametrize decorators (multiplicative case counts).
+  - Construct AIModel(name="...") in tests; use fixtures from tests/support/model_catalog.py.
+  - Set max_completion_tokens / max_output_tokens / max_tokens in tests; use framework defaults.
+  - Mock LLMs outside tests/unit/. No fake LLM clients in integration, qualification,
+    examples, or benchmarks.
+  - Run live, benchmark, verify, or qualification commands from an agent session.
 
-### Commands
-
-```bash
-# Testing
-dev test                # Run affected tests (auto-scoped from git changes, uses testmon)
-dev test pipeline       # Run tests for a specific module
-dev test --lf           # Rerun only last-failed tests
-dev test --full         # Full suite in parallel (before commit)
-dev test --available    # Include infrastructure tests (auto-detects Docker/API keys)
-dev test --coverage    # Full suite with code coverage (80% threshold from pyproject.toml)
-dev test --coverage pipeline  # Coverage for pipeline tests (threshold not enforced)
-dev test --force        # Force rerun even if no files changed (rarely needed)
-
-# Code quality
-dev format              # Auto-fix lint + formatting (ruff format + ruff check --fix)
-dev lint                # Check lint without fixing
-dev typecheck           # Type checking (basedpyright)
-
-# All checks in order (lint → typecheck → deadcode → semgrep → docstrings → tests)
-dev check               # Full validation pipeline
-dev check --fast        # Lint + typecheck only
-
-# Utilities
-dev status              # Changed files, last run results, suggested next command
-dev info                # Usage guide + auto-detected config + infrastructure status
-```
-
-### Timeout
-
-`dev test --full`, `dev test --available`, `dev test --coverage`, and `dev check` can take up to 10 minutes. Use a 10-minute timeout (600s) when running these commands via the Bash tool.
-
-### Workflow
-
-1. Write code
-2. `dev format` — auto-fix lint/formatting
-3. `dev check --fast` — verify lint + types pass
-4. `dev test` — run affected tests
-5. If tests fail: fix code, then `dev test --lf`
-6. `dev check` — full validation before commit
-
-### Testmon and `--force`
-
-`dev test` uses testmon by default — only tests whose dependencies changed actually run. The summary shows e.g. `27 passed, 244 unchanged (testmon)`. The unchanged tests passed previously and their code hasn't changed — they are verified. Do NOT use `--force` because the passed count looks low. `--force` is only needed for flaky test investigation or after non-code changes (config, env vars).
-
-`dev test` accepts scope names (`database`, `pipeline`, `llm`), not file paths. Use `dev info` to see available scopes.
-
-### What is blocked (and why)
-
-| Blocked command | Use instead | Reason |
-|---|---|---|
-| `pytest ...` | `dev test` | No output management, wrong flags, no scoping |
-| `ruff check/format` | `dev lint` / `dev format` | No output management |
-| `basedpyright`/`pyright`/`mypy` | `dev typecheck` | No output management |
-| `pytest ... \| grep/head/tail` | `dev test` | Buffering hangs, loses exit codes |
-| `dev ... \| grep/head/tail` | Run `dev` directly | Output already captured to .tmp/dev-runs/ |
-| `uv sync` | `uv pip install --system` | Creates .venv in devcontainer |
-| `uv run ...` | Run commands directly | All tools are on PATH |
-
-### What is allowed
-
-`dev *`, `make *`, `uv pip install`, `uvx *`, `pytest --version`, `pytest --help`, `ruff --version`, `interrogate`, `vulture`, `semgrep`, `grep`, `pip install`.
+Run `dev info` to see lane state and which command to use next.
 
 ---
 

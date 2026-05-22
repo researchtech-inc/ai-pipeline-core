@@ -161,25 +161,6 @@ Lesson:
 - Some safety guarantees require both runtime and lint-time protection.
 - Tooling version mismatches can silently blind a rule.
 
-## 2.5 Documentation and docs-generator bugs
-
-### Public API visibility was often wrong for AI docs
-Two recurring documentation failures appeared:
-- Important subclass contracts were hidden because methods were prefixed `_` and therefore excluded from generated docs.
-- Large non-user-facing APIs bloated the generated README and pushed it over size limits.
-
-Examples:
-- Provider subclass API was undocumented because key extension methods were private.
-- The `logger` module generated a nearly useless guide because the only public symbol was an auto-configured setup function that application authors never needed.
-
-Lesson:
-- Documentation generation is only as good as the public/private boundary.
-- If a method is part of a subclassing contract, hiding it as “private” creates broken guides.
-- If a module has no meaningful user-facing surface, it should not be public.
-
-### `.ai-docs` freshness failures after release changes
-Version bumps and API changes repeatedly produced stale generated docs. This led to improvements in pre-commit automation and forced the realization that docs freshness must be treated as part of the change, not a follow-up step.
-
 ## 3. Recurrent Application Misuse Patterns
 
 ## 3.1 Task misuse

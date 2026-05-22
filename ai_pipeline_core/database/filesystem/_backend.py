@@ -59,6 +59,8 @@ DOCUMENTS_DIRNAME = "documents"
 BLOBS_DIRNAME = "blobs"
 LOGS_FILENAME = "logs.jsonl"
 
+_ROUNDS_EMBEDDING_KINDS: frozenset[SpanKind] = frozenset({SpanKind.CONVERSATION, SpanKind.PROMPT_EXECUTION})
+
 
 def _json_default(value: Any) -> Any:
     if isinstance(value, UUID):
@@ -260,31 +262,31 @@ class FilesystemDatabase:
         payload = _read_json_dict(span_path, context="Span snapshot")
         self._store_span_from_disk(_deserialize_span(payload, path=span_path), path=span_path)
 
-        if payload.get("kind") != SpanKind.CONVERSATION:
+        if payload.get("kind") not in _ROUNDS_EMBEDDING_KINDS:
             return
         rounds_raw = payload.get("rounds", [])
         if not isinstance(rounds_raw, list):
             msg = (
-                f"Conversation snapshot file {span_path} must store rounds as a JSON array under 'rounds'. "
+                f"Snapshot file {span_path} must store rounds as a JSON array under 'rounds'. "
                 "Rewrite the snapshot so embedded llm_round and tool_call spans are grouped per round."
             )
             raise TypeError(msg)
         for round_raw in rounds_raw:
             if not isinstance(round_raw, dict):
-                msg = f"Conversation snapshot file {span_path} contains a non-object round entry. Persist each round as a JSON object."
+                msg = f"Snapshot file {span_path} contains a non-object round entry. Persist each round as a JSON object."
                 raise TypeError(msg)
             llm_round = _deserialize_span(round_raw, path=span_path)
             self._store_span_from_disk(llm_round, path=span_path)
             tool_calls_raw = round_raw.get("tool_calls", [])
             if not isinstance(tool_calls_raw, list):
                 msg = (
-                    f"Conversation snapshot file {span_path} must store tool_calls as a JSON array inside each round. "
+                    f"Snapshot file {span_path} must store tool_calls as a JSON array inside each round. "
                     "Persist embedded tool_call spans under round['tool_calls']."
                 )
                 raise TypeError(msg)
             for tool_call_raw in tool_calls_raw:
                 if not isinstance(tool_call_raw, dict):
-                    msg = f"Conversation snapshot file {span_path} contains a non-object tool_call entry. Persist each tool_call as a JSON object."
+                    msg = f"Snapshot file {span_path} contains a non-object tool_call entry. Persist each tool_call as a JSON object."
                     raise TypeError(msg)
                 self._store_span_from_disk(_deserialize_span(tool_call_raw, path=span_path), path=span_path)
 
@@ -461,13 +463,13 @@ class FilesystemDatabase:
     ) -> None:
         filename = "deployment.json" if is_root_deployment else span_filename(span.kind, span.name, span.span_id, sibling_index)
         file_path = parent_dir / filename
-        payload = self._conversation_payload(span, children_map) if span.kind == SpanKind.CONVERSATION else self._span_payload(span)
+        payload = self._conversation_payload(span, children_map) if span.kind in _ROUNDS_EMBEDDING_KINDS else self._span_payload(span)
         _atomic_write(file_path, json.dumps(payload, indent=2, sort_keys=True, default=_json_default))
         self._span_paths[span.span_id] = file_path
 
-        # LLM_ROUND and TOOL_CALL children of CONVERSATION spans are embedded in the conversation JSON payload,
+        # LLM_ROUND and TOOL_CALL children of CONVERSATION/PROMPT_EXECUTION spans are embedded in the parent JSON payload,
         # so they don't need separate files. Under any other parent kind, write them as regular child files.
-        embedded_kinds = {SpanKind.LLM_ROUND, SpanKind.TOOL_CALL} if span.kind == SpanKind.CONVERSATION else set()
+        embedded_kinds = {SpanKind.LLM_ROUND, SpanKind.TOOL_CALL} if span.kind in _ROUNDS_EMBEDDING_KINDS else set()
         child_spans = [child for child in children_map.get(span.span_id, []) if child.kind not in embedded_kinds]
         if not child_spans:
             return

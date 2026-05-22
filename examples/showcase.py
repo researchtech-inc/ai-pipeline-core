@@ -20,6 +20,7 @@ from typing import ClassVar, Literal
 from pydantic import BaseModel, Field
 
 from ai_pipeline_core import (
+    AIModel,
     Conversation,
     DeploymentPlan,
     DeploymentResult,
@@ -51,9 +52,9 @@ class ReportDocument(Document):
 
 
 class ShowcaseConfig(BaseModel, frozen=True):
-    core_model: str
-    fast_model: str
-    reasoning_effort: Literal["low", "medium", "high"]
+    core_model: AIModel
+    fast_model: AIModel
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 
 
 class ShowcaseConfigDocument(Document[ShowcaseConfig]):
@@ -133,7 +134,7 @@ class ExplainConcept(Tool):
     class Output(BaseModel):
         explanation: str
 
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: AIModel) -> None:
         self._model = model
 
     async def run(self, input: Input) -> Output:
@@ -146,9 +147,9 @@ class ExplainConcept(Tool):
 
 
 class ShowcaseFlowOptions(FlowOptions):
-    core_model: str = "gemini-3.1-pro"
-    fast_model: str = "gemini-3-flash"
-    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    core_model: AIModel = AIModel(name="gpt-5.4-mini")
+    fast_model: AIModel = AIModel(name="gemini-3-flash")
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] = "medium"
 
 
 class AnalyzeDocumentTask(PipelineTask):
@@ -383,6 +384,15 @@ def initialize_showcase(options: ShowcaseFlowOptions) -> tuple[str, tuple[Docume
         ),
     )
     return "showcase-v2", docs
+
+
+def smoke() -> None:
+    options = ShowcaseFlowOptions()
+    initialize_showcase(options)
+    deployment = ShowcasePipeline()
+    plan = deployment.build_plan(options)
+    assert plan.steps
+    assert all(isinstance(step.flow, PipelineFlow) for step in plan.steps)
 
 
 if __name__ == "__main__":

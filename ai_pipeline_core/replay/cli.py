@@ -15,6 +15,7 @@ import yaml
 from pydantic import BaseModel
 
 from ai_pipeline_core._codec import import_by_path
+from ai_pipeline_core._llm_core.types import AIModel
 from ai_pipeline_core.database._factory import Database, create_database_from_settings
 from ai_pipeline_core.database._json_helpers import parse_json_object
 from ai_pipeline_core.database._protocol import DatabaseReader, DatabaseWriter
@@ -170,7 +171,9 @@ def _build_overrides(args: argparse.Namespace) -> ExperimentOverrides | None:
     model_options: dict[str, Any] = {}
     override_values: dict[str, Any] = {}
     if args.model:
-        override_values["model"] = args.model
+        override_values["model"] = AIModel(args.model)
+    if getattr(args, "force_deployment_id", None):
+        override_values["force_deployment_id"] = args.force_deployment_id
     set_items: list[str] = args.set or []
     for item in set_items:
         if "=" not in item:
@@ -178,7 +181,7 @@ def _build_overrides(args: argparse.Namespace) -> ExperimentOverrides | None:
         key, raw_value = item.split("=", 1)
         value: Any = yaml.safe_load(raw_value)
         if key == "model":
-            override_values["model"] = value
+            override_values["model"] = AIModel.model_validate(value) if isinstance(value, dict) else AIModel(str(value))
             continue
         if key == "response_format":
             if not isinstance(value, str):
@@ -355,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--from-db", type=str, help="Load a span by span ID from the database")
     run_parser.add_argument("--db-path", type=str, help="Use a FilesystemDatabase at this path instead of ClickHouse")
     run_parser.add_argument("--model", type=str, default=None, help="Override model for replayed conversation spans")
+    run_parser.add_argument("--force-deployment-id", type=str, default=None, help="Pin replayed conversation spans to this AIPL deployment ID")
     run_parser.add_argument("--set", action="append", metavar="KEY=VALUE", help="Set ExperimentOverrides fields or model_options values")
     run_parser.add_argument("--output-dir", type=str, default=None, help="Output directory for replay results")
     run_parser.add_argument("--import", dest="modules", action="append", metavar="MODULE", help="Import a module before replay")
@@ -371,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     batch_parser.add_argument("--purpose", type=str, default=None, help="Filter conversation spans by purpose")
     batch_parser.add_argument("--task-class", type=str, default=None, help="Filter task spans by module:Class path")
     batch_parser.add_argument("--model", type=str, default=None, help="Override model for replayed conversation spans")
+    batch_parser.add_argument("--force-deployment-id", type=str, default=None, help="Pin replayed conversation spans to this AIPL deployment ID")
     batch_parser.add_argument("--set", action="append", metavar="KEY=VALUE", help="Set ExperimentOverrides fields or model_options values")
     batch_parser.add_argument("--concurrency", type=int, default=5, help="Maximum concurrent experiments")
     batch_parser.add_argument("--import", dest="modules", action="append", metavar="MODULE", help="Import a module before replay")

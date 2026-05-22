@@ -113,16 +113,39 @@ def _resolve_instance_method_callable(target: str, receiver: Any) -> Callable[..
     return _require_callable(target, getattr(instance, method_name), context="instance method")
 
 
-def _resolve_decoded_method_callable(target: str, receiver: Any) -> Callable[..., Any]:
-    cls, method_name = _resolve_target_method(target, expected_kind="decoded_method")
+def _bind_instance_method(target: str, cls: type[Any], instance: Any, method_name: str, *, context: str) -> Callable[..., Any]:
+    if not isinstance(instance, cls):
+        raise TypeError(f"Replay receiver for {target!r} reconstructed {type(instance).__name__}, expected {cls.__name__}.")
+    return _require_callable(target, getattr(instance, method_name), context=context)
+
+
+def _require_dict_receiver(target: str, receiver: Any) -> dict[str, Any]:
     if not isinstance(receiver, dict):
         raise TypeError(f"Replay receiver for {target!r} must decode to an object with mode/value fields.")
-    if receiver.get("mode") != "decoded_state":
+    return receiver
+
+
+def _resolve_decoded_method_callable(target: str, receiver: Any) -> Callable[..., Any]:
+    cls, method_name = _resolve_target_method(target, expected_kind="decoded_method")
+    payload = _require_dict_receiver(target, receiver)
+    if payload.get("mode") != "decoded_state":
         raise ValueError(f"Replay receiver for {target!r} must use mode='decoded_state'.")
-    instance = receiver.get("value")
-    if not isinstance(instance, cls):
-        raise TypeError(f"Replay receiver for {target!r} decoded to {type(instance).__name__}, expected {cls.__name__}.")
-    return _require_callable(target, getattr(instance, method_name), context="decoded method")
+    return _bind_instance_method(target, cls, payload.get("value"), method_name, context="decoded method")
+
+
+def _resolve_promptcontract_receiver_callable(target: str, receiver: Any) -> Callable[..., Any]:
+    cls, method_name = _resolve_target_method(target, expected_kind="decoded_promptcontract")
+    payload = _require_dict_receiver(target, receiver)
+    if payload.get("mode") != "promptcontract_receiver":
+        raise ValueError(f"Replay receiver for {target!r} must use mode='promptcontract_receiver'.")
+    value = payload.get("value")
+    if not isinstance(value, dict):
+        raise TypeError(f"Replay receiver for {target!r} must decode to {{'class_path', 'instance_fields'}}.")
+    instance_fields = value.get("instance_fields", {})
+    if not isinstance(instance_fields, dict):
+        raise TypeError(f"Replay receiver for {target!r} 'instance_fields' must be a dict of field name -> value.")
+    instance = cls(**_filter_kwargs(cls, instance_fields))
+    return _bind_instance_method(target, cls, instance, method_name, context="prompt-contract receiver")
 
 
 def resolve_callable(target: str, receiver: Any) -> Callable[..., Any]:
@@ -143,5 +166,9 @@ def resolve_callable(target: str, receiver: Any) -> Callable[..., Any]:
             return _resolve_instance_method_callable(target, receiver)
         case "decoded_method":
             return _resolve_decoded_method_callable(target, receiver)
+        case "decoded_promptcontract":
+            return _resolve_promptcontract_receiver_callable(target, receiver)
         case _:
-            raise ValueError(f"Replay target {target!r} is not supported. Use function, classmethod, instance_method, or decoded_method.")
+            raise ValueError(
+                f"Replay target {target!r} is not supported. Use function, classmethod, instance_method, decoded_method, or decoded_promptcontract."
+            )

@@ -18,6 +18,7 @@ import re
 __all__ = [
     "get_stubs",
     "is_exempt",
+    "register_contract",
     "register_flow",
     "register_spec",
     "register_stub",
@@ -33,6 +34,8 @@ _tasks: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-t
 _specs: dict[str, list[tuple[str, str | None]]] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 # module_name -> class_name for specs that follow a spec from a different module
 _cross_file_follows: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
+# module_name -> class_name for PromptContract subclasses (one per file)
+_contracts: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 # qualname -> (class, kind) for stub classes
 _stubs: dict[str, tuple[type, str]] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 
@@ -84,7 +87,7 @@ def require_docstring(cls: type, *, kind: str) -> None:
 
 
 def register_flow(cls: type) -> None:
-    """Enforce: one flow per file, no tasks or specs in same file."""
+    """Enforce: one flow per file, no tasks, specs, or contracts in same file."""
     module = cls.__module__
 
     # One flow per file
@@ -117,11 +120,20 @@ def register_flow(cls: type) -> None:
             f"FIX: Move specs to flows/<flow>/tasks/<task>/specs/<category>.py"
         )
 
+    # No contracts in same file
+    contract = _contracts.get(module)
+    if contract is not None:
+        raise TypeError(
+            f"Module '{module}' defines PipelineFlow '{cls.__name__}' but already contains "
+            f"PromptContract '{contract}'. Flows and contracts must be in separate files.\n"
+            f"FIX: Move contracts to flows/<flow>/tasks/<task>/contracts/<name>.py"
+        )
+
     _flows[module] = cls.__name__
 
 
 def register_task(cls: type) -> None:
-    """Enforce: one task per file, no flows or specs in same file."""
+    """Enforce: one task per file, no flows, specs, or contracts in same file."""
     module = cls.__module__
 
     # One task per file
@@ -152,6 +164,15 @@ def register_task(cls: type) -> None:
             f"Module '{module}' defines PipelineTask '{cls.__name__}' but already contains "
             f"PromptSpec(s): {', '.join(spec_names)}. Tasks and specs must be in separate files.\n"
             f"FIX: Move specs to flows/<flow>/tasks/<task>/specs/<category>.py"
+        )
+
+    # No contracts in same file
+    contract = _contracts.get(module)
+    if contract is not None:
+        raise TypeError(
+            f"Module '{module}' defines PipelineTask '{cls.__name__}' but already contains "
+            f"PromptContract '{contract}'. Tasks and contracts must be in separate files.\n"
+            f"FIX: Move contracts to flows/<flow>/tasks/<task>/contracts/<name>.py"
         )
 
     _tasks[module] = cls.__name__
@@ -185,6 +206,15 @@ def register_spec(cls: type, follows: type | None) -> None:
             f"Module '{module}' defines PromptSpec '{cls.__name__}' but already contains "
             f"PipelineTask '{task}'. Specs and tasks must be in separate files.\n"
             f"FIX: Move specs to flows/<flow>/tasks/<task>/specs/<category>.py"
+        )
+
+    # No contracts in same file
+    contract = _contracts.get(module)
+    if contract is not None:
+        raise TypeError(
+            f"Module '{module}' defines PromptSpec '{cls.__name__}' but already contains "
+            f"PromptContract '{contract}'. Specs and contracts must be in separate files.\n"
+            f"FIX: Move one of them to a separate file."
         )
 
     entries = _specs.setdefault(module, [])
@@ -231,6 +261,51 @@ def register_spec(cls: type, follows: type | None) -> None:
         _cross_file_follows[module] = cls.__name__
 
 
+def register_contract(cls: type) -> None:
+    """Enforce: one PromptContract per file, no flows, tasks, or specs in same file."""
+    module = cls.__module__
+
+    # One contract per file
+    existing = _contracts.get(module)
+    if existing is not None and existing != cls.__name__:
+        raise TypeError(
+            f"Module '{module}' defines PromptContract '{cls.__name__}' but already contains "
+            f"PromptContract '{existing}'. Each file may contain at most one PromptContract.\n"
+            f"FIX: Move '{cls.__name__}' to its own file:\n"
+            f"  flows/<flow>/tasks/<task>/contracts/{_snake(cls.__name__)}.py"
+        )
+
+    # No flows in same file
+    flow = _flows.get(module)
+    if flow is not None:
+        raise TypeError(
+            f"Module '{module}' defines PromptContract '{cls.__name__}' but already contains "
+            f"PipelineFlow '{flow}'. Contracts and flows must be in separate files.\n"
+            f"FIX: Move contracts to flows/<flow>/tasks/<task>/contracts/<name>.py"
+        )
+
+    # No tasks in same file
+    task = _tasks.get(module)
+    if task is not None:
+        raise TypeError(
+            f"Module '{module}' defines PromptContract '{cls.__name__}' but already contains "
+            f"PipelineTask '{task}'. Contracts and tasks must be in separate files.\n"
+            f"FIX: Move contracts to flows/<flow>/tasks/<task>/contracts/<name>.py"
+        )
+
+    # No specs in same file
+    specs = _specs.get(module)
+    if specs:
+        spec_names = [name for name, _ in specs]
+        raise TypeError(
+            f"Module '{module}' defines PromptContract '{cls.__name__}' but already contains "
+            f"PromptSpec(s): {', '.join(spec_names)}. Contracts and specs must be in separate files.\n"
+            f"FIX: Move one of them to a separate file."
+        )
+
+    _contracts[module] = cls.__name__
+
+
 def register_stub(cls: type, *, kind: str) -> None:
     """Register a stub class for deployment-time blocking."""
     qualname = f"{cls.__module__}:{cls.__qualname__}"
@@ -248,4 +323,5 @@ def reset_registries() -> None:
     _tasks.clear()
     _specs.clear()
     _cross_file_follows.clear()
+    _contracts.clear()
     _stubs.clear()

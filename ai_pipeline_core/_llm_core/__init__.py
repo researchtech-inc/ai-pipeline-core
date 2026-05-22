@@ -1,44 +1,51 @@
-"""Primitive LLM layer with NO Document dependency.
+"""Streaming-first AIPL-aware internal LLM core.
 
-This internal module provides low-level LLM access for modules that cannot
-depend on Documents (database, observability). App code should use
-the llm module's Conversation class instead.
-
-Exports:
-    Types: Role, TextContent, ImageContent, PDFContent, ContentPart, CoreMessage, TokenUsage
-    Model config: ModelOptions, ModelName
-    Response types: ModelResponse, Citation
-    Functions: generate, generate_structured
+The public application boundary is ``ai_pipeline_core.llm.Conversation``.
+This package exposes typed content, request, response, and transport metadata
+objects. The low-level ``client.generate`` function is intentionally not
+re-exported here so application code cannot bypass the engine.
 """
 
-from .client import generate, generate_structured
+from ._transport_metadata import AIPLInfo, LiteLLMInfo, TransportMetadata
 from .model_response import Citation, ModelResponse
-from .types import (
-    ContentPart,
-    CoreMessage,
-    ImageContent,
-    ModelName,
-    ModelOptions,
-    PDFContent,
-    RawToolCall,
-    Role,
-    TextContent,
-    TokenUsage,
+from .request import (
+    CacheSpec,
+    DebugSpec,
+    GenerationSpec,
+    ListOf,
+    LLMRequest,
+    ResponseSpec,
+    RetrySpec,
+    RoutingSpec,
+    ToolSpec,
+    ValidationSpec,
 )
+from .types import AIModel, ContentPart, CoreMessage, ImageContent, ImagePreset, PDFContent, RawToolCall, Role, TextContent, TokenUsage
 
 __all__ = [
+    "AIModel",
+    "AIPLInfo",
+    "CacheSpec",
     "Citation",
     "ContentPart",
     "CoreMessage",
+    "DebugSpec",
+    "GenerationSpec",
     "ImageContent",
-    "ModelName",
-    "ModelOptions",
+    "ImagePreset",
+    "LLMRequest",
+    "ListOf",
+    "LiteLLMInfo",
     "ModelResponse",
     "PDFContent",
     "RawToolCall",
+    "ResponseSpec",
+    "RetrySpec",
     "Role",
+    "RoutingSpec",
     "TextContent",
     "TokenUsage",
-    "generate",
-    "generate_structured",
+    "ToolSpec",
+    "TransportMetadata",
+    "ValidationSpec",
 ]

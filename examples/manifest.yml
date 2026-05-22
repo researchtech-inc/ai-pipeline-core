@@ -1,0 +1,23 @@
+version: 1
+showcases:
+  - path: examples/showcase_aimodel.py
+    smoke: { entrypoint: smoke }
+    live: { enabled: true, env_gate: RUN_AIMODEL_SHOWCASE_SEND }
+  - path: examples/showcase_database.py
+    smoke: { entrypoint: main }
+    live: { enabled: false }
+  - path: examples/showcase_replay.py
+    smoke: { entrypoint: main }
+    live: { enabled: false }
+  - path: examples/showcase_prompt_compiler.py
+    smoke: { entrypoint: main }
+    live: { enabled: false }
+  - path: examples/showcase_stubs.py
+    smoke: { entrypoint: main }
+    live: { enabled: false }
+  - path: examples/showcase.py
+    smoke: { entrypoint: smoke }
+    live: { enabled: true, cost_cap_usd: 0.50 }
+  - path: examples/showcase_remote_deployment.py
+    smoke: { entrypoint: smoke }
+    live: { enabled: true, cost_cap_usd: 1.00 }

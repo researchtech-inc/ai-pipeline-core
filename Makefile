@@ -1,9 +1,5 @@
 SHELL := /usr/bin/env bash
 
-# Dynamically extract Makefile stages from .PHONY declarations.
-_MAKEFILE_TARGETS := $(shell grep -h '^.PHONY:' $(firstword $(MAKEFILE_LIST)) | sed 's/^.PHONY: //' | tr ' ' '\n' | sort -u)
-EXTRA_ARGS = $(filter-out $(_MAKEFILE_TARGETS),$(MAKECMDGOALS))
-
 .PHONY: install
 install:
 	@uv pip install --system -e .
@@ -19,23 +15,23 @@ install-dev:
 
 .PHONY: test
 test:
-	@dev test $(EXTRA_ARGS)
+	@dev test --lane=unit
 
 .PHONY: test-fast
 test-fast:
-	@dev test --full $(EXTRA_ARGS)
+	@dev test --lane=unit
 
 .PHONY: test-integration
 test-integration:
-	@dev test --integration $(EXTRA_ARGS)
+	@dev test --lane=integration
 
 .PHONY: test-all
 test-all:
-	@dev test --all $(EXTRA_ARGS)
+	@dev verify
 
 .PHONY: test-lf
 test-lf:
-	@dev test --lf
+	@dev test --rerun-failed
 
 .PHONY: lint
 lint:
@@ -53,41 +49,13 @@ typecheck:
 check:
 	@dev check
 
-.PHONY: check-fast
-check-fast:
-	@dev check --fast
-
 # ---------------------------------------------------------------------------
 # Targets that remain Make-native (not test/lint commands)
 # ---------------------------------------------------------------------------
 
-.PHONY: test-cov
-test-cov:
-	@pytest \
-		--cov=ai_pipeline_core \
-		--cov-report=html \
-		--cov-report=term \
-		--cov-fail-under=80 \
-		-m 'not integration and not clickhouse and not pubsub and not pubsub_live' \
-		$(EXTRA_ARGS)
-
-.PHONY: test-collect
-test-collect:
-	@pytest --collect-only -q --no-header
-
 .PHONY: docstrings-cover
 docstrings-cover:
 	@interrogate -v --fail-under 100 ai_pipeline_core
-
-.PHONY: docs-ai-build
-docs-ai-build:
-	@ai-docs generate
-	@ruff format .ai-docs/ --quiet 2>/dev/null || true
-
-.PHONY: docs-ai-check
-docs-ai-check: docs-ai-build
-	@git diff --quiet -- .ai-docs/ \
-	|| (echo ".ai-docs/ is stale. Commit regenerated files."; exit 1)
 
 .PHONY: deadcode
 deadcode:

@@ -107,6 +107,7 @@ class SpanKind(StrEnum):
     ATTEMPT = "attempt"
     OPERATION = "operation"
     CONVERSATION = "conversation"
+    PROMPT_EXECUTION = "prompt_execution"
     LLM_ROUND = "llm_round"
     TOOL_CALL = "tool_call"
 

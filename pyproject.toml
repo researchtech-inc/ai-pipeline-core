@@ -52,7 +52,6 @@ Issues = "https://github.com/researchtech-inc/ai-pipeline-core/issues"
 [project.optional-dependencies]
 dev = [
     "basedpyright==1.37.3",
-    "docs-generator",
     "interrogate==1.7.0",
     "pre-commit>=4.3.0",
     "pytest-asyncio>=1.1.0",
@@ -75,12 +74,16 @@ asyncio_default_fixture_loop_scope = "function"
 strict = true
 testpaths = ["tests"]
 markers = [
-    "integration: tests requiring real LLM API keys (auto-skipped when OPENAI_API_KEY not set)",
-    "available: tests requiring locally available infrastructure or subprocess helpers",
-    "clickhouse: tests requiring a ClickHouse Docker container (auto-skipped when Docker unavailable)",
-    "pubsub: tests requiring GCP Pub/Sub emulator via testcontainers (auto-skipped when Docker unavailable)",
-    "pubsub_live: tests requiring real GCP Pub/Sub (needs PUBSUB_PROJECT_ID)",
-    "ai_docs: test included as example in .ai-docs/ guides",
+    "ai_docs: marks tests that are suitable as documentation examples",
+    "asyncio: opt-in async test",
+    "serial: opt out of xdist for process-stateful tests",
+    "xdist_group: group tests on the same xdist worker",
+]
+filterwarnings = [
+    "ignore:The 'u' type code is deprecated and will be removed in Python 3.16:DeprecationWarning",
+    "ignore::FutureWarning:clickhouse_connect",
+    # testcontainers.clickhouse still uses the deprecated wait_container_is_ready decorator until upstream migrates to structured wait strategies.
+    "ignore:The @wait_container_is_ready decorator is deprecated and will be removed in a future version.*:DeprecationWarning:testcontainers\\.clickhouse",
 ]
 
 [tool.coverage.run]
@@ -167,6 +170,7 @@ max-public-methods = 30
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["T20", "D", "DOC", "PLC0415", "PLC1901", "PLC2701", "S", "ARG", "FBT", "PLW", "PLR", "TRY", "SIM", "ASYNC", "C4", "B017", "B018", "E402", "I001", "PT011", "PT012", "PT017", "PT018", "RUF012", "RUF015", "RUF029", "RUF059", "RUF069", "TID251", "A002"]
+"benchmarks/**/*.py" = ["T20", "D", "DOC", "PLC0415", "PLC1901", "PLC2701", "S", "ARG", "FBT", "PLW", "PLR", "TRY", "SIM", "ASYNC", "C4", "B017", "B018", "E402", "I001", "PT011", "PT012", "PT017", "PT018", "RUF012", "RUF015", "RUF029", "RUF059", "RUF069", "TID251", "A002"]
 "examples/**/*.py" = ["D", "DOC", "PLC0415", "PLC2701", "S", "ARG", "T20", "RUF029", "C901", "PLR0914", "PLR0915", "PLR6301", "A002"]
 "dependencies_docs/**/*.py" = ["D", "DOC", "PLC0415"]
 ".vulture_whitelist.py" = ["B018", "E402", "F401", "F821", "D", "PLC2701"]
@@ -181,7 +185,7 @@ max-public-methods = 30
 "ai_pipeline_core/deployment/_deployment_runtime.py" = ["TID251"]
 "ai_pipeline_core/pipeline/_flow.py" = ["TID251"]
 "ai_pipeline_core/pipeline/limits.py" = ["BLE001", "ASYNC109", "TID251"]
-"tests/pipeline/test_limits.py" = ["PLC2801"]
+"tests/unit/pipeline/test_limits.py" = ["PLC2801"]
 "ai_pipeline_core/deployment/deploy.py" = ["T20", "PLC0415", "PLC2701", "S404", "S602", "S603", "ASYNC", "C901", "PLR0912", "BLE001", "TID251"]
 "ai_pipeline_core/deployment/remote.py" = ["UP046", "UP047", "TID251", "BLE001", "PLC0415", "ARG001", "PLR0914", "PLR0915"]
 "ai_pipeline_core/deployment/_pubsub.py" = ["BLE001"]
@@ -213,8 +217,6 @@ max-public-methods = 30
 "ai_pipeline_core/observability/cli.py" = ["T201", "BLE001", "PLC0415", "PLR0911", "PLR0914"]
 ".claude/**/*.py" = ["T20", "D", "DOC", "TID251", "S"]
 "tools/dev-cli/**/*.py" = ["T20", "D", "DOC", "TID251", "S", "ARG", "PLW", "PLR", "PLC0415", "PERF", "RUF059", "C901", "E741", "PIE"]
-"tools/docs-generator/**/*.py" = ["T20", "TID251"]
-"tools/docs-generator/tests/**/*.py" = ["T20", "D", "DOC", "PLC0415", "PLC1901", "PLC2701", "S", "ARG", "FBT", "PLW", "PLR", "TRY", "SIM", "ASYNC", "C4", "B017", "B018", "E402", "I001", "PT011", "PT012", "PT017", "PT018", "RUF012", "RUF015", "RUF029", "RUF059", "RUF069", "TID251", "A002"]
 "tools/trace-inspector/**/*.py" = ["T20", "D", "DOC", "TID251", "S", "ARG", "PLR", "PLC0415", "PLC2701", "PERF", "RUF059"]
 
 [tool.ruff.format]
@@ -304,7 +306,6 @@ include = [
   "ai_pipeline_core/py.typed",
   "ai_pipeline_core/**/*.yml",
   "ai_pipeline_core/**/*.jinja2",
-  "ai_pipeline_core/.ai-docs/*.md",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -313,7 +314,6 @@ include = [
     "ai_pipeline_core/py.typed",
     "ai_pipeline_core/**/*.yml",
     "ai_pipeline_core/**/*.jinja2",
-    "ai_pipeline_core/.ai-docs/*.md",
     "tests/**/*.py",
     "README.md",
     "LICENSE",
@@ -321,16 +321,40 @@ include = [
 ]
 
 [tool.uv.workspace]
-members = ["tools/docs-generator", "tools/dev-cli", "tools/trace-inspector"]
+members = ["tools/dev-cli", "tools/trace-inspector"]
 
 [tool.dev-cli.infrastructure]
 integration = { env = ["OPENAI_API_KEY", "OPENAI_BASE_URL"], label = "LLM API" }
-clickhouse  = { command = "docker info", label = "ClickHouse (Docker)" }
-pubsub      = { command = "docker info", label = "Pub/Sub emulator (Docker)" }
-pubsub_live = { env = ["PUBSUB_PROJECT_ID"], label = "Pub/Sub live (GCP)" }
+docker = { command = "docker info", label = "Docker" }
+
+[tool.dev-cli.scopes]
+_llm_core = "tests/unit/_llm_core"
+benchmark = "benchmarks/llm_matrix"
+capabilities = "tests/capabilities"
+codec = "tests/unit/codec"
+database = "tests/unit/database"
+deployment = "tests/unit/deployment"
+documents = "tests/unit/documents"
+examples = "examples/tests"
+exceptions = "tests/unit/exceptions"
+images = "tests/unit/images"
+integration = "tests/integration"
+integration_database = "tests/integration/database"
+integration_llm = "tests/integration/llm"
+integration_replay = "tests/integration/replay"
+llm = "tests/unit/llm"
+logging = "tests/unit/logging"
+observability = "tests/unit/observability"
+pipeline = "tests/unit/pipeline"
+prompt_compiler = "tests/unit/prompt_compiler"
+providers = "tests/unit/providers"
+pubsub = "tests/integration/pubsub"
+qualification = "tests/qualification"
+replay = "tests/unit/replay"
+settings = "tests/unit/settings"
+unit = "tests/unit"
 
 [tool.uv.sources]
-docs-generator = { workspace = true }
 dev-cli = { workspace = true }
 trace-inspector = { workspace = true }
 ai-pipeline-core = { workspace = true }

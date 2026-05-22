@@ -6,13 +6,12 @@ requires-python = ">=3.14"
 members = [
     "ai-pipeline-core",
     "dev-cli",
-    "docs-generator",
     "trace-inspector",
 ]
 
 [[package]]
 name = "ai-pipeline-core"
-version = "0.22.1"
+version = "0.22.5"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -38,7 +37,6 @@ dependencies = [
 dev = [
     { name = "basedpyright" },
     { name = "dev-cli" },
-    { name = "docs-generator" },
     { name = "interrogate" },
     { name = "pre-commit" },
     { name = "pylint" },
@@ -60,7 +58,6 @@ requires-dist = [
     { name = "basedpyright", marker = "extra == 'dev'", specifier = "==1.37.3" },
     { name = "clickhouse-connect", specifier = ">=0.14.1" },
     { name = "dev-cli", marker = "extra == 'dev'", editable = "tools/dev-cli" },
-    { name = "docs-generator", marker = "extra == 'dev'", editable = "tools/docs-generator" },
     { name = "google-cloud-pubsub", specifier = ">=2.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "interrogate", marker = "extra == 'dev'", specifier = "==1.7.0" },
@@ -592,11 +589,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/91/9b/4a2ea29aeba624712
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e3/26/57c6fb270950d476074c087527a558ccb6f4436657314bfb6cdf484114c4/docker-7.1.0-py3-none-any.whl", hash = "sha256:c96b93b7f0a746f9e77d325bcfb87422a3d8bd4f03136ae8a85b37f1898d5fc0", size = 147774, upload-time = "2024-05-23T11:13:55.01Z" },
 ]
-
-[[package]]
-name = "docs-generator"
-version = "0.15.1"
-source = { editable = "tools/docs-generator" }
 
 [[package]]
 name = "docstring-parser"

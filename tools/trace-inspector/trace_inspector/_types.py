@@ -1,7 +1,5 @@
 """Shared types and helper functions for trace-inspector."""
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable

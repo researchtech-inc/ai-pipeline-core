@@ -1,573 +1,407 @@
-"""Primitive LLM client for internal modules.
-
-This module provides low-level generate() and generate_structured() functions.
-Expects pre-processed content (images already split/compressed by llm layer).
-
-For app code, use the llm module's Conversation class instead.
-"""
+"""Streaming-first internal LLM client."""
 
 import asyncio
-import base64
-import contextlib
-import hashlib
-import json
-import logging
-import time
-from typing import Any, TypeVar
+import re
+from collections.abc import Mapping
+from dataclasses import replace
+from secrets import SystemRandom
+from typing import Any, overload
 
-from openai import AsyncOpenAI
-from openai.lib.streaming.chat import ChunkEvent, ContentDeltaEvent, ContentDoneEvent
-from openai.types.chat import ChatCompletionMessageParam
-from pydantic import BaseModel, ValidationError
+import httpx
+import openai
+from pydantic import BaseModel
 
-from ai_pipeline_core._token_estimates import estimate_image_tokens, estimate_message_text_tokens, estimate_pdf_tokens
-from ai_pipeline_core.exceptions import EmptyResponseError, LLMError, OutputDegenerationError
-from ai_pipeline_core.settings import settings
+from . import _aipl, _transport
+from ._config import get_config
+from ._response_builder import _build_model_response
+from ._routing import _CallContext
+from ._stream import StreamSession
+from ._strict_schema import schema_for_list, schema_for_model
+from ._watchdog import DEFAULT_MIN_TPS_FALLBACK, StreamWatchdog
+from .exceptions import (
+    ContentPolicyError,
+    EmptyResponseError,
+    LLMError,
+    LLMValidationError,
+    MidStreamProviderError,
+    OutputDegenerationError,
+    PartialToolCallStreamError,
+    PayloadTooLargeError,
+    ProviderReasoningReplayError,
+    StreamWatchdogError,
+    TerminalError,
+)
+from .model_response import AttemptOutcome, ModelResponse
+from .request import AttemptRequest, ListOf, LLMRequest, ResponseSpec
+from .types import AIModel, CoreMessage, ImageContent, PDFContent, Role
 
-from ._degeneration import detect_output_degeneration
-from ._validation import validate_image_content as _validate_image
-from .model_config import get_cache_min_tokens, get_openrouter_provider, supports_stop_sequences
-from .model_response import Citation, ModelResponse
-from .types import (
-    ContentPart,
-    CoreMessage,
-    ImageContent,
-    ModelOptions,
-    PDFContent,
-    RawToolCall,
-    Role,
-    TextContent,
-    TokenUsage,
+__all__ = ["generate"]
+
+_TRANSPORT_FAILURES = (
+    openai.RateLimitError,
+    openai.InternalServerError,
+    openai.APIError,
+    httpx.HTTPError,
+    TimeoutError,
+)
+_SEMANTIC_FAILURES = (
+    EmptyResponseError,
+    OutputDegenerationError,
+    ContentPolicyError,
+    StreamWatchdogError,
+    LLMValidationError,
+    MidStreamProviderError,
+    PartialToolCallStreamError,
+)
+_TERMINAL_FAILURES = (openai.BadRequestError, PayloadTooLargeError)
+_JITTER_RANDOM = SystemRandom()
+_STRUCTURED_BASE_SYSTEM_PROMPT = "Return valid JSON matching the response schema. Do not include prose, markdown, code fences, or explanation."
+_STRUCTURED_RETRY_SYSTEM_PROMPT = "Return ONLY the JSON value matching the response schema. No prose, no markdown, no code fences, no explanation."
+_STRUCTURED_SYSTEM_PROMPTS = frozenset({_STRUCTURED_BASE_SYSTEM_PROMPT, _STRUCTURED_RETRY_SYSTEM_PROMPT})
+_SIGNATURE_REPLAY_PATTERN = re.compile(
+    r"(?:corrupted|invalid|missing|not\s+valid).{0,40}?thought.?signature|thought.?signature.{0,40}?(?:corrupted|invalid|missing|not\s+valid)",
+    re.IGNORECASE | re.DOTALL,
 )
 
-logger = logging.getLogger(__name__)
 
-T = TypeVar("T", bound=BaseModel)
-
-# Valid finish reasons accepted by downstream consumers
-_VALID_FINISH_REASONS = frozenset({"stop", "length", "tool_calls", "content_filter", "function_call"})
+@overload
+async def generate[T: BaseModel](request: LLMRequest, *, response_type: type[T]) -> ModelResponse[T]: ...
 
 
-def _conversation_retry_delay_seconds(*, attempt: int, model_options: ModelOptions) -> int:
-    """Return retry delay for one failed conversation attempt.
+@overload
+async def generate(request: LLMRequest) -> ModelResponse[str]: ...
 
-    ``attempt`` is zero-based and corresponds to the attempt that just failed.
-    When ``ModelOptions.retry_delay_seconds`` is set, preserve the historical flat-delay
-    behavior. Otherwise use the settings-backed exponential schedule with a hard cap.
+
+async def generate(request: LLMRequest, *, response_type: type[BaseModel] | None = None) -> ModelResponse[Any]:
+    """Generate one response, walking retries and AIModel fallbacks."""
+    if response_type is not None:
+        request = replace(request, response=replace(request.response, format=response_type))
+
+    ctx = _CallContext(request)
+    for model in ctx.model_chain():
+        outcome = await _try_one_model(ctx, model)
+        if outcome.response is not None:
+            return outcome.response
+        if not outcome.advance_to_fallback:
+            break
+        # Group exhaustion is per-model: the fallback model has its own
+        # routing group and should not inherit the prior model's exhausted
+        # flag (otherwise its first transient failure short-circuits its
+        # retries via the early-return in _try_one_model).
+        ctx.skip.exhausted = False
+    terminal = ctx.terminal_error()
+    if isinstance(terminal, LLMError):
+        raise terminal
+    raise LLMError("Exhausted all retry attempts for LLM generation.") from terminal
+
+
+async def _try_one_model(ctx: _CallContext, model: AIModel) -> AttemptOutcome:
+    retries = ctx.request.retry.retries
+    if retries is None:
+        retries = get_config().conversation_retries
+
+    last_outcome = AttemptOutcome(error=ctx.last_error)
+    strip_signatures = False
+    stripped_deployment_id: str | None = None
+    for attempt_index in range(retries + 1):
+        if attempt_index > 0 and isinstance(last_outcome.error, ProviderReasoningReplayError):
+            # Latch once a deployment rejects a replayed signature so any
+            # subsequent retry on this model (including those triggered by
+            # transient transport failures) keeps the stripped history and
+            # the pinned deployment id.
+            strip_signatures = True
+            stripped_deployment_id = last_outcome.error.deployment_id
+
+        attempt = ctx.build_attempt(model, attempt_index)
+        if strip_signatures:
+            attempt = _with_stripped_reasoning(attempt, stripped_deployment_id)
+        elif attempt_index > 0 and isinstance(last_outcome.error, LLMValidationError):
+            attempt = _with_structured_retry_prompt(attempt)
+
+        outcome = await _execute_attempt(attempt)
+        ctx.absorb(outcome)
+        last_outcome = outcome
+        if outcome.response is not None:
+            if strip_signatures:
+                outcome = _stamp_reasoning_replay_stripped(outcome)
+            return outcome
+        if outcome.advance_to_fallback or ctx.skip.exhausted:
+            return outcome
+        if attempt_index < retries:
+            await _sleep_retry(attempt_index, ctx.request.retry.retry_delay_seconds)
+    return last_outcome
+
+
+def _with_stripped_reasoning(req: AttemptRequest, deployment_id: str | None) -> AttemptRequest:
+    """Re-emit an attempt with thought_signature blobs removed and routing pinned.
+
+    The signature rejection always comes from the exact deployment that just
+    handled the request, so the retry forces the same deployment to avoid
+    landing on another peer that might also reject the (already-stripped) blob.
     """
-    if model_options.retry_delay_seconds is not None:
-        return model_options.retry_delay_seconds
+    new_messages = _transport.strip_reasoning_signatures(req.call.messages)
+    new_routing = req.call.routing
+    if deployment_id:
+        new_routing = replace(new_routing, force_deployment_id=deployment_id)
+    new_call = replace(req.call, messages=new_messages, routing=new_routing)
+    return replace(req, call=new_call)
 
-    return min(
-        settings.conversation_retry_delay_seconds * (settings.conversation_retry_backoff_multiplier**attempt),
-        settings.conversation_retry_max_delay_seconds,
+
+def _stamp_reasoning_replay_stripped(outcome: AttemptOutcome) -> AttemptOutcome:
+    response = outcome.response
+    if response is None:
+        return outcome
+    new_aipl = replace(response.transport.aipl, reasoning_replay_stripped=True)
+    new_transport = replace(response.transport, aipl=new_aipl)
+    return replace(outcome, response=response.model_copy(update={"transport": new_transport}))
+
+
+async def _execute_attempt(req: AttemptRequest) -> AttemptOutcome:
+    try:
+        api_kwargs, prompt_cache_key = _prepare_api_kwargs(req)
+        watchdog = _make_watchdog(req)
+        messages = api_kwargs.pop("messages")
+        async with _transport.open_stream(req, messages=messages, api_kwargs=api_kwargs) as raw, StreamSession(raw, watchdog=watchdog) as session:
+            completion = await session.drain()
+        response = _build_model_response(completion, req, prompt_cache_key=prompt_cache_key)
+        if req.call.debug.capture_trace:
+            trace = await _aipl.fetch_trace(response.transport.aipl.call_id or req.call_id)
+            if trace is not None:
+                transport = replace(response.transport, aipl=replace(response.transport.aipl, trace=trace))
+                response = response.model_copy(update={"transport": transport})
+        return AttemptOutcome(response=response, headers=completion.aipl_headers)
+    except _TERMINAL_FAILURES as exc:
+        if isinstance(exc, PayloadTooLargeError):
+            raise
+        await _aipl.maybe_fetch_trace(exc, call_id=req.call_id)
+        if _is_signature_replay_error(exc):
+            headers = _headers_from_exception(exc)
+            deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
+            replay_exc = ProviderReasoningReplayError(
+                f"Upstream rejected replayed thought_signature for model={req.model.name}: {exc}",
+                original=exc,
+                deployment_id=deployment_id,
+            )
+            return AttemptOutcome(error=replay_exc, headers=headers, failed_deployment_id=deployment_id)
+        raise TerminalError(f"Terminal LLM provider error for model={req.model.name}: {exc}") from exc
+    except _TRANSPORT_FAILURES + _SEMANTIC_FAILURES as exc:
+        await _aipl.maybe_fetch_trace(exc, call_id=req.call_id)
+        return _classify_failure(exc)
+
+
+def _check_capabilities(req: AttemptRequest) -> None:
+    """Raise TerminalError when the request needs a capability the model does not declare."""
+    model = req.model
+    if req.call.response.format is not None and not model.supports_structured_output:
+        raise TerminalError(
+            f"Model {model.name!r} declares supports_structured_output=False but the request "
+            "includes a response_format. Use a model that supports structured output."
+        )
+    if req.call.tools.schemas and not model.supports_tools:
+        raise TerminalError(
+            f"Model {model.name!r} declares supports_tools=False but the request includes tool schemas. Use a model that supports tool calling."
+        )
+    if model.supports_images and model.supports_pdfs:
+        return
+    for message in req.call.messages:
+        for part in _iter_content_parts(message.content):
+            if isinstance(part, ImageContent) and not model.supports_images:
+                raise TerminalError(f"Model {model.name!r} declares supports_images=False but the request includes ImageContent. Use a vision-capable model.")
+            if isinstance(part, PDFContent) and not model.supports_pdfs:
+                raise TerminalError(f"Model {model.name!r} declares supports_pdfs=False but the request includes PDFContent. Use a PDF-capable model.")
+
+
+def _iter_content_parts(content: Any) -> Any:
+    if isinstance(content, (ImageContent, PDFContent)):
+        yield content
+        return
+    if isinstance(content, tuple):
+        for part in content:
+            yield from _iter_content_parts(part)
+
+
+def _prepare_api_kwargs(req: AttemptRequest) -> tuple[dict[str, Any], str | None]:
+    _check_capabilities(req)
+    generation = req.call.generation
+    messages = _messages_for_transport(req)
+    api_messages = _transport.core_messages_to_api(
+        messages,
+        max_inline_file_total_bytes=req.model.max_inline_file_total_bytes,
     )
+    # If the structured-output SYSTEM instruction was prepended as a new
+    # message (rather than merged into an existing one), shift the cache
+    # prefix by one so it still covers the originally cacheable context
+    # instead of clipping the last context message.
+    cache_prefix_len = req.call.cache.context_count
+    if cache_prefix_len > 0 and len(messages) > len(req.call.messages):
+        cache_prefix_len += len(messages) - len(req.call.messages)
 
+    prompt_cache_key = req.call.cache.key_override or (_transport.compute_cache_key(api_messages[:cache_prefix_len]) if cache_prefix_len > 0 else None)
 
-def _content_to_api_parts(content: str | ContentPart | tuple[ContentPart, ...]) -> list[dict[str, Any]]:
-    """Convert content to OpenAI API format.
+    cache_ttl = req.call.cache.ttl
+    if cache_ttl > 0 and cache_prefix_len > 0:
+        _transport.annotate_with_cache_markers(api_messages, cache_prefix_len, cache_ttl)
 
-    Expects pre-processed images (already split/compressed by llm layer).
-    """
-    if isinstance(content, str):
-        return [{"type": "text", "text": content}]
-
-    if isinstance(content, TextContent):
-        return [{"type": "text", "text": content.text}]
-
-    if isinstance(content, ImageContent):
-        if err := _validate_image(content.data):
-            logger.warning("Skipping invalid image: %s", err)
-            return []
-
-        b64 = base64.b64encode(content.data).decode("utf-8")
-        return [
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:{content.mime_type};base64,{b64}", "detail": "high"},
-            }
-        ]
-
-    if isinstance(content, PDFContent):
-        # Check if "PDF" is actually text (misnamed file)
-        if content.data and b"\x00" not in content.data and not content.data.lstrip().startswith(b"%PDF-"):
-            try:
-                return [{"type": "text", "text": content.data.decode("utf-8")}]
-            except UnicodeDecodeError:
-                pass
-        # Validate PDF header
-        if not content.data or not content.data.lstrip().startswith(b"%PDF-"):
-            logger.warning("Skipping invalid PDF: invalid header or empty content")
-            return []
-
-        b64 = base64.b64encode(content.data).decode("utf-8")
-        return [{"type": "file", "file": {"file_data": f"data:application/pdf;base64,{b64}"}}]
-
-    # Tuple of parts
-    result: list[dict[str, Any]] = []
-    for part in content:
-        result.extend(_content_to_api_parts(part))
-    return result
-
-
-def _messages_to_api(messages: list[CoreMessage]) -> list[ChatCompletionMessageParam]:
-    """Convert CoreMessages to OpenAI API format."""
-    result: list[ChatCompletionMessageParam] = []
-    for msg in messages:
-        if msg.role == Role.TOOL:
-            result.append({
-                "role": "tool",
-                "tool_call_id": msg.tool_call_id or "",
-                "content": msg.content if isinstance(msg.content, str) else "",
-            })
-            continue
-
-        if msg.tool_calls:
-            # Always process content to support multimodal/thinking blocks alongside tool calls.
-            # Some providers (Claude) include text alongside tool calls; others (OpenAI) have content=null.
-            parts = _content_to_api_parts(msg.content)
-            # Set None when parts are empty or only contain a blank text entry (OpenAI requires null)
-            has_content = any(p.get("text", "").strip() or p.get("type") != "text" for p in parts) if parts else False
-            content_value = parts if has_content else None
-            entry: dict[str, Any] = {
-                "role": "assistant",
-                "content": content_value,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function_name, "arguments": tc.arguments},
-                    }
-                    for tc in msg.tool_calls
-                ],
-            }
-            result.append(entry)  # type: ignore[arg-type]
-            continue
-
-        parts = _content_to_api_parts(msg.content)
-        if parts:  # Skip messages with no valid content
-            result.append({"role": msg.role.value, "content": parts})  # type: ignore[arg-type]
-    return result
-
-
-def _apply_cache_control(messages: list[ChatCompletionMessageParam], cache_ttl: str, context_count: int) -> None:
-    """Apply cache_control to context messages (first context_count messages)."""
-    for message in messages[:context_count]:
-        message["cache_control"] = {"type": "ephemeral", "ttl": cache_ttl}  # type: ignore[typeddict-unknown-key]
-        if isinstance(message.get("content"), list):
-            # Also apply to last content item for better cache hits
-            message["content"][-1]["cache_control"] = {"type": "ephemeral", "ttl": cache_ttl}  # type: ignore[typeddict-unknown-key]
-
-
-def _remove_cache_control(messages: list[ChatCompletionMessageParam]) -> list[ChatCompletionMessageParam]:
-    """Remove cache_control directives from messages (for retry after cache errors)."""
-    for message in messages:
-        if (content := message.get("content")) and isinstance(content, list):
-            for item in content:
-                if isinstance(item, dict) and "cache_control" in item:  # pyright: ignore[reportUnnecessaryIsInstance]
-                    del item["cache_control"]
-        if "cache_control" in message:
-            del message["cache_control"]
-    return messages
-
-
-def _compute_cache_key(messages: list[ChatCompletionMessageParam], system_prompt: str | None) -> str:
-    """Compute SHA256 cache key for messages."""
-    key_data = (system_prompt or "") + json.dumps(messages, sort_keys=True, default=str)
-    return hashlib.sha256(key_data.encode()).hexdigest()
-
-
-def _estimate_token_count(messages: list[ChatCompletionMessageParam]) -> int:
-    """Rough estimate of token count for Gemini cache threshold."""
-    total = 0
-    for msg in messages:
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            total += estimate_message_text_tokens(content)
-        elif isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":  # pyright: ignore[reportUnnecessaryIsInstance]
-                    total += estimate_message_text_tokens(part.get("text", ""))
-                elif isinstance(part, dict) and part.get("type") in {"image_url", "file"}:  # pyright: ignore[reportUnnecessaryIsInstance]
-                    total += estimate_image_tokens() if part.get("type") == "image_url" else estimate_pdf_tokens()
-    return total
-
-
-def _extract_usage(response: Any) -> TokenUsage:
-    """Extract token usage from API response."""
-    usage = response.usage
-    if not usage:
-        return TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-
-    cached = 0
-    reasoning = 0
-
-    if prompt_details := getattr(usage, "prompt_tokens_details", None):
-        cached = getattr(prompt_details, "cached_tokens", 0) or 0
-
-    if completion_details := getattr(usage, "completion_tokens_details", None):
-        reasoning = getattr(completion_details, "reasoning_tokens", 0) or 0
-
-    return TokenUsage(
-        prompt_tokens=usage.prompt_tokens,
-        completion_tokens=usage.completion_tokens,
-        total_tokens=usage.total_tokens,
-        cached_tokens=cached,
-        reasoning_tokens=reasoning,
-    )
-
-
-def _extract_cost(response: Any, header_cost: float | None = None) -> float | None:
-    """Extract cost from API response usage, falling back to header cost."""
-    if (usage := response.usage) and hasattr(usage, "cost"):
-        return float(usage.cost)  # type: ignore[attr-defined]
-    return header_cost
-
-
-def _model_name_to_openrouter_model(model: str) -> str:
-    """Convert model name to OpenRouter format if needed."""
-    if model == "sonar-pro-search":
-        return "perplexity/sonar-pro-search"
-    if model.endswith("-search"):
-        model = model.replace("-search", ":online")
-    if "gemini-3" in model and not model.endswith("-preview"):
-        model += "-preview"
-    provider = get_openrouter_provider(model)
-    if provider:
-        return f"{provider}/{model}"
-    return model
-
-
-async def _generate_streaming(
-    client: AsyncOpenAI,
-    model: str,
-    messages: list[ChatCompletionMessageParam],
-    completion_kwargs: dict[str, Any],
-) -> tuple[Any, dict[str, Any], Any]:
-    """Execute streaming LLM API call. Returns (response, metadata, stream_usage)."""
-    start_time = time.time()
-    first_token_time = None
-    usage = None
-
-    async with client.chat.completions.stream(
-        model=model,
-        messages=messages,
-        **completion_kwargs,
-    ) as stream:
-        async for event in stream:
-            if isinstance(event, ContentDeltaEvent):
-                if not first_token_time:
-                    first_token_time = time.time()
-            elif isinstance(event, ContentDoneEvent):
-                pass
-            elif isinstance(event, ChunkEvent) and event.chunk.usage:
-                usage = event.chunk.usage
-
-        if not first_token_time:
-            first_token_time = time.time()
-        response = await stream.get_final_completion()
-
-    metadata = {
-        "time_taken": round(time.time() - start_time, 2),
-        "first_token_time": round(first_token_time - start_time, 2),
+    metadata = _aipl.build_aipl_metadata(req)
+    if prompt_cache_key is not None:
+        metadata["prompt_cache_key"] = prompt_cache_key
+    kwargs: dict[str, Any] = {
+        "messages": api_messages,
+        "extra_body": _transport.build_extra_body(req, prompt_cache_key=prompt_cache_key),
+        "metadata": metadata,
+        "stream_options": {"include_usage": True},
     }
-    return response, metadata, usage
+    if generation.temperature is not None:
+        kwargs["temperature"] = generation.temperature
+    if generation.max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = generation.max_completion_tokens
+    if generation.reasoning_effort:
+        kwargs["reasoning_effort"] = generation.reasoning_effort
+    if generation.verbosity:
+        kwargs["verbosity"] = generation.verbosity
+    if generation.stop and req.model.supports_stop_sequences:
+        kwargs["stop"] = list(generation.stop)
+    if req.call.tools.schemas:
+        kwargs["tools"] = list(req.call.tools.schemas)
+    if req.call.tools.choice is not None:
+        kwargs["tool_choice"] = req.call.tools.choice
+    if req.call.response.format is not None:
+        kwargs["response_format"] = _response_format(req.call.response)
+    return kwargs, prompt_cache_key
 
 
-async def _generate_non_streaming(
-    client: AsyncOpenAI,
-    model: str,
-    messages: list[ChatCompletionMessageParam],
-    completion_kwargs: dict[str, Any],
-) -> tuple[Any, dict[str, Any], Any]:
-    """Execute non-streaming LLM API call. Returns (response, metadata, None)."""
-    start_time = time.time()
-    kwargs = {k: v for k, v in completion_kwargs.items() if k != "stream_options"}
+def _with_structured_retry_prompt(req: AttemptRequest) -> AttemptRequest:
+    """Add a repair instruction after a structured-output parse failure.
 
-    response_format = kwargs.get("response_format")
-    if isinstance(response_format, type) and issubclass(response_format, BaseModel):
-        raw = await client.chat.completions.with_raw_response.parse(
-            model=model,
-            messages=messages,
-            **kwargs,
+    When the retry instruction is prepended as a fresh SYSTEM message
+    (because the original messages had no leading SYSTEM), we also bump
+    ``cache.context_count`` by the same delta so the cache marker continues
+    to cover the originally cacheable context. Without this, the cache
+    prefix accounting in ``_prepare_api_kwargs`` would mark one message
+    short of the intended boundary on retry.
+    """
+    if req.call.response.format is None:
+        return req
+    new_messages = _with_structured_system_instruction(req.call.messages, _STRUCTURED_RETRY_SYSTEM_PROMPT)
+    new_cache = req.call.cache
+    prepended_count = len(new_messages) - len(req.call.messages)
+    if prepended_count > 0 and req.call.cache.context_count > 0:
+        new_cache = replace(req.call.cache, context_count=req.call.cache.context_count + prepended_count)
+    call = replace(req.call, messages=new_messages, cache=new_cache)
+    return replace(req, call=call)
+
+
+def _messages_for_transport(req: AttemptRequest) -> tuple[CoreMessage, ...]:
+    messages = req.call.messages
+    if req.call.response.format is None or _forced_tool_call_requested(req):
+        return messages
+    leading = messages[0] if messages else None
+    if leading is None or leading.role != Role.SYSTEM or not isinstance(leading.content, str):
+        return _with_structured_system_instruction(messages, _STRUCTURED_BASE_SYSTEM_PROMPT)
+    if _STRUCTURED_RETRY_SYSTEM_PROMPT in leading.content:
+        return messages
+    return _with_structured_system_instruction(messages, _STRUCTURED_BASE_SYSTEM_PROMPT)
+
+
+def _with_structured_system_instruction(
+    messages: tuple[CoreMessage, ...],
+    instruction: str,
+) -> tuple[CoreMessage, ...]:
+    """Merge ``instruction`` into the leading SYSTEM message, or prepend a new one.
+
+    If a prior structured-output prompt is already embedded, replace it; otherwise
+    append. Non-string SYSTEM content (multimodal) is left untouched and the
+    instruction is prepended as a fresh SYSTEM message.
+    """
+    if not messages or messages[0].role != Role.SYSTEM or not isinstance(messages[0].content, str):
+        return (CoreMessage(role=Role.SYSTEM, content=instruction), *messages)
+    content = messages[0].content
+    if instruction in content:
+        return messages
+    for prompt in _STRUCTURED_SYSTEM_PROMPTS:
+        content = content.replace(prompt, "")
+    content = content.strip()
+    merged = f"{content}\n\n{instruction}" if content else instruction
+    return (messages[0].model_copy(update={"content": merged}), *messages[1:])
+
+
+def _forced_tool_call_requested(req: AttemptRequest) -> bool:
+    """True when this request must produce tool calls, not final structured text."""
+    if not req.call.tools.schemas:
+        return False
+    choice = req.call.tools.choice
+    if choice == "required":
+        return True
+    return isinstance(choice, dict) and choice.get("type") == "function"
+
+
+def _response_format(spec: ResponseSpec) -> dict[str, Any]:
+    response_format = spec.format
+    assert response_format is not None
+    if isinstance(response_format, ListOf):
+        name = f"ListOf{response_format.inner.__name__}"
+        schema = schema_for_list(response_format.inner)
+    else:
+        name = response_format.__name__
+        schema = schema_for_model(response_format)
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": name, "schema": schema, "strict": True},
+    }
+
+
+def _make_watchdog(req: AttemptRequest) -> StreamWatchdog:
+    if req.call.debug.disable_watchdog:
+        return StreamWatchdog(enabled=False)
+    floor = req.call.retry.min_output_tps or req.model.min_output_tps or DEFAULT_MIN_TPS_FALLBACK
+    return StreamWatchdog(min_output_tps=floor, deployment_id=req.call.routing.force_deployment_id)
+
+
+def _classify_failure(exc: BaseException) -> AttemptOutcome:
+    headers = _headers_from_exception(exc)
+    failure_class = _aipl.classify(exc, headers=headers)
+    action = _aipl.route(failure_class)
+    deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
+    skip: frozenset[str] = frozenset({deployment_id}) if action.skip_deployment and deployment_id else frozenset()
+    return AttemptOutcome(
+        error=exc,
+        headers=headers,
+        new_skip_ids=skip,
+        failed_deployment_id=deployment_id,
+        demote_workload=action.backoff_workload,
+        advance_to_fallback=headers is not None and _aipl.is_group_exhausted(headers),
+    )
+
+
+def _is_signature_replay_error(exc: BaseException) -> bool:
+    """True when an upstream 400 rejects a replayed reasoning signature."""
+    if _SIGNATURE_REPLAY_PATTERN.search(str(exc)):
+        return True
+    response = getattr(exc, "response", None)
+    body = getattr(response, "text", None) if response is not None else None
+    return isinstance(body, str) and bool(_SIGNATURE_REPLAY_PATTERN.search(body))
+
+
+def _headers_from_exception(exc: BaseException) -> _aipl.AIPLResponseHeaders | None:
+    response_headers = getattr(exc, "response_headers", None)
+    if isinstance(response_headers, Mapping):
+        return _aipl.AIPLResponseHeaders.from_response_headers({str(key): str(value) for key, value in response_headers.items()})
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) if response is not None else None
+    if isinstance(headers, Mapping):
+        return _aipl.AIPLResponseHeaders.from_response_headers({str(key): str(value) for key, value in headers.items()})
+    return None
+
+
+async def _sleep_retry(attempt_index: int, retry_delay_seconds: float | None) -> None:
+    if retry_delay_seconds is None:
+        config = get_config()
+        delay = min(
+            config.conversation_retry_delay_seconds * (config.conversation_retry_backoff_multiplier**attempt_index),
+            config.conversation_retry_max_delay_seconds,
         )
     else:
-        raw = await client.chat.completions.with_raw_response.create(
-            model=model,
-            messages=messages,
-            stream=False,
-            **kwargs,
-        )
-
-    response = raw.parse()
-
-    # Extract cost from x-litellm-response-cost header as fallback
-    header_cost: float | None = None
-    if raw_cost := raw.headers.get("x-litellm-response-cost"):
-        with contextlib.suppress(ValueError, TypeError):
-            header_cost = float(raw_cost)
-
-    elapsed = round(time.time() - start_time, 2)
-    metadata = {"time_taken": elapsed, "first_token_time": elapsed, "header_cost": header_cost}
-    return response, metadata, None
-
-
-def _build_model_response(
-    response: Any,
-    metadata: dict[str, Any],
-    stream_usage: Any,
-    model: str,
-    response_format: type[BaseModel] | None,
-) -> ModelResponse[Any]:
-    """Build ModelResponse from raw API response. Raises ValueError/ValidationError on failure."""
-    if not response.choices:
-        raise EmptyResponseError(f"LLM provider returned no choices for model={model} — response.choices is {'None' if response.choices is None else 'empty'}.")
-    # Normalize response to fix provider bugs
-    for choice in response.choices:
-        if hasattr(choice.message, "role") and choice.message.role != "assistant":
-            object.__setattr__(choice.message, "role", "assistant")
-        if choice.finish_reason not in _VALID_FINISH_REASONS:
-            object.__setattr__(choice, "finish_reason", "stop")
-
-    content = response.choices[0].message.content or ""
-    if "</think>" in content:
-        content = content.split("</think>")[-1].strip()
-
-    reasoning_content = ""
-    msg = response.choices[0].message
-    if rc := getattr(msg, "reasoning_content", None):
-        reasoning_content = rc
-    elif "</think>" in (msg.content or ""):
-        reasoning_content = (msg.content or "").split("</think>")[0].strip()
-
-    # Extract tool calls from response
-    raw_tool_calls: tuple[RawToolCall, ...] = ()
-    if msg_tool_calls := getattr(msg, "tool_calls", None):
-        raw_tool_calls = tuple(
-            RawToolCall(id=tc.id or f"call_{i}_{tc.function.name}", function_name=tc.function.name, arguments=tc.function.arguments or "{}")
-            for i, tc in enumerate(msg_tool_calls)
-        )
-
-    thinking_blocks: tuple[dict[str, Any], ...] | None = None
-    provider_specific_fields: dict[str, Any] | None = None
-    if hasattr(msg, "thinking_blocks") and msg.thinking_blocks:
-        thinking_blocks = tuple(tb if isinstance(tb, dict) else tb.__dict__ for tb in msg.thinking_blocks)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
-    if hasattr(msg, "provider_specific_fields") and msg.provider_specific_fields:
-        provider_specific_fields = dict(msg.provider_specific_fields)
-
-    usage = _extract_usage(response)
-    if stream_usage:
-        usage = TokenUsage(
-            prompt_tokens=stream_usage.prompt_tokens,
-            completion_tokens=stream_usage.completion_tokens,
-            total_tokens=stream_usage.total_tokens,
-            cached_tokens=usage.cached_tokens,
-            reasoning_tokens=usage.reasoning_tokens,
-        )
-    cost = _extract_cost(response, header_cost=metadata.get("header_cost"))
-
-    if not content and not raw_tool_calls:
-        if provider_specific_fields:
-            logger.info(
-                "Empty response content but provider_specific_fields present (keys: %s). Provider may use non-standard response fields. Model: %s",
-                list(provider_specific_fields.keys()),
-                model,
-            )
-        raise EmptyResponseError(f"Empty response content from model={model} — no text and no tool calls.")
-
-    parsed: Any = content
-    # Skip structured parsing when tool calls are present (intermediate tool round)
-    if response_format is not None and not raw_tool_calls:
-        parsed = response_format.model_validate_json(content)
-
-    citations: tuple[Citation, ...] = ()
-    if annotations := getattr(response.choices[0].message, "annotations", None):
-        url_citations = [a for a in annotations if getattr(a, "type", None) == "url_citation" and a.url_citation]
-        citations = tuple(
-            Citation(title=a.url_citation.title, url=a.url_citation.url, start_index=a.url_citation.start_index, end_index=a.url_citation.end_index)
-            for a in url_citations
-        )
-
-    return ModelResponse[Any](
-        content=content,
-        parsed=parsed,
-        reasoning_content=reasoning_content,
-        citations=citations,
-        usage=usage,
-        cost=cost,
-        model=model,
-        response_id=response.id or "",
-        metadata=metadata,
-        tool_calls=raw_tool_calls,
-        thinking_blocks=thinking_blocks,
-        provider_specific_fields=provider_specific_fields,
-    )
-
-
-async def _generate_impl(
-    messages: list[CoreMessage],
-    *,
-    model: str,
-    model_options: ModelOptions,
-    response_format: type[BaseModel] | None = None,
-    purpose: str | None = None,
-    expected_cost: float | None = None,
-    context_count: int = 0,
-    tools: list[dict[str, Any]] | None = None,
-    tool_choice: str | dict[str, str] | None = None,
-) -> ModelResponse[Any]:
-    """Shared LLM generation with single retry loop. Handles both text and structured output."""
-    if not messages:
-        raise ValueError("messages must not be empty")
-    if not model:
-        raise ValueError("model must be provided")
-    # Inject system_prompt as first system message if provided
-    effective_messages = list(messages)
-    effective_context_count = context_count
-    if model_options.system_prompt:
-        system_msg = CoreMessage(role=Role.SYSTEM, content=model_options.system_prompt)
-        effective_messages = [system_msg] + effective_messages
-        effective_context_count = context_count + 1 if context_count > 0 else 1
-
-    api_messages = _messages_to_api(effective_messages)
-
-    if "openrouter" in settings.openai_base_url.lower():
-        model = _model_name_to_openrouter_model(model)
-
-    # Apply caching
-    cache_ttl = model_options.cache_ttl
-    if cache_ttl and effective_context_count > 0:
-        min_tokens = get_cache_min_tokens(model)
-        if min_tokens > 0 and _estimate_token_count(api_messages[:effective_context_count]) < min_tokens:
-            cache_ttl = None
-            logger.debug("Disabling cache: context tokens below model minimum (%d)", min_tokens)
-        if cache_ttl:
-            _apply_cache_control(api_messages, cache_ttl, effective_context_count)
-
-    completion_kwargs: dict[str, Any] = {**model_options.to_openai_completion_kwargs()}
-    if "stop" in completion_kwargs and not supports_stop_sequences(model):
-        del completion_kwargs["stop"]
-    if response_format is not None:
-        completion_kwargs["response_format"] = response_format
-    if tools:
-        completion_kwargs["tools"] = tools
-    if tool_choice is not None:
-        completion_kwargs["tool_choice"] = tool_choice
-    if cache_ttl and effective_context_count > 0:
-        completion_kwargs["prompt_cache_key"] = _compute_cache_key(api_messages[:effective_context_count], model_options.system_prompt)
-
-    retries = model_options.retries if model_options.retries is not None else settings.conversation_retries
-    total_attempts = 1 + retries
-    for attempt in range(total_attempts):
-        try:
-            async with AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url) as client:
-                if model_options.stream:
-                    response, metadata, stream_usage = await _generate_streaming(client, model, api_messages, completion_kwargs)
-                else:
-                    response, metadata, stream_usage = await _generate_non_streaming(client, model, api_messages, completion_kwargs)
-
-                model_response = _build_model_response(response, metadata, stream_usage, model, response_format)
-
-                if expected_cost is not None or purpose:
-                    metadata_update: dict[str, Any] = dict(model_response.metadata)
-                    if expected_cost is not None:
-                        metadata_update["expected_cost"] = expected_cost
-                    if purpose:
-                        metadata_update["purpose"] = purpose
-                    model_response = model_response.model_copy(update={"metadata": metadata_update})
-
-                if model_response.has_tool_calls and not tools:
-                    raise ValueError(
-                        "Model returned tool calls even though no tools were provided. Pass tools=[...] to Conversation.send() only when tool use is allowed."
-                    )
-
-                # Detect output degeneration (token repetition loops) — skip for tool calls and structured output
-                if not model_response.has_tool_calls and response_format is None and (explanation := detect_output_degeneration(model_response.content)):
-                    raise OutputDegenerationError(
-                        f"model={model}, tokens={model_response.usage.completion_tokens}, content_length={len(model_response.content)}: {explanation}"
-                    )
-
-                return model_response
-
-        except TimeoutError as timeout_exc:
-            logger.warning("LLM generation timeout (attempt %d/%d)", attempt + 1, total_attempts, exc_info=timeout_exc)
-            if attempt == total_attempts - 1:
-                raise LLMError("Exhausted all retry attempts for LLM generation.") from timeout_exc
-        except Exception as e:
-            if isinstance(e, ValidationError):
-                logger.warning("Structured output validation failed (attempt %d/%d): %s", attempt + 1, total_attempts, e, exc_info=e)
-                final_error_msg = f"Structured output validation failed after {total_attempts} attempts"
-            elif isinstance(e, EmptyResponseError):
-                logger.warning("Empty LLM response (attempt %d/%d, retrying with cache disabled): %s", attempt + 1, total_attempts, e, exc_info=e)
-                final_error_msg = f"Empty response content after {total_attempts} attempts."
-            else:
-                logger.warning("LLM generation failed (attempt %d/%d): %s", attempt + 1, total_attempts, e, exc_info=e)
-                final_error_msg = "Exhausted all retry attempts for LLM generation."
-
-            completion_kwargs.setdefault("extra_body", {})
-            completion_kwargs["extra_body"]["cache"] = {"no-cache": True}
-            completion_kwargs.pop("prompt_cache_key", None)
-            api_messages = _remove_cache_control(api_messages)
-
-            if attempt == total_attempts - 1:
-                raise LLMError(final_error_msg) from e
-
-        await asyncio.sleep(_conversation_retry_delay_seconds(attempt=attempt, model_options=model_options))
-
-    raise LLMError("Unknown error occurred during LLM generation.")
-
-
-async def generate(
-    messages: list[CoreMessage],
-    *,
-    model: str,
-    model_options: ModelOptions | None = None,
-    purpose: str | None = None,
-    expected_cost: float | None = None,
-    context_count: int = 0,
-    tools: list[dict[str, Any]] | None = None,
-    tool_choice: str | dict[str, str] | None = None,
-) -> ModelResponse[str]:
-    """Primitive LLM generation — no Document dependency.
-
-    Layer 1 function for internal modules. App code should use llm.Conversation instead.
-    """
-    return await _generate_impl(
-        messages,
-        model=model,
-        model_options=model_options or ModelOptions(),
-        purpose=purpose,
-        expected_cost=expected_cost,
-        context_count=context_count,
-        tools=tools,
-        tool_choice=tool_choice,
-    )
-
-
-async def generate_structured(
-    messages: list[CoreMessage],
-    response_format: type[T],
-    *,
-    model: str,
-    model_options: ModelOptions | None = None,
-    purpose: str | None = None,
-    expected_cost: float | None = None,
-    context_count: int = 0,
-    tools: list[dict[str, Any]] | None = None,
-    tool_choice: str | dict[str, str] | None = None,
-) -> ModelResponse[T]:
-    """Primitive structured LLM generation — no Document dependency.
-
-    Layer 1 function for internal modules. App code should use llm.Conversation instead.
-    """
-    return await _generate_impl(
-        messages,
-        model=model,
-        model_options=model_options or ModelOptions(),
-        response_format=response_format,
-        purpose=purpose,
-        expected_cost=expected_cost,
-        context_count=context_count,
-        tools=tools,
-        tool_choice=tool_choice,
-    )
+        delay = retry_delay_seconds
+    jittered_delay = delay * _JITTER_RANDOM.uniform(0.8, 1.2)
+    if jittered_delay > 0:
+        await asyncio.sleep(jittered_delay)

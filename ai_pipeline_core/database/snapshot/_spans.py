@@ -38,6 +38,7 @@ _SPAN_KIND_PRIORITY: dict[str, int] = {
     SpanKind.ATTEMPT: 3,
     SpanKind.OPERATION: 4,
     SpanKind.CONVERSATION: 5,
+    SpanKind.PROMPT_EXECUTION: 5,
     SpanKind.LLM_ROUND: 6,
     SpanKind.TOOL_CALL: 7,
 }

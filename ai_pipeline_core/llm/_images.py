@@ -1,25 +1,23 @@
 """Image processing for LLM vision models.
 
 Splits large images vertically with overlap, trims width, and encodes as WebP.
-Respects model-specific constraints via ImagePreset/ImageProcessingConfig.
+Respects the ImagePreset carried by AIModel.
 Includes bridge functions for converting images to LLM ContentParts.
 """
 
 import base64
 import logging
 from dataclasses import dataclass
-from enum import StrEnum
 from io import BytesIO
 from math import ceil
-from typing import Literal, cast
+from typing import Literal
 
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from ai_pipeline_core._llm_core._validation import validate_image_content as _validate_image
-from ai_pipeline_core._llm_core._validation import validate_pdf as _validate_pdf
-from ai_pipeline_core._llm_core.model_config import get_image_preset as _get_image_preset_name
-from ai_pipeline_core._llm_core.types import ContentPart, ImageContent, PDFContent, TextContent
+from ai_pipeline_core._llm_core._validation import validate_pdf_content as _validate_pdf
+from ai_pipeline_core._llm_core.types import ContentPart, ImageContent, ImagePreset, PDFContent, TextContent
 
 logger = logging.getLogger(__name__)
 
@@ -29,21 +27,12 @@ __all__ = [
     "ImageProcessingConfig",
     "ImageProcessingError",
     "ProcessedImage",
-    "get_image_preset",
     "process_image",
     "validated_binary_parts",
 ]
 
 PIL_MAX_PIXELS = 500_000_000  # 500MP security limit
-
-
-class ImagePreset(StrEnum):
-    """Presets for LLM vision model constraints."""
-
-    GEMINI = "gemini"
-    CLAUDE = "claude"
-    GPT4V = "gpt4v"
-    DEFAULT = "default"
+Image.MAX_IMAGE_PIXELS = PIL_MAX_PIXELS
 
 
 class ImageProcessingConfig(BaseModel):
@@ -64,17 +53,17 @@ class ImageProcessingConfig(BaseModel):
 
 
 _PRESETS: dict[ImagePreset, ImageProcessingConfig] = {
-    ImagePreset.GEMINI: ImageProcessingConfig(
+    ImagePreset.HIGH_RES: ImageProcessingConfig(
         max_dimension=3000,
         max_pixels=9_000_000,
         webp_quality=75,
     ),
-    ImagePreset.CLAUDE: ImageProcessingConfig(
+    ImagePreset.COMPACT: ImageProcessingConfig(
         max_dimension=1568,
         max_pixels=1_150_000,
         webp_quality=60,
     ),
-    ImagePreset.GPT4V: ImageProcessingConfig(
+    ImagePreset.BALANCED: ImageProcessingConfig(
         max_dimension=2048,
         max_pixels=4_000_000,
         webp_quality=70,
@@ -93,7 +82,7 @@ class ImagePart(BaseModel):
     model_config = {"frozen": True}
 
     data: bytes = Field(repr=False)
-    mime_type: str
+    mime_type: Literal["image/webp"]
     width: int
     height: int
     index: int = Field(ge=0)
@@ -110,7 +99,7 @@ class ImagePart(BaseModel):
 
 
 class ProcessedImage(BaseModel):
-    """Result of image processing. Iterable over parts."""
+    """Result of image processing. Use ``.parts`` to iterate over individual parts."""
 
     model_config = {"frozen": True}
 
@@ -130,9 +119,6 @@ class ProcessedImage(BaseModel):
 
     def __len__(self) -> int:
         return len(self.parts)
-
-    def __iter__(self):  # type: ignore[override]
-        return iter(self.parts)
 
     def __getitem__(self, idx: int) -> ImagePart:
         return self.parts[idx]
@@ -268,7 +254,7 @@ def _execute_split(
 
 def process_image(
     image: bytes,
-    preset: ImagePreset = ImagePreset.GEMINI,
+    preset: ImagePreset = ImagePreset.DEFAULT,
     config: ImageProcessingConfig | None = None,
 ) -> ProcessedImage:
     """Process image bytes for LLM vision models. Returns ProcessedImage with split/compressed parts."""
@@ -280,14 +266,10 @@ def process_image(
 
     original_bytes = len(raw)
 
-    original_max_pixels = Image.MAX_IMAGE_PIXELS
-    Image.MAX_IMAGE_PIXELS = PIL_MAX_PIXELS
     try:
         img = _load_and_normalize(raw)
     except (OSError, ValueError, Image.DecompressionBombError) as exc:
         raise ImageProcessingError(f"Failed to decode image: {exc}") from exc
-    finally:
-        Image.MAX_IMAGE_PIXELS = original_max_pixels
 
     original_width, original_height = img.size
 
@@ -330,18 +312,8 @@ type _ImageMimeType = Literal["image/jpeg", "image/png", "image/gif", "image/web
 _FORMAT_TO_MIME: dict[str, _ImageMimeType] = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "WEBP": "image/webp"}
 
 
-def get_image_preset(model: str) -> ImagePreset:
-    """Get ImagePreset for a model via model family configuration."""
-    preset_name = _get_image_preset_name(model)
-    try:
-        return ImagePreset(preset_name)
-    except ValueError:
-        return ImagePreset.DEFAULT
-
-
-def _image_needs_processing(data: bytes, model: str) -> bool:
+def _image_needs_processing(data: bytes, preset: ImagePreset) -> bool:
     """Check if image exceeds model limits and needs processing."""
-    preset = get_image_preset(model)
     config = ImageProcessingConfig.for_preset(preset)
 
     try:
@@ -353,21 +325,20 @@ def _image_needs_processing(data: bytes, model: str) -> bool:
         return True
 
 
-def _process_image_to_parts(data: bytes, model: str) -> list[ContentPart]:
+def _process_image_to_parts(data: bytes, preset: ImagePreset) -> list[ContentPart]:
     """Process image bytes and return ContentParts.
 
     Only re-encodes images that exceed model limits. Adds text labels when
     images are split into multiple parts.
     """
-    if not _image_needs_processing(data, model):
+    if not _image_needs_processing(data, preset):
         try:
             with Image.open(BytesIO(data)) as img:
                 mime_type: _ImageMimeType = _FORMAT_TO_MIME.get(img.format or "", "image/jpeg")
-            return cast(list[ContentPart], [ImageContent(data=base64.b64encode(data), mime_type=mime_type)])
+            return [ImageContent(data=base64.b64encode(data), mime_type=mime_type)]
         except OSError, ValueError:
             pass
 
-    preset = get_image_preset(model)
     result = process_image(data, preset=preset)
     parts: list[ContentPart] = []
 
@@ -377,19 +348,29 @@ def _process_image_to_parts(data: bytes, model: str) -> list[ContentPart]:
     for img_part in result.parts:
         if img_part.total > 1:
             parts.append(TextContent(text=f"[{img_part.label}]\n"))
-        parts.append(ImageContent(data=base64.b64encode(img_part.data), mime_type=img_part.mime_type))  # pyright: ignore[reportArgumentType]
+        parts.append(ImageContent(data=base64.b64encode(img_part.data), mime_type=img_part.mime_type))
 
     return parts
 
 
-def validated_binary_parts(data: bytes, name: str, is_image: bool, model: str) -> list[ContentPart] | None:
+def validated_binary_parts(data: bytes, name: str, is_image: bool, preset: ImagePreset) -> list[ContentPart] | None:
     """Validate and convert binary content to ContentParts. Returns None and logs if invalid."""
     if is_image:
-        if err := _validate_image(data, name):
-            logger.warning("Skipping invalid binary content: %s", err)
+        if err := _validate_image(data):
+            logger.warning(
+                "Skipping invalid image content '%s' (validation failed: %s). "
+                "Verify the bytes are a valid JPEG, PNG, GIF, or WebP file before sending it to the LLM.",
+                name,
+                err,
+            )
             return None
-        return _process_image_to_parts(data, model)
-    if err := _validate_pdf(data, name):
-        logger.warning("Skipping invalid binary content: %s", err)
+        return _process_image_to_parts(data, preset)
+    if err := _validate_pdf(data):
+        logger.warning(
+            "Skipping invalid PDF content '%s' (validation failed: %s). "
+            "Verify the bytes start with a valid PDF header and re-create the Document before sending it to the LLM.",
+            name,
+            err,
+        )
         return None
-    return [PDFContent(data=base64.b64encode(data))]
+    return [PDFContent(data=base64.b64encode(data), filename=name)]

@@ -3,8 +3,12 @@
 import sys
 from pathlib import PurePosixPath
 
+from dev_cli._lane import lane_from_path
 from dev_cli._project import ProjectConfig, load_config
 from dev_cli._state import git_changed_files
+
+INTEGRATION_BLAST_RADIUS_RATIO = 0.5
+_LANE_DIRS = frozenset({"unit", "integration", "qualification"})
 
 
 def detect_test_scope() -> tuple[list[str], list[str]]:
@@ -24,13 +28,9 @@ def detect_test_scope() -> tuple[list[str], list[str]]:
         # If a test file itself changed, include its directory
         for test_root in cfg.test_roots:
             if filepath.startswith(test_root + "/"):
-                parts = filepath.removeprefix(test_root + "/").split("/")
-                if parts:
-                    test_dir = f"{test_root}/{parts[0]}"
-                    if (cfg.repo_root / test_dir).is_dir():
-                        test_dirs.add(test_dir)
-                    elif len(parts) == 1 and parts[0].endswith(".py"):
-                        test_dirs.add(test_root)
+                test_dir = _changed_test_dir(filepath, test_root, cfg)
+                if test_dir:
+                    test_dirs.add(test_dir)
 
         # If source changed, map to test directories
         for source_prefix, mapped_test_dirs in cfg.source_to_test.items():
@@ -51,7 +51,8 @@ def resolve_scope(scope: str | None) -> list[str]:
 
     if scope is None:
         dirs, _ = detect_test_scope()
-        return dirs if dirs else cfg.test_roots
+        _enforce_integration_blast_radius(dirs, cfg)
+        return dirs
 
     if scope in cfg.scope_aliases:
         return [cfg.scope_aliases[scope]]
@@ -110,3 +111,42 @@ def _suggest_scope_for_path(file_path: str, cfg: ProjectConfig) -> str | None:
             if candidate in cfg.scope_aliases:
                 return candidate
     return None
+
+
+def _changed_test_dir(filepath: str, test_root: str, cfg: ProjectConfig) -> str | None:
+    parts = filepath.removeprefix(test_root + "/").split("/")
+    if not parts:
+        return None
+    if parts[0] in _LANE_DIRS:
+        if len(parts) >= 2 and not parts[1].endswith(".py"):
+            candidate = f"{test_root}/{parts[0]}/{parts[1]}"
+            if (cfg.repo_root / candidate).is_dir():
+                return candidate
+        candidate = f"{test_root}/{parts[0]}"
+        return candidate if (cfg.repo_root / candidate).is_dir() else None
+    candidate = f"{test_root}/{parts[0]}"
+    if (cfg.repo_root / candidate).is_dir():
+        return candidate
+    if len(parts) == 1 and parts[0].endswith(".py"):
+        return test_root
+    return None
+
+
+def _enforce_integration_blast_radius(test_dirs: list[str], cfg: ProjectConfig) -> None:
+    integration_root = cfg.repo_root / "tests/integration"
+    if not integration_root.is_dir():
+        return
+    all_dirs = {path.relative_to(cfg.repo_root).as_posix() for path in integration_root.iterdir() if path.is_dir() and not path.name.startswith(".")}
+    if not all_dirs:
+        return
+    broad_test_roots = set(cfg.test_roots) | {"tests", "tests/integration"}
+    if any(path in broad_test_roots for path in test_dirs):
+        touched = all_dirs
+    else:
+        touched = {path for path in test_dirs if lane_from_path(path) == "integration"}
+    if len(touched) / len(all_dirs) > INTEGRATION_BLAST_RADIUS_RATIO:
+        print(
+            "BLOCKED: change touches deeply shared code; integration scope expanded to the full lane. Run dev test --lane=integration outside the agent hook.",
+            file=sys.stderr,
+        )
+        sys.exit(2)

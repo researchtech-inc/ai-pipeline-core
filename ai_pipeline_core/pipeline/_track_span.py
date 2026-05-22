@@ -46,6 +46,7 @@ _KIND_TO_LOG_PREFIX: dict[SpanKind, str] = {
     SpanKind.FLOW: "flow",
     SpanKind.TASK: "task",
     SpanKind.CONVERSATION: "conversation",
+    SpanKind.PROMPT_EXECUTION: "prompt_exec",
     SpanKind.LLM_ROUND: "llm",
     SpanKind.TOOL_CALL: "tool",
     SpanKind.ATTEMPT: "attempt",
@@ -82,7 +83,7 @@ class _EncodedSpanFinish:
 
 
 @asynccontextmanager
-async def track_span(  # noqa: PLR0914 - span lifecycle orchestration needs several local values
+async def track_span(
     kind: SpanKind,
     name: str,
     target: str,
@@ -196,10 +197,12 @@ async def track_span(  # noqa: PLR0914 - span lifecycle orchestration needs seve
                 meta["retry_errors"] = context._retry_errors
             if context._status is not None:
                 meta["_span_status"] = context._status
-            terminal_suffix = _terminal_suffix(raw_status=context._status, error=error)
-            _log_terminal_event(kind=kind, name=name, target=target, suffix=terminal_suffix, error=error)
-            log_summary = _consume_log_summary(span_execution_ctx or execution_ctx, span_id)
-            metrics = context._build_metrics(ended_at=ended_at, started_at=started_at, log_summary=log_summary)
+            _log_terminal_event(kind=kind, name=name, target=target, suffix=_terminal_suffix(raw_status=context._status, error=error), error=error)
+            metrics = context._build_metrics(
+                ended_at=ended_at,
+                started_at=started_at,
+                log_summary=_consume_log_summary(span_execution_ctx or execution_ctx, span_id),
+            )
             if metrics.cost_usd and execution_ctx is not None:
                 execution_ctx._recording_state.total_cost_usd += metrics.cost_usd
             is_shutdown = error is not None and not isinstance(error, Exception)
@@ -376,7 +379,7 @@ def _walk_artifacts(
         return
     seen_ids.add(object_id)
     try:
-        codec_state = getattr(value, "__codec_state__", None)
+        codec_state = getattr(value, "codec_state", None)
         if callable(codec_state):
             next_value = codec_state()
             _walk_artifacts(next_value, documents=documents, blobs=blobs, seen_ids=seen_ids)

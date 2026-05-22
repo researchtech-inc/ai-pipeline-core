@@ -1,0 +1,30 @@
+## Inputs
+
+Topic: {{ inputs.topic.text }}
+
+Config:
+{{ inputs.config.text }}
+
+## Methodologies
+
+{% for m in methodologies %}- {{ m.title }}: {{ m.purpose }}
+{% endfor %}
+
+## Documents
+
+{% for d in documents %}- {{ d.reference }}
+{% endfor %}
+
+## Output
+
+The structured output is `{{ output.class_name }}`.
+
+## Notation
+
+{% if notation.active %}URL substitution is active.{% else %}URL substitution is not active.{% endif %}
+
+## Task
+
+Produce the structured output. Set `summary` to a brief one-sentence summary
+that references the supplied topic. Set `document_count` to the integer
+number of documents listed above.

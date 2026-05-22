@@ -1,7 +1,5 @@
 """Markdown rendering for trace-inspector bundles."""
 
-from __future__ import annotations
-
 from uuid import UUID
 
 from trace_inspector._helpers import duration_seconds

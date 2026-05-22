@@ -1,0 +1,16 @@
+## Question
+
+{{ inputs.question.text }}
+
+## Required token
+
+The required token is: `{{ inputs.required_token.text }}`
+
+If — and only if — the validator reports the token is missing, you MUST
+re-emit your answer including the token verbatim. The token will be named
+in the failure message; copy it exactly into the `answer` field.
+
+## Task
+
+Answer the question above concisely in the `answer` field. Set
+`has_token` to True iff the answer literally contains the required token.

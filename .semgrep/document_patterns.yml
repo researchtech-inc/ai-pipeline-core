@@ -21,7 +21,17 @@ rules:
         - "**/test_*"
 
   - id: no-document-model-copy
-    pattern: $DOC.model_copy(...)
+    patterns:
+      - pattern: $DOC.model_copy(...)
+      # Exclude non-Document Pydantic value models that legitimately use
+      # model_copy(update=...). The rule binds $DOC to the receiver name;
+      # names containing "Citation" (e.g. DocumentCitation in prompt_contract)
+      # are framework-owned frozen value models, not ai_pipeline_core.documents.Document
+      # subclasses. This keeps the rule firing on a real Document.model_copy()
+      # in the same file while letting DocumentCitation updates through.
+      - metavariable-regex:
+          metavariable: $DOC
+          regex: '^(?!.*[Cc]itation).*$'
     message: "Document.model_copy() is blocked. Use derive() or create()."
     severity: ERROR
     languages: [python]
@@ -31,6 +41,7 @@ rules:
         # (ModelOptions, ModelResponse, Conversation, DeploymentResult, SpanInfo)
         - "**/_llm_core/**"
         - "**/llm/conversation.py"
+        - "**/llm/_conversation_runtime.py"
         - "**/deployment/base.py"
         - "**/observability/_tracking/**"
         - "**/prompt_compiler/_*.py"
@@ -38,6 +49,7 @@ rules:
         - "**/replay/_execute.py"
         - "**/replay/cli.py"
         - "**/tests/**"
+        - "**/benchmarks/**"
 
   - id: no-document-model-validate
     pattern: $DOC.model_validate(...)

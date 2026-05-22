@@ -1,7 +1,5 @@
 """Shared formatting and calculation helpers for markdown rendering."""
 
-from __future__ import annotations
-
 import posixpath
 from collections import Counter
 from pathlib import Path

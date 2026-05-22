@@ -22,8 +22,12 @@ from pydantic import BaseModel
 from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.database.filesystem._backend import FilesystemDatabase
 from ai_pipeline_core.database.filesystem.overlay import create_debug_sink
+from ai_pipeline_core.deployment._deployment_runtime import _execute_flow_with_context
+from ai_pipeline_core.deployment._helpers import _cancel_dispatched_handles, _ensure_execution_log_handler_installed, _log_flush_loop
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.documents import Document
+from ai_pipeline_core.llm import AIModel
+from ai_pipeline_core.llm.conversation import Conversation
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.pipeline._execution_context import (
@@ -138,8 +142,6 @@ async def run_flow_debug(
     effective_output_dir = output_dir if owns_db else database.base_path
 
     async def _execute() -> tuple[Document, ...]:
-        from ai_pipeline_core.deployment._deployment_runtime import _execute_flow_with_context  # noqa: PLC0415 — deferred to avoid circular import
-
         ctx = get_execution_context()
         assert ctx is not None
         flow_span_id = uuid7()
@@ -202,12 +204,6 @@ async def _run_debug(
 ) -> tuple[Document, ...]:
     """Shared execution wrapper: sets up context, sinks, log buffer, runs, cleans up."""
     setup_logging()
-    from ai_pipeline_core.deployment._helpers import (  # noqa: PLC0415 — deferred to avoid circular import
-        _cancel_dispatched_handles,
-        _ensure_execution_log_handler_installed,
-        _log_flush_loop,
-    )
-
     runtime_sinks = build_runtime_sinks(database=database, settings_obj=settings)
     _ensure_execution_log_handler_installed()
     flush_event = asyncio.Event()
@@ -312,11 +308,6 @@ class DebugSession:
 
     async def __aenter__(self) -> DebugSession:
         setup_logging()
-        from ai_pipeline_core.deployment._helpers import (  # noqa: PLC0415 — deferred to avoid circular import
-            _ensure_execution_log_handler_installed,
-            _log_flush_loop,
-        )
-
         self._database = create_debug_sink(self._output_dir)
         runtime_sinks = build_runtime_sinks(database=self._database, settings_obj=settings)
         _ensure_execution_log_handler_installed()
@@ -366,8 +357,6 @@ class DebugSession:
         return self
 
     async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
-        from ai_pipeline_core.deployment._helpers import _cancel_dispatched_handles  # noqa: PLC0415 — deferred to avoid circular import
-
         try:
             await _cancel_dispatched_handles(self._ctx.active_task_handles, baseline_handles=set())
         finally:
@@ -390,8 +379,6 @@ class DebugSession:
 
     async def run_flow(self, flow: PipelineFlow, documents: Sequence[Document], options: FlowOptions) -> DebugRunResult:
         """Execute a flow within this session."""
-        from ai_pipeline_core.deployment._deployment_runtime import _execute_flow_with_context  # noqa: PLC0415 — deferred to avoid circular import
-
         ctx = get_execution_context()
         assert ctx is not None
         assert self._database is not None
@@ -435,7 +422,7 @@ class DebugSession:
 
     async def run_conversation(
         self,
-        model: str,
+        model: AIModel,
         *,
         messages: list[str] | None = None,
         spec: Any | None = None,
@@ -447,8 +434,6 @@ class DebugSession:
         Either provide ``messages`` for a plain text exchange, or ``spec`` (with optional
         ``spec_documents``) to use a PromptSpec-driven conversation.
         """
-        from ai_pipeline_core.llm.conversation import Conversation  # noqa: PLC0415 — deferred to avoid circular import
-
         conv: Conversation[Any] = Conversation(model=model)
         if context:
             conv = conv.with_context(*context)
@@ -489,7 +474,7 @@ def _normalize_result(result: Any) -> tuple[Document, ...]:
 
 async def run_conversation_debug(
     *,
-    model: str,
+    model: AIModel,
     output_dir: Path,
     messages: list[str] | None = None,
     spec: Any | None = None,

@@ -43,6 +43,7 @@ from typing import ClassVar, Literal
 from pydantic import BaseModel, Field
 
 from ai_pipeline_core import (
+    AIModel,
     Conversation,
     DeploymentPlan,
     DeploymentResult,
@@ -70,9 +71,9 @@ logger = logging.getLogger(__name__)
 
 
 class PipelineConfig(BaseModel, frozen=True):
-    core_model: str
-    fast_model: str
-    reasoning_effort: Literal["low", "medium", "high"]
+    core_model: AIModel
+    fast_model: AIModel
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 
 
 class PipelineConfigDocument(Document[PipelineConfig]):
@@ -80,9 +81,9 @@ class PipelineConfigDocument(Document[PipelineConfig]):
 
 
 class CompetitiveIntelOptions(FlowOptions):
-    core_model: str = "gemini-3-flash"
-    fast_model: str = "gemini-3-flash"
-    reasoning_effort: Literal["low", "medium", "high"] = "low"
+    core_model: AIModel = AIModel(name="gemini-3-flash")
+    fast_model: AIModel = AIModel(name="gemini-3-flash")
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] = "low"
 
 
 # =============================================================================
@@ -736,6 +737,15 @@ def initialize_competitive_intel(options: CompetitiveIntelOptions) -> tuple[str,
         ),
     )
     return "competitive-intel-q1-2026", docs
+
+
+def smoke() -> None:
+    options = CompetitiveIntelOptions()
+    initialize_competitive_intel(options)
+    deployment = CompetitiveIntelPipeline()
+    plan = deployment.build_plan(options)
+    assert plan.steps
+    assert all(isinstance(step.flow, PipelineFlow) for step in plan.steps)
 
 
 if __name__ == "__main__":

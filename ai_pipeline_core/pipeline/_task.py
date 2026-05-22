@@ -33,14 +33,16 @@ from uuid import UUID, uuid7
 from prefect import task as _prefect_task
 from prefect.cache_policies import NONE as _PREFECT_NO_CACHE
 from prefect.context import FlowRunContext as _FlowRunContext
+from prefect.tasks import Task as _PrefectTask
 
-from ai_pipeline_core._base_exceptions import NonRetriableError, StubNotImplementedError
+from ai_pipeline_core._base_exceptions import StubNotImplementedError
 from ai_pipeline_core._lifecycle_events import DocumentRef, TaskCompletedEvent, TaskFailedEvent, TaskStartedEvent
 from ai_pipeline_core._llm_core import CoreMessage, Role
-from ai_pipeline_core._llm_core import generate as core_generate
+from ai_pipeline_core._llm_core.exceptions import NonRetriableError as _CoreNonRetriable
 from ai_pipeline_core.database import SpanKind, SpanRecord, SpanStatus
 from ai_pipeline_core.database._documents import load_documents_from_database
 from ai_pipeline_core.documents import Document
+from ai_pipeline_core.llm._engine import InteractionRequest, execute_interaction
 from ai_pipeline_core.pipeline._document_type_metadata import _FrozenDocumentTypesMeta, freeze_document_type_metadata
 from ai_pipeline_core.pipeline._execution_context import (
     ExecutionContext,
@@ -55,6 +57,7 @@ from ai_pipeline_core.pipeline._execution_context import (
     set_execution_context,
     set_task_context,
 )
+from ai_pipeline_core.pipeline._file_rules import is_exempt, register_stub, register_task, require_docstring
 from ai_pipeline_core.pipeline._parallel import TaskHandle
 from ai_pipeline_core.pipeline._span_types import SpanContext
 from ai_pipeline_core.pipeline._task_cache import build_task_cache_key, build_task_description
@@ -78,6 +81,7 @@ from ai_pipeline_core.pipeline._type_validation import (
 from ai_pipeline_core.settings import settings
 
 logger = logging.getLogger(__name__)
+type _PrefectTaskFn = _PrefectTask[Any, Any]
 
 MILLISECONDS_PER_SECOND = 1000
 MAX_RETRY_DELAY_SECONDS = 300
@@ -130,7 +134,7 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         class SummarizeTask(PipelineTask):
             @classmethod
             async def run(cls, articles: tuple[ArticleDocument, ...]) -> tuple[SummaryDocument, ...]:
-                conv = Conversation(model="gemini-3-flash").with_context(articles[0])
+                conv = Conversation(model=AIModel(name="summary-model")).with_context(articles[0])
                 conv = await conv.send("Summarize this article.")
                 return (SummaryDocument.derive(derived_from=(articles[0],), name="summary.md", content=conv.content),)
 
@@ -149,13 +153,12 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     _abstract_task: ClassVar[bool] = False
     _stub: ClassVar[bool] = False
     BASE_COST_USD: ClassVar[float] = 0.0
-    expected_cost: ClassVar[float | None] = None
     _document_types_frozen: ClassVar[bool] = False
 
     input_document_types: ClassVar[tuple[type[Document], ...]] = ()
     output_document_types: ClassVar[tuple[type[Document], ...]] = ()
     _run_spec: ClassVar[_TaskRunSpec]
-    _prefect_task_fn: ClassVar[Any] = None
+    _prefect_task_fn: ClassVar[_PrefectTaskFn | None] = None
 
     def __init_subclass__(cls, *, stub: bool = False, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -174,13 +177,6 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             return
 
         is_stub = stub
-
-        from ai_pipeline_core.pipeline._file_rules import (  # noqa: PLC0415  # deferred: avoid import-order issues during package init
-            is_exempt,
-            register_stub,
-            register_task,
-            require_docstring,
-        )
 
         exempt = is_exempt(cls)
         if not exempt:
@@ -366,11 +362,12 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         wrapped.__name__ = spec.user_run.__name__
         wrapped.__qualname__ = spec.user_run.__qualname__
         wrapped.__doc__ = spec.user_run.__doc__
-        wrapped.__signature__ = cls._public_signature()  # type: ignore[attr-defined]
+        wrapped_with_signature: Any = wrapped
+        wrapped_with_signature.__signature__ = cls._public_signature()
         return update_wrapper(wrapped, spec.user_run)
 
     @classmethod
-    def _build_prefect_task(cls) -> Any:
+    def _build_prefect_task(cls) -> _PrefectTaskFn:
         """Build a Prefect Task object wrapping the user's run() implementation.
 
         Created at class definition time. Prefect 3.x Task.__init__ is pure Python
@@ -384,16 +381,19 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         async def _prefect_body(arguments: dict[str, Any]) -> tuple[Document[Any], ...]:
             return await task_cls._run_and_normalize(arguments)
 
-        return _prefect_task(
-            name=cls.name,
-            task_run_name=cls.name,
-            retries=0,
-            retry_delay_seconds=0,
-            timeout_seconds=cls.timeout_seconds,
-            persist_result=False,
-            cache_policy=_PREFECT_NO_CACHE,
-            log_prints=False,
-        )(_prefect_body)
+        return cast(
+            _PrefectTaskFn,
+            _prefect_task(
+                name=cls.name,
+                task_run_name=cls.name,
+                retries=0,
+                retry_delay_seconds=0,
+                timeout_seconds=cls.timeout_seconds,
+                persist_result=False,
+                cache_policy=_PREFECT_NO_CACHE,
+                log_prints=False,
+            )(_prefect_body),
+        )
 
     @classmethod
     async def _persist_documents(
@@ -428,7 +428,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         retries = cls.retries if cls.retries is not None else settings.task_retries
         retry_delay = cls.retry_delay_seconds if cls.retry_delay_seconds is not None else settings.task_retry_delay_seconds
         attempts = retries + 1
-        use_prefect = _FlowRunContext.get() is not None and cls._prefect_task_fn is not None
+        prefect_task_fn = cls._prefect_task_fn
+        use_prefect = _FlowRunContext.get() is not None and prefect_task_fn is not None
 
         for attempt in range(attempts):
             attempt_span_id = uuid7()
@@ -441,12 +442,12 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     span_id=attempt_span_id,
                 ) as attempt_ctx:
                     attempt_ctx.set_meta(attempt=attempt, max_attempts=attempts)
-                    if use_prefect:
-                        result = await cls._prefect_task_fn(dict(arguments))
+                    if use_prefect and prefect_task_fn is not None:
+                        result = await prefect_task_fn(dict(arguments))
                     else:
                         result = await _maybe_with_timeout(cls.timeout_seconds, lambda: cls._run_and_normalize(arguments))
                     return result, attempt
-            except (NonRetriableError, asyncio.CancelledError) as exc:
+            except (_CoreNonRetriable, asyncio.CancelledError) as exc:
                 _attach_task_attempt(exc, attempt)
                 raise
             except RETRY_CAPTURE_EXCEPTIONS as exc:
@@ -755,7 +756,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     @staticmethod
     async def _generate_summaries(documents: Sequence[Document]) -> None:
         """Generate missing summaries via LLM with bounded concurrency."""
-        if not settings.doc_summary_enabled:
+        summary_model = settings.doc_summary_model
+        if not settings.doc_summary_enabled or summary_model is None:
             return
 
         candidates = [doc for doc in documents if not doc.summary and doc.is_text]
@@ -768,12 +770,14 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             async with semaphore:
                 try:
                     excerpt = document.text[:SUMMARY_EXCERPT_MAX_CHARS]
-                    response = await core_generate(
-                        [CoreMessage(role=Role.USER, content=_SUMMARY_PROMPT.format(name=document.name, excerpt=excerpt))],
-                        model=settings.doc_summary_model,
-                        purpose="doc_summary",
+                    result = await execute_interaction(
+                        InteractionRequest(
+                            model=summary_model,
+                            messages=(CoreMessage(role=Role.USER, content=_SUMMARY_PROMPT.format(name=document.name, excerpt=excerpt)),),
+                            purpose="doc_summary",
+                        )
                     )
-                    generated = response.content.strip()
+                    generated = result.response.content.strip()
                     if generated:
                         object.__setattr__(document, "summary", generated)
                 except SUMMARY_GENERATION_EXCEPTIONS as exc:

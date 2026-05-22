@@ -4,8 +4,6 @@ Consolidates JSON parsing, metric extraction, duration calculation, and
 document-hash detection that were previously duplicated across modules.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging

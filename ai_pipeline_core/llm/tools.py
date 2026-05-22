@@ -13,10 +13,13 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from textwrap import dedent
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, get_type_hints
 
 from pydantic import BaseModel, ConfigDict
+
+from ai_pipeline_core._llm_core._strict_schema import reject_dynamic_key_objects
+
+from ._tool_binding import ToolBinding
 
 __all__ = ["Tool", "ToolCallRecord", "ToolOutput"]
 
@@ -91,7 +94,16 @@ class Tool:
         """Override this method with your tool logic. Return self.Output(...)."""
         raise NotImplementedError
 
-    def _is_retryable(self, error: Exception) -> bool:  # noqa: PLR6301 — overridable hook, self used by subclasses
+    @classmethod
+    def bind(cls, **kwargs: Any) -> ToolBinding:
+        """Return a ``ToolBinding`` for this tool class with the given constructor args.
+
+        Convenience over ``ToolBinding(MyTool, args={"key": value})``.
+        """
+        return ToolBinding(tool=cls, args=dict(kwargs))
+
+    @staticmethod
+    def _is_retryable(_error: Exception) -> bool:
         """Classify whether a handled exception should be retried. Default: False."""
         return False
 
@@ -119,8 +131,9 @@ class Tool:
                     continue
                 try:
                     return self.handle_error(error)
-                except Exception:  # noqa: BLE001 — re-raise original if handle_error bugs
-                    raise error from None
+                except Exception as handler_error:
+                    logger.warning("Tool '%s' handle_error failed; re-raising original error", self.name, exc_info=handler_error)
+                    raise error from handler_error
             else:
                 break
 
@@ -147,13 +160,22 @@ class Tool:
         return ToolOutput(content=content, data=result)
 
 
-def _validate_tool_class(cls: type[Tool]) -> None:  # noqa: C901, PLR0912
+def _validate_tool_class(cls: type[Tool]) -> None:
     """Validate a concrete Tool subclass at definition time."""
     name = cls.name
 
     if not cls.__doc__ or not cls.__doc__.strip():
         raise TypeError(f"Tool '{name}' must define a non-empty docstring. The docstring becomes the LLM tool description.")
 
+    _validate_tool_input_class(cls, name)
+    _validate_tool_output_class(cls, name)
+    _validate_tool_run_method(cls, name)
+    _validate_lifecycle_classvars(cls, name)
+    cls._tool_spec = True
+
+
+def _validate_tool_input_class(cls: type[Tool], name: str) -> None:
+    """Validate the Input model for a Tool subclass."""
     if "Input" in cls.__dict__:
         input_cls = cls.__dict__["Input"]
         if not isinstance(input_cls, type) or not issubclass(input_cls, BaseModel):
@@ -166,14 +188,17 @@ def _validate_tool_class(cls: type[Tool]) -> None:  # noqa: C901, PLR0912
             if field_name in _RESERVED_FIELD_NAMES:
                 raise TypeError(
                     f"Tool '{name}'.Input field '{field_name}' uses a reserved name that collides "
-                    f"with JSON Schema or LiteLLM keywords. LiteLLM strips '{field_name}' from "
-                    f"schemas for some providers (Gemini, xAI), causing required/properties mismatches. "
+                    f"with JSON Schema or LiteLLM keywords. Some providers strip '{field_name}' from "
+                    "schemas, causing required/properties mismatches. "
                     f"Rename the field (e.g., '{field_name}_value', '{field_name}_mode')."
                 )
-        _validate_strict_mode_compatibility(input_cls.model_json_schema(), name)
+        reject_dynamic_key_objects(input_cls.model_json_schema(), context=f"Tool '{name}'.Input")
     elif not getattr(cls, "_tool_spec", None):
         raise TypeError(f"Tool '{name}' must define an 'Input' inner class (BaseModel). Example: class Input(BaseModel): query: str = Field(description='...')")
 
+
+def _validate_tool_output_class(cls: type[Tool], name: str) -> None:
+    """Validate the Output model for a Tool subclass."""
     if "Output" in cls.__dict__:
         output_cls = cls.__dict__["Output"]
         if not isinstance(output_cls, type) or not issubclass(output_cls, BaseModel):
@@ -183,14 +208,25 @@ def _validate_tool_class(cls: type[Tool]) -> None:  # noqa: C901, PLR0912
     elif not getattr(cls, "_tool_spec", None):
         raise TypeError(f"Tool '{name}' must define an 'Output' inner class (BaseModel) or inherit one from a validated parent tool.")
 
+
+def _validate_tool_run_method(cls: type[Tool], name: str) -> None:
+    """Validate the run method for a Tool subclass."""
     if "run" in cls.__dict__:
-        if not inspect.iscoroutinefunction(cls.__dict__["run"]):
+        run_method = cls.__dict__["run"]
+        if not inspect.iscoroutinefunction(run_method):
             raise TypeError(f"Tool '{name}'.run must be async (async def run)")
+        signature = inspect.signature(run_method)
+        params = list(signature.parameters.values())
+        if len(params) != 2 or params[0].name != "self" or params[1].name != "input":
+            raise TypeError(f"Tool '{name}'.run must have signature async def run(self, input: Input) -> Output.")
+        module = inspect.getmodule(run_method)
+        hints = get_type_hints(run_method, globalns=vars(module) if module is not None else {}, localns=dict(cls.__dict__))
+        if hints.get("input") is not cls.Input:
+            raise TypeError(f"Tool '{name}'.run input annotation must be the tool's Input class.")
+        if hints.get("return") is not cls.Output:
+            raise TypeError(f"Tool '{name}'.run return annotation must be the tool's Output class.")
     elif not getattr(cls, "_tool_spec", None):
         raise TypeError(f"Tool '{name}' must define an 'async def run(self, input: Input) -> Output' method or inherit one from a validated parent tool.")
-
-    _validate_lifecycle_classvars(cls, name)
-    cls._tool_spec = True
 
 
 def _validate_lifecycle_classvars(cls: type[Tool], name: str) -> None:
@@ -221,87 +257,3 @@ class ToolCallRecord:
     input: BaseModel
     output: ToolOutput
     round: int
-
-
-def _validate_strict_mode_compatibility(schema: dict[str, Any], tool_name: str) -> None:
-    """Validate schema has no dict[str, V] types incompatible with OpenAI strict mode."""
-    _check_strict_node(schema, tool_name, "Input")
-
-
-def _check_strict_node(node: dict[str, Any], tool_name: str, path: str) -> None:
-    """Recursively check schema node for dict types incompatible with strict mode."""
-    empty: dict[str, Any] = {}
-    if node.get("type") == "object" and isinstance(node.get("additionalProperties"), dict) and not node.get("properties"):
-        raise TypeError(
-            f"Tool '{tool_name}'.Input has a dict type at '{path}' which is incompatible "
-            f"with OpenAI strict mode. dict[str, V] produces dynamic-key objects that "
-            f"cannot be represented in strict-mode JSON schemas. "
-            f"Replace with list[SomeModel] where SomeModel has explicit fields."
-        )
-    for prop_name, prop_schema in node.get("properties", empty).items():
-        if isinstance(prop_schema, dict):
-            _check_strict_node(prop_schema, tool_name, f"{path}.{prop_name}")
-    for def_name, def_schema in node.get("$defs", empty).items():
-        if isinstance(def_schema, dict):
-            _check_strict_node(def_schema, tool_name, f"$defs.{def_name}")
-    for key in ("allOf", "anyOf", "oneOf"):
-        for i, item in enumerate(node.get(key, [])):
-            if isinstance(item, dict):
-                _check_strict_node(item, tool_name, f"{path}.{key}[{i}]")
-    items = node.get("items")
-    if isinstance(items, dict):
-        _check_strict_node(items, tool_name, f"{path}.items")
-
-
-def _make_strict_schema(schema: dict[str, Any]) -> None:
-    """Recursively add additionalProperties: false and ensure all properties are required.
-
-    Required by OpenAI strict mode. LiteLLM silently strips strict/additionalProperties
-    for providers that don't support it (Gemini, xAI).
-    """
-    empty_dict: dict[str, Any] = {}
-    if schema.get("type") == "object":
-        schema["additionalProperties"] = False
-        properties = cast(dict[str, Any], schema.get("properties", empty_dict))
-        # Strict mode requires ALL properties in the required list
-        schema["required"] = [str(key) for key in properties]
-        for prop in properties.values():
-            if isinstance(prop, dict):
-                _make_strict_schema(cast(dict[str, Any], prop))
-    # Handle $defs for nested models
-    definitions = cast(dict[str, Any], schema.get("$defs", empty_dict))
-    for definition in definitions.values():
-        if isinstance(definition, dict):
-            _make_strict_schema(cast(dict[str, Any], definition))
-    # Handle allOf, anyOf, oneOf
-    for key in ("allOf", "anyOf", "oneOf"):
-        branch_items = cast(list[Any], schema.get(key, []))
-        for item in branch_items:
-            if isinstance(item, dict):
-                _make_strict_schema(cast(dict[str, Any], item))
-    # Handle items for arrays
-    items = schema.get("items")
-    if isinstance(items, dict):
-        _make_strict_schema(cast(dict[str, Any], items))
-
-
-def _generate_tool_schema(tool: Tool) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]  # used by conversation.py
-    """Generate OpenAI Chat Completions tool schema from a Tool instance.
-
-    Example::
-
-        schema = _generate_tool_schema(my_tool_instance)
-        # {"type": "function", "function": {"name": "...", "description": "...", ...}}
-    """
-    tool_cls = type(tool)
-    schema = tool_cls.Input.model_json_schema()
-    _make_strict_schema(schema)
-    return {
-        "type": "function",
-        "function": {
-            "name": tool_cls.name,
-            "description": dedent(tool_cls.__doc__ or "").strip(),
-            "parameters": schema,
-            "strict": True,
-        },
-    }

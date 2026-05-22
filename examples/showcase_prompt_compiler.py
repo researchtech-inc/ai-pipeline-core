@@ -591,14 +591,16 @@ def main() -> None:
     print("\n" + "=" * 80)
     print("\n--- 13. Conversation.send_spec() usage pattern (not executed) ---\n")
     print("""\
-    conv = Conversation(model="gemini-3-flash")
+    from ai_pipeline_core import AIModel, Conversation
+
+    conv = Conversation(model=AIModel(name="gemini-3-flash"))
     conv = await conv.send_spec(
         IssueOptimisticSpec(item="Token liquidity: Low volume"),
         documents=[whitepaper, research1, research2],
     )
     print(conv.content)  # text response
 
-    conv = Conversation(model="gemini-3.1-pro")
+    conv = Conversation(model=AIModel(name="gpt-5.4-mini"))
     conv = await conv.send_spec(
         IssueVerdictSpec(item="Smart contract authority"),
         documents=docs,
@@ -610,6 +612,7 @@ def main() -> None:
     )
     print(conv.content)  # revised text
 
+    model = AIModel(name="gemini-3-flash", cache_ttl=1)
     conv = Conversation(model=model)
     warmup = await conv.send_spec(warmup_spec, documents=docs)
     fork1, fork2 = await asyncio.gather(

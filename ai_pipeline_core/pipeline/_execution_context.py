@@ -24,11 +24,13 @@ from ai_pipeline_core._execution_context_state import (
     reset_execution_context_state,
     set_execution_context_state,
 )
+from ai_pipeline_core._llm_core._routing import reset_workload_state, set_workload_state
 from ai_pipeline_core.database._protocol import DatabaseWriter
 from ai_pipeline_core.documents import Document, DocumentSha256
 from ai_pipeline_core.documents.utils import _is_document_sha256
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._handler import LogContext, reset_log_context, set_log_context
+from ai_pipeline_core.logger._logging_config import setup_logging
 from ai_pipeline_core.pipeline._span_types import SpanSink
 from ai_pipeline_core.pipeline.limits import PipelineLimit, _SharedStatus
 
@@ -251,6 +253,8 @@ class ExecutionContext:
     disable_cache: bool = False
     _recording_state: _RecordingState = field(default_factory=_RecordingState)
     _child_sequence_counters: dict[UUID, count[int]] = field(default_factory=dict)
+    # (workload_id, deployment_id) -> (consecutive bad samples, skip_until_monotonic)
+    _llm_workload_state: dict[tuple[str, str], tuple[int, float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.root_deployment_id is None and self.deployment_id is not None:
@@ -376,14 +380,20 @@ def _build_log_context(ctx: ExecutionContext) -> LogContext | None:
 def set_execution_context(ctx: ExecutionContext) -> Generator[ExecutionContext]:
     """Set the execution context for the current scope.
 
+    Also publishes the per-run LLM workload demotion state into
+    ``_llm_core._routing``'s ContextVar so ``_llm_core`` reads workload
+    demotion without importing pipeline code.
+
     Yields:
         ExecutionContext: The execution context bound for the active scope.
     """
     context_token = set_execution_context_state(ctx)
     log_context_token = set_log_context(_build_log_context(ctx))
+    workload_state_token = set_workload_state(ctx._llm_workload_state)
     try:
         yield ctx
     finally:
+        reset_workload_state(workload_state_token)
         reset_log_context(log_context_token)
         reset_execution_context_state(context_token)
 
@@ -420,8 +430,6 @@ def pipeline_test_context(
     Yields:
         The active execution context for the test scope.
     """
-    from ai_pipeline_core.logger._logging_config import setup_logging  # noqa: PLC0415
-
     if not logging.getLogger().handlers:
         setup_logging()
     deployment_id = uuid4()

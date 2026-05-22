@@ -1,14 +1,17 @@
-"""Unified ModelResponse for LLM interactions.
+"""Unified ModelResponse and LLM execution result types.
 
 Provides a single generic ModelResponse[T] class for both structured and
 unstructured LLM output. Fully serializable with Pydantic.
 """
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from ._aipl_headers import AIPLResponseHeaders
+from ._transport_metadata import TransportMetadata
 from .types import RawToolCall, TokenUsage
 
 T = TypeVar("T", default=str)
@@ -28,6 +31,52 @@ class Citation(BaseModel):
     url: str
     start_index: int
     end_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class TimingData:
+    """Timing captured while draining one stream."""
+
+    started_at: float
+    first_token_at: float | None
+    finished_at: float
+
+    @property
+    def time_taken_s(self) -> float:
+        """Total provider-call duration in seconds."""
+        return self.finished_at - self.started_at
+
+    @property
+    def first_token_time_s(self) -> float | None:
+        """Seconds to first visible token, if any visible token arrived."""
+        if self.first_token_at is None:
+            return None
+        return self.first_token_at - self.started_at
+
+
+@dataclass(frozen=True, slots=True)
+class StreamCompletion:
+    """Output of stream consumption before response normalization."""
+
+    response: Any
+    usage: Any | None
+    raw_headers: Mapping[str, str]
+    aipl_headers: AIPLResponseHeaders
+    timing: TimingData
+    final_tps: float
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptOutcome:
+    """Result of one HTTP attempt."""
+
+    response: ModelResponse[Any] | None = None
+    error: BaseException | None = None
+    new_skip_ids: frozenset[str] = frozenset()
+    failed_deployment_id: str | None = None
+    headers: AIPLResponseHeaders | None = None
+    advance_to_fallback: bool = False
+    demote_workload: bool = False
 
 
 class ModelResponse(BaseModel, Generic[T]):
@@ -70,8 +119,11 @@ class ModelResponse(BaseModel, Generic[T]):
     response_id: str = ""
     """Unique response identifier from the API (empty if not provided)."""
 
-    metadata: Mapping[str, Any] = Field(default_factory=dict)
-    """Additional metadata (timing, model options, etc.)."""
+    finish_reason: str = "stop"
+    """Provider finish reason normalized by the response builder."""
+
+    transport: TransportMetadata = Field(default_factory=TransportMetadata)
+    """Typed transport metadata from the AIPL proxy and LiteLLM."""
 
     # Tool calling
     tool_calls: tuple[RawToolCall, ...] = ()
@@ -82,7 +134,7 @@ class ModelResponse(BaseModel, Generic[T]):
     """Structured thinking blocks from the model (if available)."""
 
     provider_specific_fields: Mapping[str, Any] | None = None
-    """Provider-specific fields like Gemini thought_signatures for multi-turn."""
+    """Carriers for provider-specific reasoning state across multi-turn conversations."""
 
     @property
     def has_tool_calls(self) -> bool:

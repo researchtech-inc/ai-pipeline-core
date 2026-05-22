@@ -96,7 +96,7 @@ class AnalyzeDataTask(PipelineTask, stub=True):
     - Anomaly detection results
 
     Implementation notes:
-    - Use gemini-3-flash for initial analysis
+    - Use the default configured test model for initial analysis
     - Use structured output with AnalysisFindings model
     - Split analysis into theme extraction and statistical summary
     """

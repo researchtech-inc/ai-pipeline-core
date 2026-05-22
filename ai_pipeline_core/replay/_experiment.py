@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from ai_pipeline_core._llm_core.types import AIModel
 from ai_pipeline_core.database._json_helpers import parse_json_object
 from ai_pipeline_core.database._protocol import DatabaseReader, DatabaseWriter
 from ai_pipeline_core.database._types import SpanKind, SpanRecord
@@ -62,7 +63,8 @@ class ExperimentResult:
 
 @dataclass(frozen=True, slots=True)
 class ExperimentOverrides:
-    model: str | None = None
+    model: AIModel | None = None
+    force_deployment_id: str | None = None
     model_options: dict[str, Any] | None = None
     tools: Mapping[str, Tool] | None = None
     response_format: type[BaseModel] | None = None
@@ -137,7 +139,7 @@ def _model_used(result: Any, original: OriginalOutput, overrides: ExperimentOver
         if isinstance(model, str):
             return model
     if overrides is not None and overrides.model:
-        return overrides.model
+        return overrides.model.name
     return original.model or ""
 
 

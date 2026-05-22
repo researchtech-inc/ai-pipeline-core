@@ -14,9 +14,11 @@ _KIND_PREFIXES = {
     "flow": "flow",
     "task": "task",
     "conversation": "conv",
+    "prompt_execution": "prompt",
     "operation": "operation",
     "deployment": "deployment",
 }
+_EMBEDS_LLM_ROUNDS = frozenset({"conversation", "prompt_execution"})
 
 
 def sanitize_name(name: str) -> str:
@@ -43,6 +45,6 @@ def span_filename(
     """Return the local filename for a non-root span."""
     prefix = _KIND_PREFIXES.get(kind, sanitize_name(kind))
     index_prefix = f"{sibling_index:02d}_"
-    if kind == "conversation":
+    if kind in _EMBEDS_LLM_ROUNDS:
         return f"{index_prefix}{prefix}-{str(span_id).replace('-', '')[:8]}.json"
     return f"{index_prefix}{prefix}-{sanitize_name(name or UNNAMED_FALLBACK)}.json"

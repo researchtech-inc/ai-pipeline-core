@@ -13,12 +13,30 @@ AI Pipeline Core is a production-ready framework that combines document processi
 
 This framework is the foundation of AI projects at [research.tech](https://research.tech). It is an internal-first solution, open-sourced because we believe in sharing production infrastructure publicly. The design prioritizes **strictness over flexibility** — all data structures are immutable, all inputs are validated at definition time, and all prompts are typed Python classes. These constraints exist because the framework is primarily developed and maintained by AI coding agents, which require rigid guardrails rather than flexible guidelines.
 
+## Breaking Changes / Migration Notes
+
+**Conversation model identity:** `Conversation` now accepts only `AIModel` instances at the model boundary; raw strings are rejected. Wrap model names with `AIModel(name=...)` before constructing conversations or passing model identity through options. See [Conversation](#conversation-recommended) and [AIModel](#aimodel).
+
+**LLM transport:** OpenRouter support has been dropped as a supported transport path. The AIPL-compatible LiteLLM proxy is the only production transport, including deployment routing, fallback chains, group exhaustion, and trace fetch. See [Required Proxy Capabilities](#required-proxy-capabilities).
+
+**LLM exceptions:** The LLM core now exposes `TerminalError`, `RetryableError`, `GroupExhaustedError`, `ContentPolicyError`, `LLMValidationError`, and `StreamWatchdogError` for routing and failure handling. See [Exceptions](#exceptions).
+
+**Top-level exception exports:** `EmptyResponseError` and `OutputDegenerationError` are no longer exported from the top-level package. They remain importable from `ai_pipeline_core.exceptions` for internal retry handling details. See [Exceptions](#exceptions).
+
+**Retry defaults:** `Settings.task_retries` now defaults from `2` to `0`, and `Settings.conversation_retries` now defaults from `3` to `2`. Class-level `None` still resolves through deployment/settings fallback. See [PipelineTask](#pipelinetask), [ModelOptions](#conversation-recommended), and [Environment Variables](#environment-variables).
+
+**Document summary model:** `doc_summary_model` is now typed as `AIModel | None`; empty string and `None` both disable generated summaries. Set `DOC_SUMMARY_MODEL` to an AIPL model name to enable summaries. See [Database-backed Persistence](#database-backed-persistence) and [Environment Variables](#environment-variables).
+
+**Replay deployment pinning:** `ai-replay run` and `ai-replay batch` now accept `--force-deployment-id` to pin replayed LLM rounds to a specific AIPL deployment ID. See [Replay](#replay).
+
+**List structured outputs:** List-typed structured outputs must use `ListOf`; direct `list[Model]` response formats are not supported. See [Structured Output](#structured-output) and the internal request primitives noted under [AIModel](#aimodel).
+
 ### Key Features
 
 - **Document System**: Single `Document` base class with immutable content, SHA256-based identity, automatic MIME type detection, provenance tracking, multi-part attachments, and optional typed content via `Document[ModelType]`
 - **Database Storage**: Unified database backends (ClickHouse production, filesystem CLI/download/replay, in-memory testing) with automatic deduplication
 - **Conversation Class**: Immutable, stateful multi-turn LLM conversations with context caching, automatic URL/address shortening, and eager response restoration
-- **LLM Integration**: Unified interface to any model via LiteLLM proxy (OpenRouter compatible) with context caching (default 300s TTL)
+- **LLM Integration**: Unified interface to any model via an AIPL-compatible LiteLLM proxy with context caching (default 300s TTL). Production execution requires fallback chains, group exhaustion, deployment routing, and trace fetch — capabilities only the AIPL proxy provides
 - **Tool Calling**: Define tools as typed Python classes with import-time validation, automatic schema generation, and a built-in auto-loop that executes tools and re-sends results until the LLM produces a final answer
 - **Structured Output**: Type-safe generation with Pydantic model validation via `Conversation.send_structured()`
 - **Workflow Orchestration**: Class-based `PipelineTask`, `PipelineFlow`, and `PipelineDeployment` with annotation-driven document types and import-time validation
@@ -48,7 +66,6 @@ Projects built on ai-pipeline-core can install the companion development tools d
 
 ```bash
 pip install "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/dev-cli"
-pip install "docs-generator @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/docs-generator"
 pip install "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/trace-inspector"
 ```
 
@@ -58,20 +75,18 @@ Or add them to your project's `pyproject.toml`:
 [project.optional-dependencies]
 dev = [
     "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/dev-cli",
-    "docs-generator @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/docs-generator",
     "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/trace-inspector",
 ]
 ```
 
-To pin to a specific version, append `@v0.22.2` (or a commit hash) before `#subdirectory`:
+To pin to a specific version, append `@v0.22.5` (or a commit hash) before `#subdirectory`:
 
 ```toml
-    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.2#subdirectory=tools/dev-cli"
+    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.22.5#subdirectory=tools/dev-cli"
 ```
 
-This installs three additional CLI commands:
+This installs two additional CLI commands:
 - `dev` — development workflow CLI (test, lint, typecheck, format, check)
-- `ai-docs` — AI-focused documentation generator
 - `ai-trace-inspect` — trace inspection and markdown debug bundle generation
 
 ### Requirements
@@ -214,10 +229,10 @@ pipeline.run_cli(initializer=initialize)
 ### Conversation (Multi-Turn LLM)
 
 ```python
-from ai_pipeline_core.llm import Conversation, ModelOptions
+from ai_pipeline_core.llm import AIModel, Conversation, ModelOptions
 
 # Create a conversation with model and optional context
-conv = Conversation(model="gemini-3.1-pro")
+conv = Conversation(model=AIModel(name="gpt-5.4-mini"))
 
 # Add documents to cacheable context prefix (shared across forks)
 conv = conv.with_context(doc1, doc2, doc3)
@@ -248,7 +263,7 @@ print(conv.citations)  # Citation objects (for search models)
 
 ```python
 from pydantic import BaseModel, Field
-from ai_pipeline_core import Conversation, Tool
+from ai_pipeline_core import AIModel, Conversation, Tool
 
 
 # 1. Define a tool — docstring becomes the LLM description
@@ -268,7 +283,7 @@ class GetWeather(Tool):
 
 
 # 2. Pass tools to send() — auto-loop handles everything
-conv = Conversation(model="gemini-3-flash")
+conv = Conversation(model=AIModel(name="gemini-3-flash"))
 conv = await conv.send(
     "What's the weather in Paris?",
     tools=[GetWeather()],
@@ -307,7 +322,7 @@ for record in conv.tool_call_records:
 
 ```python
 from pydantic import BaseModel
-from ai_pipeline_core import Conversation
+from ai_pipeline_core import AIModel, Conversation
 
 
 class Analysis(BaseModel):
@@ -317,7 +332,7 @@ class Analysis(BaseModel):
 
 
 # Generate structured output via Conversation
-conv = Conversation(model="gemini-3.1-pro")
+conv = Conversation(model=AIModel(name="gpt-5.4-mini"))
 conv = await conv.send_structured(
     "Analyze this product review: ...",
     response_format=Analysis,
@@ -529,7 +544,7 @@ Documents are automatically persisted by `PipelineTask` to the active database b
 
 Write operations (`insert_span`, `save_document`, `save_blob`, `save_document_batch`, `save_blob_batch`, `save_logs_batch`, `flush`, `shutdown`) are framework-internal — the framework handles persistence automatically. `DatabaseWriter` exposes a `supports_remote` property indicating whether the backend supports Prefect-based remote deployment execution.
 
-**Document summaries:** Persisted `summary` storage is supported via `Document.create(..., summary=...)` and `update_document_summary()`. Summaries are stored as metadata on document records. Configure via `DOC_SUMMARY_ENABLED` and `DOC_SUMMARY_MODEL`.
+**Document summaries:** Persisted `summary` storage is supported via `Document.create(..., summary=...)` and `update_document_summary()`. Summaries are stored as metadata on document records. Configure via `DOC_SUMMARY_ENABLED` and `DOC_SUMMARY_MODEL`. Summary generation is automatically disabled when `OPENAI_BASE_URL`, `OPENAI_API_KEY`, or `DOC_SUMMARY_MODEL` is unset. `DOC_SUMMARY_MODEL` defaults to empty (`None`) and must be set to an AIPL model name to enable generated summaries.
 
 ### LLM Integration
 
@@ -540,10 +555,10 @@ The primary interface is the **`Conversation`** class for multi-turn interaction
 The `Conversation` class provides immutable, stateful conversation management:
 
 ```python
-from ai_pipeline_core.llm import Conversation, ModelOptions
+from ai_pipeline_core.llm import AIModel, Conversation, ModelOptions
 
 # Create with model and optional configuration
-conv = Conversation(model="gemini-3.1-pro")
+conv = Conversation(model=AIModel(name="gpt-5.4-mini"))
 
 # Add documents to cacheable context prefix (shared across forks)
 conv = conv.with_context(doc1, doc2, doc3)
@@ -595,21 +610,55 @@ print(conv.tool_call_records)  # Records of all tool calls made
 **Content protection (automatic):** URLs, blockchain addresses, and high-entropy strings in context documents are automatically shortened to `prefix...suffix` forms to save tokens. Both `.content` and `.parsed` are eagerly restored after every `send()`/`send_structured()` call — no manual restoration needed. A fuzzy fallback handles LLM-mangled forms (dropped suffix, prefix/suffix truncated by 1-2 chars).
 
 **`ModelOptions` key fields (all optional with sensible defaults):**
-- `cache_ttl`: Context cache TTL (default `"300s"`, set `None` to disable)
+- `cache_ttl`: Context cache TTL in integer minutes (default `5`, set `None` to inherit from the model)
 - `system_prompt`: System-level instructions
-- `reasoning_effort`: `"low" | "medium" | "high"` for models with explicit reasoning
-- `search_context_size`: `"low" | "medium" | "high"` for search-enabled models
-- `retries`: Retry attempts (default `None` → uses `Settings.conversation_retries`, default `3`)
+- `reasoning_effort`: Optional per-call override, one of `"none" | "minimal" | "low" | "medium" | "high" | "xhigh"` for models with explicit reasoning
+- `retries`: Retry attempts (default `None` → uses `Settings.conversation_retries`, default `2`)
 - `retry_delay_seconds`: Flat delay override between retries (default `None` → otherwise uses exponential backoff from `Settings.conversation_retry_delay_seconds=30`, `conversation_retry_backoff_multiplier=3`, capped at `conversation_retry_max_delay_seconds=300`)
-- `cache_warmup_max_wait`: Max seconds followers wait for warmup cache (default `None` = disabled, recommended `600.0`)
-- `cache_warmup_max_qps`: Per-prefix QPS limit for warmup (default `None` = no limit, recommended `15` for Gemini)
 - `timeout`: Max wait seconds (default `600`)
-- `service_tier`: `"auto" | "default" | "flex" | "scale" | "priority"` (OpenAI only)
 - `max_completion_tokens`: Max output tokens
 - `temperature`: Generation randomness (usually omit -- use provider defaults)
 - `stop`: Stop sequences (tuple of strings, used internally by `send_spec` for `</result>` tags)
 
-**ModelName predefined values:** `"gemini-3.1-pro"`, `"gpt-5.4"`, `"gemini-3-flash"`, `"gpt-5.4-mini"`, `"grok-4.1-fast"`, `"gemini-3-flash-search"`, `"gpt-5.4-mini-search"`, `"grok-4.1-fast-search"`, `"sonar-pro-search"` (also accepts any string for custom models).
+Model names are configured through `AIModel(...)`/`AIModel(name=...)`. Model capabilities such as fallbacks, vision preset, cache TTL, stop-sequence support, structured output, tool calling, image input, PDF input, and URL preservation live on `AIModel`, not on a string alias. The framework never infers capabilities from the model name — set the relevant `supports_*` / `preserve_input_urls` fields explicitly when constructing an `AIModel`.
+
+### AIModel
+
+`AIModel` is the model identity object for every LLM call. Put it on `FlowOptions`, config models, and tool constructors; pass raw strings only to `AIModel(name=...)` at the configuration boundary.
+
+```python
+from ai_pipeline_core import AIModel
+
+primary = AIModel(
+    name="gpt-5.4-mini",
+    fallback=AIModel(
+        name="gemini-3-flash",
+        fallback=AIModel(name="gpt-5.4-mini"),
+    ),
+    cache_ttl=5,
+    min_output_tps=20.0,
+    timeout_s=600.0,
+)
+```
+
+Key fields:
+- `name`: Model name recognized by the AIPL/LiteLLM proxy
+- `fallback`: Next `AIModel` when the proxy reports group exhaustion
+- `timeout_s`, `min_output_tps`: Per-hop timeout and stream watchdog floor
+- `temperature`, `reasoning_effort`, `verbosity`, `max_completion_tokens`: Generation options carried with the model. `reasoning_effort` defaults to `"medium"`.
+- `supports_stop_sequences`: Whether the model accepts stop sequences
+- `supports_structured_output`: Whether the model accepts a native `response_format` (declared, never inferred). Default `True`. When `False`, a request that carries a response format raises `TerminalError` at preflight.
+- `supports_tools`: Whether the model supports tool/function calling. Default `True`. When `False`, a request that carries tool schemas raises `TerminalError` at preflight.
+- `supports_images`: Whether the model accepts `ImageContent` parts. Default `True`. When `False`, any image in the request raises `TerminalError` at preflight.
+- `supports_pdfs`: Whether the model accepts `PDFContent` parts. Default `True`. When `False`, any PDF in the request raises `TerminalError` at preflight.
+- `vision_preset`: Image processing preset (`ImagePreset.DEFAULT`, `HIGH_RES`, `BALANCED`, `COMPACT`)
+- `preserve_input_urls`: Keep URLs intact (e.g. for search-style models). Default `False`; set explicitly to `True` — the framework does not infer it from the model name.
+- `cache_ttl`: Prompt cache TTL in integer minutes; use `0` to disable explicit cache markers
+- `skip_cost_optimized`: Ask the AIPL proxy to avoid cost-optimized deployments
+
+See `examples/showcase_aimodel.py` for a runnable constructor-focused example.
+
+Advanced request primitives such as `GenerationSpec`, `CacheSpec`, `RoutingSpec`, `ResponseSpec`, `ToolSpec`, `DebugSpec`, `RetrySpec`, `LLMRequest`, `ListOf`, `TransportMetadata`, `AIPLInfo`, and `LiteLLMInfo` live under `ai_pipeline_core._llm_core` for framework internals, replay, and observability. Application code should use `Conversation`, `AIModel`, and `ModelOptions` instead of importing those internal request types from the package root.
 
 ### Image Processing
 
@@ -619,12 +668,12 @@ Image processing for LLM vision models is available from the `llm._images` modul
 from ai_pipeline_core.llm._images import process_image, ImagePreset
 
 # Process an image with model-specific presets
-result = process_image(screenshot_bytes, preset=ImagePreset.GEMINI)
-for part in result:
+result = process_image(screenshot_bytes, preset=ImagePreset.HIGH_RES)
+for part in result.parts:
     print(part.label, len(part.data))
 ```
 
-Available presets: `GEMINI` (3000px, 9M pixels), `CLAUDE` (1568px, 1.15M pixels), `GPT4V` (2048px, 4M pixels), `DEFAULT` (1000px, 1M pixels).
+Available presets: `HIGH_RES` (3000px, 9M pixels), `COMPACT` (1568px, 1.15M pixels), `BALANCED` (2048px, 4M pixels), `DEFAULT` (1000px, 1M pixels).
 
 **Token cost:** A single image is estimated at **1080 tokens** for token counting purposes (actual usage depends on provider).
 
@@ -635,20 +684,42 @@ The `Conversation` class automatically splits oversized images when documents ar
 The framework re-exports key exceptions at the top level for convenient catching:
 
 ```python
-from ai_pipeline_core import PipelineCoreError, NonRetriableError, LLMError, EmptyResponseError, DocumentValidationError, DocumentSizeError, DocumentNameError
+from ai_pipeline_core import (
+    ContentPolicyError,
+    DocumentNameError,
+    DocumentSizeError,
+    DocumentValidationError,
+    GroupExhaustedError,
+    LLMError,
+    LLMValidationError,
+    NonRetriableError,
+    PipelineCoreError,
+    ProviderAuthError,
+    ProviderError,
+    RetryableError,
+    StreamWatchdogError,
+    StubNotImplementedError,
+    TerminalError,
+)
 ```
 
 - `PipelineCoreError` — Base for all framework exceptions
 - `NonRetriableError` — Signals that an operation must not be retried (stops task/flow retry loops immediately)
-- `LLMError` — LLM generation failures (retries exhausted, timeouts, degeneration)
-- `EmptyResponseError` — Blank/empty LLM response (subclass of `LLMError`, triggers retry with cache disabled)
+- `LLMError` — LLM generation failures after framework retries are exhausted
+- `TerminalError` — LLM failure that requires an external fix and should not be retried by task/flow retry loops
+- `RetryableError` — Retry-eligible integration failure for tools and provider adapters
+- `GroupExhaustedError` — AIPL proxy exhausted one logical model group and fallback should advance
+- `ContentPolicyError` — Provider blocked the response for content-policy reasons
+- `LLMValidationError` — Structured LLM output failed validation after retries
+- `StreamWatchdogError` — Streaming response violated the configured watchdog policy
+- `StubNotImplementedError` — Executed a `stub=True` placeholder task, flow, or spec
 - `ProviderError` — External provider call failed after all retries (subclass of `PipelineCoreError`)
 - `ProviderAuthError` — Authentication/authorization failure (401/403), never retried (subclass of both `ProviderError` and `NonRetriableError`)
 - `DocumentValidationError` — Document validation failures
 - `DocumentSizeError` — Document exceeds size limits
 - `DocumentNameError` — Invalid document name (path traversal, etc.)
 
-Output degeneration (token repetition loops) is detected automatically and raises `LLMError` after retry exhaustion.
+Output degeneration (token repetition loops) is detected automatically and triggers an internal retry with cache disabled; the framework surfaces it as `LLMError` only after retries exhaust. `EmptyResponseError` and `OutputDegenerationError` are framework-internal retry signals and are not part of the top-level public surface.
 
 ### Pipeline Classes
 
@@ -699,11 +770,10 @@ result = await handle.result()
 ```
 
 **ClassVar configuration:**
-- `retries`: Retry attempts on failure (default `None` → uses `Settings.task_retries`, default `2`; exponential backoff)
+- `retries`: Retry attempts on failure (default `None` → uses `Settings.task_retries`, default `0`; exponential backoff)
 - `retry_delay_seconds`: Base delay between retries (default `None` → uses `Settings.task_retry_delay_seconds`, default `30`; doubles each attempt, capped at 300s)
 - `timeout_seconds`: Task execution timeout (default `None`)
 - `estimated_minutes`: Duration estimate for progress tracking (default `1`, must be >= 1)
-- `expected_cost`: Expected cost budget for cost tracking
 
 **Key features:**
 - Import-time validation of `run()` signature and document type annotations
@@ -757,8 +827,8 @@ class ConfigurableFlow(PipelineFlow):
         ...
 
 
-flow = ConfigurableFlow(model="gemini-3.1-pro", temperature=0.7)
-flow.get_params()  # {"model": "gemini-3.1-pro", "temperature": 0.7}
+flow = ConfigurableFlow(model=AIModel("gpt-5.4-mini"), temperature=0.7)
+flow.get_params()  # {"model": AIModel("gpt-5.4-mini"), "temperature": 0.7}
 ```
 
 **Flow ClassVar configuration:**
@@ -772,9 +842,9 @@ Flow retries are controlled by the deployment (see `flow_retries` on `PipelineDe
 
 ```python
 class ResearchOptions(FlowOptions):
-    analysis_model: ModelName = "gemini-3.1-pro"
-    verification_model: ModelName = "grok-4.1-fast"
-    synthesis_model: ModelName = "gemini-3.1-pro"
+    analysis_model: AIModel = AIModel("gpt-5.4-mini")
+    verification_model: AIModel = AIModel("gemini-3-flash")
+    synthesis_model: AIModel = AIModel("gpt-5.4-mini")
     max_sources: int = 10
 ```
 
@@ -790,7 +860,7 @@ class MyPipeline(PipelineDeployment[MyOptions, MyResult]):
         return DeploymentPlan(
             steps=(
                 FlowStep(AnalysisFlow()),
-                FlowStep(ReportFlow(model="gemini-3.1-pro")),
+                FlowStep(ReportFlow(model=AIModel("gpt-5.4-mini"))),
             )
         )
 
@@ -1123,7 +1193,7 @@ class ReviewSpec(PromptSpec):
 **Rendering and sending:**
 
 ```python
-from ai_pipeline_core import Conversation, render_text, render_preview
+from ai_pipeline_core import AIModel, Conversation, render_preview, render_text
 
 # Create spec instance with dynamic field values
 spec = AnalysisSpec(project_name="ACME")
@@ -1135,7 +1205,7 @@ prompt = render_text(spec, documents=[source_doc])
 preview = render_preview(AnalysisSpec)
 
 # Send to LLM via Conversation
-conv = await Conversation(model="gemini-3-flash").send_spec(spec, documents=[source_doc])
+conv = await Conversation(model=AIModel(name="gemini-3-flash")).send_spec(spec, documents=[source_doc])
 print(conv.content)  # <result> tags auto-extracted by send_spec()
 ```
 
@@ -1182,10 +1252,13 @@ ai-replay run ./downloaded_bundle/runs/.../01_task-build-summary.json --db-path 
 
 ```bash
 # Switch model for a recorded conversation span
-ai-replay run ./downloaded_bundle/runs/.../01_conv-a1b2c3d4.json --db-path ./downloaded_bundle --import my_app --model grok-4.1-fast
+ai-replay run ./downloaded_bundle/runs/.../01_conv-a1b2c3d4.json --db-path ./downloaded_bundle --import my_app --model gemini-3-flash
 
 # Override model_options or response_format
 ai-replay run ./downloaded_bundle/runs/.../01_conv-a1b2c3d4.json --db-path ./downloaded_bundle --import my_app --set reasoning_effort=low
+
+# Pin a replayed LLM round to one AIPL deployment ID
+ai-replay run ./downloaded_bundle/runs/.../01_conv-a1b2c3d4.json --db-path ./downloaded_bundle --force-deployment-id deployment-123
 ```
 
 The `--import` flag is required when the original script was run as `__main__` — it imports the module so Document subclasses and functions are registered, and automatically remaps `__main__:X` references to the correct module path.
@@ -1309,20 +1382,34 @@ TASK_RETRY_DELAY_SECONDS=30
 FLOW_RETRIES=0
 FLOW_RETRY_DELAY_SECONDS=30
 CONVERSATION_RETRIES=2
-CONVERSATION_RETRY_DELAY_SECONDS=20
+CONVERSATION_RETRY_DELAY_SECONDS=30
+CONVERSATION_RETRY_BACKOFF_MULTIPLIER=3
+CONVERSATION_RETRY_MAX_DELAY_SECONDS=300
 
 # Optional: Laminar Tracing
 LMNR_PROJECT_API_KEY=your-laminar-key
 
 # Optional: Document Summaries (store-level, LLM-generated)
 DOC_SUMMARY_ENABLED=true
-DOC_SUMMARY_MODEL=gemini-3.1-flash-lite
+# Empty = disabled; set to an AIPL model name to enable generated summaries.
+DOC_SUMMARY_MODEL=
 
 # Optional: Pub/Sub event delivery (deployment progress/status)
 # Requires pubsub_service_type ClassVar on the PipelineDeployment subclass
 PUBSUB_PROJECT_ID=your-gcp-project
 PUBSUB_TOPIC_ID=pipeline-events
 ```
+
+### Required Proxy Capabilities
+
+The framework can speak to a plain LiteLLM-compatible endpoint for basic completions, but production behavior assumes an AIPL-compatible LiteLLM proxy. These capabilities power fallback chains, deployment pinning, workload routing, and trace debugging:
+
+- AIPL response headers parsed by the framework, including `x-aipl-call-id`, `x-aipl-deployment-id`, `x-aipl-group-status`, `x-aipl-tried`, `x-aipl-failed`, `x-aipl-cc-dedup`, `x-aipl-cc-stale`, cache headers, limiter headers, and provider metadata.
+- `GET /aipl/trace/{call_id}` for best-effort trace fetch after failed or degraded calls.
+- Request metadata keys accepted by the proxy: `aipl_force_deployment_id`, `aipl_prefer_deployment_id`, `aipl_skip_model_ids`, `aipl_skip_cost_optimized`, and `aipl_warmup_strategy_override`. Workload-scoped demotion is framework-side; the proxy no longer reads a workload id from metadata.
+- Group exhaustion signaling that lets `AIModel.fallback` advance to the next model.
+
+Without these proxy features, ordinary LLM calls may still work, but fallback routing, deployment observability, and AIPL trace diagnostics are unavailable.
 
 ### Settings Management
 
@@ -1385,10 +1472,9 @@ All test, lint, and type-check workflows go through the `dev` CLI. It captures f
 # Testing
 dev test                # Run affected tests (auto-scoped from git changes, uses testmon)
 dev test pipeline       # Run tests for a specific module
-dev test --lf           # Rerun only last-failed tests
-dev test --full         # Full suite in parallel (before commit)
-dev test --available    # Include infrastructure tests (auto-detects Docker/API keys)
-dev test --coverage    # Full suite with code coverage (HTML + JSON reports)
+dev test --rerun-failed # Rerun last-failed tests within the selected scope
+dev test --lane=unit    # Full unit lane
+dev test --lane=integration
 
 # Code quality
 dev format              # Auto-fix lint + formatting (ruff format + ruff check --fix)
@@ -1397,12 +1483,10 @@ dev typecheck           # Type checking (basedpyright)
 
 # All checks in order (lint → typecheck → deadcode → semgrep → docstrings → tests)
 dev check               # Full validation pipeline
-dev check --fast        # Lint + typecheck only (quick sanity check)
 
 # Utilities
 dev status              # Show changed files, last run results, suggested next command
 dev info                # Detailed usage guide with auto-detected project config
-dev list-tests pipeline # List tests by scope
 ```
 
 **Do not run `pytest`, `ruff`, or `basedpyright` directly** — use `dev` commands instead. A Claude Code hook enforces this in the devcontainer. The `dev` CLI handles correct flags, output management, marker expressions, and idempotency automatically.
@@ -1410,10 +1494,9 @@ dev list-tests pipeline # List tests by scope
 **Recommended workflow:**
 1. Write code
 2. `dev format` — auto-fix lint/formatting
-3. `dev check --fast` — verify lint + types
-4. `dev test` — run affected tests
-5. If tests fail: fix code, then `dev test --lf`
-6. `dev check` — full validation before commit
+3. `dev test` — run affected tests
+4. If tests fail: fix code, then `dev test --rerun-failed`
+5. `dev check` — full validation before commit
 
 Infrastructure tests (ClickHouse, Pub/Sub, LLM integration) auto-skip when their requirements are unavailable. `dev test` is always safe to run. Use `dev info` to see which infrastructure is detected.
 
@@ -1426,19 +1509,6 @@ Infrastructure tests (ClickHouse, Pub/Sub, LLM integration) auto-skip when their
 - **Semgrep** — custom rules in `.semgrep/` for frozen model mutable fields, async enforcement, docstring quality, architecture constraints
 - **Interrogate** — 100% docstring coverage enforcement
 
-### AI Documentation
-
-The `.ai-docs/` directory contains auto-generated API guides designed to be fed directly to AI coding agents as context. Each module produces one self-contained guide — an AI agent should be able to correctly use any module's public API by reading only its guide.
-
-Guides include full source signatures, constraint rules extracted from docstrings, usage examples extracted from tests, and internal types that appear in public API signatures. CI enforces that guides stay fresh with the source code.
-
-```bash
-make docs-ai-build  # Generate .ai-docs/ from source code
-make docs-ai-check  # Validate .ai-docs/ freshness and completeness
-```
-
-When building applications on this framework, include the relevant `.ai-docs/*.md` guides in your AI agent's context window.
-
 ## Examples
 
 The `examples/` directory contains:
@@ -1447,6 +1517,7 @@ The `examples/` directory contains:
 - **`showcase_database.py`** -- Database usage: run a real deployment into `MemoryDatabase`, inspect a recorded task span target plus parsed `meta_json` / `metrics_json`, and inspect output document ancestry
 - **`showcase_replay.py`** -- Replay system: record a real task span through `PipelineDeployment.run(...)`, then replay that stored span with `execute_span()`
 - **`showcase_prompt_compiler.py`** -- Prompt compiler features: Role, Rule, OutputRule, Guide, PromptSpec, rendering, `Conversation.send_spec()` usage patterns, follow-up specs, definition-time validation
+- **`showcase_aimodel.py`** -- AIModel capabilities: fallback chains, cache TTL, cost-optimized deployment skipping, and stream watchdog settings
 - **`showcase_stubs.py`** -- Stub classes for incremental development: `stub=True` on PipelineTask, PipelineFlow, PromptSpec with preserved type contracts, runtime guards, and deployment blocking
 
 Run examples:
@@ -1462,6 +1533,9 @@ python examples/showcase_replay.py
 
 # Prompt compiler showcase (no arguments needed)
 python examples/showcase_prompt_compiler.py
+
+# AIModel showcase (live send is opt-in)
+python examples/showcase_aimodel.py
 ```
 
 ## Project Structure
@@ -1484,9 +1558,7 @@ ai-pipeline-core/
 |   +-- exceptions.py      # Framework exceptions (LLMError, DocumentNameError, etc.)
 |-- tools/
 |   |-- dev-cli/           # Dev CLI — enforces correct test/lint/check workflows
-|   |-- docs-generator/    # AI-focused documentation generator (separate workspace package)
 |   +-- trace-inspector/   # Trace inspection — generates markdown debug bundles from execution data
-|-- .ai-docs/             # Auto-generated API guides for AI coding agents
 |-- tests/                 # Comprehensive test suite
 |-- examples/              # Usage examples
 +-- pyproject.toml         # Project configuration
@@ -1513,5 +1585,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - Built on [Prefect](https://www.prefect.io/) for workflow orchestration
-- Uses [LiteLLM](https://github.com/BerriAI/litellm) for LLM provider abstraction (also compatible with [OpenRouter](https://openrouter.ai/))
+- Uses an AIPL-compatible [LiteLLM](https://github.com/BerriAI/litellm) proxy for LLM provider abstraction, deployment routing, and trace fetch
 - Type checking with [Pydantic](https://pydantic.dev/) and [basedpyright](https://github.com/DetachHead/basedpyright)

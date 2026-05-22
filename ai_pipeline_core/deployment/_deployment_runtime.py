@@ -12,7 +12,8 @@ from uuid import UUID, uuid7
 
 from prefect.context import FlowRunContext as _FlowRunContext
 
-from ai_pipeline_core._base_exceptions import NonRetriableError, StubNotImplementedError
+from ai_pipeline_core._base_exceptions import StubNotImplementedError
+from ai_pipeline_core._llm_core.exceptions import NonRetriableError as _CoreNonRetriable
 from ai_pipeline_core.database import SpanKind, SpanRecord, SpanStatus
 from ai_pipeline_core.database._documents import load_documents_from_database
 from ai_pipeline_core.documents import Document
@@ -289,7 +290,7 @@ async def _run_flow_with_retries(
             ) as attempt_ctx:
                 attempt_ctx.set_meta(attempt=flow_attempt, max_attempts=flow_attempts)
                 return await _execute_single_flow_attempt(flow_class, flow_instance, resolved_kwargs)
-        except NonRetriableError, TypeError, asyncio.CancelledError:
+        except _CoreNonRetriable, TypeError, asyncio.CancelledError:
             raise
         except Exception as attempt_exc:
             if current_exec_ctx is not None:

@@ -1,0 +1,24 @@
+## Task
+
+Write a brief one-to-two sentence summary of the supplied documents (visible
+as `<document>` context messages above) into `body.text` and set
+`main_topic` to the shared topic across them.
+
+## Required citations
+
+You MUST populate `body.citations` with a tuple of one or more
+`DocumentCitation` objects. Each citation MUST set `document_id` equal to
+the `<id>` of one of the supplied documents (the IDs appear inside the
+`<document>` XML envelope of each context message). Citations without a
+`document_id` will be rejected by the contract.
+
+## Format
+
+Set `body.citations` to a list of objects shaped like:
+
+```
+{"document_id": "<copied-id-from-context>"}
+```
+
+Use at least one citation. Copy the document_id verbatim from the
+`<id>...</id>` element in the supplied context.

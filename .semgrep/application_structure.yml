@@ -136,3 +136,105 @@ rules:
       Move specs to flows/<flow_name>/tasks/<task_name>/specs/<category>.py.
     languages: [python]
     severity: ERROR
+
+  # ── One PromptContract per file ───────────────────────────────────
+  - id: one-contract-per-file
+    patterns:
+      - pattern: |
+          class $A(PromptContract[$T1]):
+              ...
+      - pattern: |
+          class $B(PromptContract[$T2]):
+              ...
+      - metavariable-comparison:
+          metavariable: $A
+          comparison: str($A) != str($B)
+    paths:
+      exclude:
+        - ai_pipeline_core/
+        - tests/
+        - examples/
+        - conftest.py
+    message: >
+      This file defines multiple PromptContract subclasses ($A and $B).
+      Each PromptContract must be in its own file:
+      flows/<flow_name>/tasks/<task_name>/contracts/<contract_name>.py.
+      Move one of them to a separate file.
+    languages: [python]
+    severity: ERROR
+
+  # ── No flow + contract in same file ───────────────────────────────
+  - id: no-flow-contract-mixing
+    patterns:
+      - pattern: |
+          class $FLOW(PipelineFlow):
+              ...
+      - pattern: |
+          class $CONTRACT(PromptContract[$T]):
+              ...
+    paths:
+      exclude:
+        - ai_pipeline_core/
+        - tests/
+        - examples/
+        - conftest.py
+    message: >
+      This file defines PipelineFlow '$FLOW' and PromptContract '$CONTRACT'.
+      Flows and contracts must be in separate files.
+      Move contracts to flows/<flow_name>/tasks/<task_name>/contracts/<name>.py.
+    languages: [python]
+    severity: ERROR
+
+  # ── No task + contract in same file ───────────────────────────────
+  - id: no-task-contract-mixing
+    patterns:
+      - pattern: |
+          class $TASK(PipelineTask):
+              ...
+      - pattern: |
+          class $CONTRACT(PromptContract[$T]):
+              ...
+    paths:
+      exclude:
+        - ai_pipeline_core/
+        - tests/
+        - examples/
+        - conftest.py
+    message: >
+      This file defines PipelineTask '$TASK' and PromptContract '$CONTRACT'.
+      Tasks and contracts must be in separate files.
+      Move contracts to flows/<flow_name>/tasks/<task_name>/contracts/<name>.py.
+    languages: [python]
+    severity: ERROR
+
+  # ── No spec + contract in same file ───────────────────────────────
+  - id: no-spec-contract-mixing
+    patterns:
+      - pattern-either:
+          - pattern: |
+              class $SPEC(PromptSpec):
+                  ...
+          - pattern: |
+              class $SPEC(PromptSpec[$T1]):
+                  ...
+          - pattern: |
+              class $SPEC(PromptSpec, follows=$P):
+                  ...
+          - pattern: |
+              class $SPEC(PromptSpec[$T1], follows=$P):
+                  ...
+      - pattern: |
+          class $CONTRACT(PromptContract[$T2]):
+              ...
+    paths:
+      exclude:
+        - ai_pipeline_core/
+        - tests/
+        - examples/
+        - conftest.py
+    message: >
+      This file defines PromptSpec '$SPEC' and PromptContract '$CONTRACT'.
+      Specs and contracts must be in separate files.
+      Move one of them to its own file.
+    languages: [python]
+    severity: ERROR

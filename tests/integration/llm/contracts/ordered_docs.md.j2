@@ -1,0 +1,13 @@
+## Task
+
+You will receive a tuple of source documents (visible as `<document>`
+context messages above). Each document contains a single short token of the
+form `XXXX000`. Read every document and emit the tokens in the `order`
+field as a tuple of strings IN THE EXACT ORDER the documents were supplied.
+
+## Rules
+
+- The number of tokens in `order` must match the number of supplied documents.
+- The order of tokens in `order` must match the supply order of the documents
+  (first document first, last document last).
+- Do not invent or reorder tokens. Copy each token verbatim.

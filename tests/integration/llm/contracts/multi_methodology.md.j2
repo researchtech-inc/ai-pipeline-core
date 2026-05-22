@@ -1,0 +1,18 @@
+## Question
+
+{{ inputs.question.text }}
+
+## Formatting rules (apply ALL)
+
+{% for m in methodologies %}### {{ m.title }}
+
+{{ m.purpose }}
+
+{{ m.body }}
+
+{% endfor %}
+
+## Task
+
+Answer the question above briefly in the `answer` field. You MUST satisfy
+EVERY formatting rule above simultaneously.

@@ -79,12 +79,18 @@ class LaminarSpanSink:
             parent_ctx = None
             if parent_span_id is not None and parent_span_id in self._open_spans:
                 parent_ctx = self._open_spans[parent_span_id].context
+            # The ``attributes=`` kwarg was supported on Laminar.start_span() in
+            # earlier lmnr SDK versions and was dropped in lmnr 0.7.x. We continue
+            # to pass it for back-compat across the ``lmnr>=0.7.0`` version range
+            # in pyproject.toml; the surrounding ``except _LAMINAR_EXCEPTIONS``
+            # block (which includes TypeError) gracefully degrades to a warning
+            # log when the installed SDK rejects the kwarg.
             span = Laminar.start_span(
                 name=name,
                 span_type=_laminar_type(kind),
                 parent_span_context=parent_ctx,
                 input=input_preview,
-                attributes={
+                attributes={  # pyright: ignore[reportCallIssue]
                     "ai_pipeline.span_kind": kind.value,
                     "ai_pipeline.target": target,
                 },

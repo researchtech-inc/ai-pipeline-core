@@ -1,0 +1,21 @@
+## Question
+
+{{ inputs.question.text }}
+
+## Formatting rules
+
+The following formatting rules are attached to this contract; you MUST
+satisfy every one of them:
+
+{% for m in methodologies %}### {{ m.title }}
+
+{{ m.purpose }}
+
+{{ m.body }}
+
+{% endfor %}
+
+## Task
+
+Answer the question above briefly in the `answer` field. Follow the
+formatting rules above exactly.

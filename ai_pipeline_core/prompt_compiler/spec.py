@@ -5,14 +5,15 @@ import logging
 import re
 import typing
 from collections.abc import Mapping
-from pathlib import Path
 from textwrap import dedent
 from typing import Any, ClassVar, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
+from ai_pipeline_core._pydantic_generic import extract_generic_arg
 from ai_pipeline_core.documents import Document
+from ai_pipeline_core.pipeline._file_rules import is_exempt, register_spec, register_stub, require_docstring
 
 from .components import Guide, OutputRule, Role, Rule
 
@@ -27,9 +28,6 @@ _MAX_TASK_LINES = 40
 
 # Pattern matching Python-style {identifier} placeholders in task text
 _FIELD_PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
-
-# Path to the packaged .ai-docs guide (resolved once, cached)
-_PROMPT_COMPILER_GUIDE = Path(__file__).resolve().parent.parent.parent / ".ai-docs" / "prompt_compiler.md"
 
 _SPEC_KNOWN_ATTRS: frozenset[str] = frozenset({
     "_follows",
@@ -158,8 +156,6 @@ def _check_task_field_placeholders(cls: type, name: str) -> None:
         return
 
     placeholders_str = ", ".join(f"{{{f}}}" for f in conflicts)
-    guide_hint = f"\n\nSee: {_PROMPT_COMPILER_GUIDE}" if _PROMPT_COMPILER_GUIDE.is_file() else ""
-
     raise TypeError(
         f"PromptSpec '{name}' task contains field placeholder references: {placeholders_str}.\n"
         f"\n"
@@ -176,7 +172,6 @@ def _check_task_field_placeholders(cls: type, name: str) -> None:
         f'    task = "Analyze the {{topic}} using ..."\n'
         f"Write:\n"
         f'    task = "Analyze the topic identified in context using ..."'
-        f"{guide_hint}"
     )
 
 
@@ -199,17 +194,10 @@ def _warn_large_task(name: str, task: str) -> None:
     )
 
 
-def _validate_prompt_spec(cls: type, name: str, follows: type[PromptSpec] | None) -> None:  # noqa: C901, PLR0912, PLR0914, PLR0915
+def _validate_prompt_spec(cls: type, name: str, follows: type[PromptSpec] | None) -> None:  # noqa: C901, PLR0912, PLR0915
     """Validate a PromptSpec subclass at definition time."""
-    # File-level structural rules — import and check exemption early, but defer
-    # register_spec() to the end to avoid poisoning the registry if later validation fails.
-    from ai_pipeline_core.pipeline._file_rules import (  # noqa: PLC0415  # deferred: avoid import-order issues during package init
-        is_exempt,
-        register_spec,
-        register_stub,
-        require_docstring,
-    )
-
+    # File-level structural rules — exemption check is early; register_spec()
+    # still fires at the end so failed validation does not poison the registry.
     is_stub = getattr(cls, "_stub", False) is True  # set by __init_subclass__ keyword arg
     exempt = is_exempt(cls)
 
@@ -284,26 +272,7 @@ def _validate_prompt_spec(cls: type, name: str, follows: type[PromptSpec] | None
 
     # Derive _output_type from generic parameter (PromptSpec[X] -> X)
     # Supports: str (default), BaseModel subclass, or list[BaseModel]
-    output_type: Any = str  # default when no explicit generic arg
-    # Check __orig_bases__ first (standard Python generic alias), then fall back
-    # to parent's __pydantic_generic_metadata__ (Pydantic-resolved concrete class)
-    for base in getattr(cls, "__orig_bases__", ()):
-        origin = typing.get_origin(base)
-        if origin is PromptSpec:
-            args = typing.get_args(base)
-            if args and args[0] is not str:
-                output_type = args[0]
-            break
-    else:
-        # When inheriting from PromptSpec[X] (Pydantic concrete class),
-        # the type info is in the parent's pydantic generic metadata
-        for base in cls.__bases__:
-            meta = getattr(base, "__pydantic_generic_metadata__", None)
-            if meta and meta.get("origin") is PromptSpec and meta.get("args"):
-                arg = meta["args"][0]
-                if arg is not str:
-                    output_type = arg
-                break
+    output_type: Any = extract_generic_arg(cls, expected_origin=PromptSpec, default=str)
     if output_type is not str:
         # Check for list[BaseModel] pattern
         if typing.get_origin(output_type) is list:

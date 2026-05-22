@@ -10,10 +10,9 @@ Use the project’s `dev` CLI for all routine validation. Do not call `pytest`, 
 1. Run `dev info` first.
 2. Make changes.
 3. Run `dev format`.
-4. Run `dev check --fast`.
-5. Run `dev test`.
-6. If needed, run `dev test --lf`.
-7. Before committing, run `dev check`.
+4. Run `dev test`.
+5. If needed, run `dev test --rerun-failed`.
+6. Before committing, run `dev check`.
 
 ### Key commands
 ```bash
@@ -25,17 +24,13 @@ dev lint
 dev typecheck
 
 dev test
-dev test --lf
-dev test --full
-dev test --available
-dev test --coverage
+dev test --rerun-failed
 dev test pipeline
 dev test llm
 dev test database
 dev test deployment
 
 dev check
-dev check --fast
 ```
 
 ### Why this matters
@@ -45,8 +40,8 @@ dev check --fast
 
 ### Practical rules
 - Prefer `dev test <scope>` over file-path-based `pytest` commands.
-- Prefer `dev test --lf` after failures.
-- Use `dev check --fast` while iterating and `dev check` before shipping.
+- Prefer `dev test --rerun-failed` after failures.
+- Run `dev check` before shipping.
 - Assume long-running checks may take up to 10 minutes.
 
 ## 2. Persistence and Execution Stores
@@ -326,67 +321,19 @@ Operationally:
 ### Warmup/fork
 The old warmup+fork pattern was explicitly removed from top-level guidance. It may still exist as a low-level behavior or historical test concept, but it is not the recommended authoring model for application developers.
 
-## 7. Documentation Workflow and API Visibility
-
-### `ai-docs`
-The framework auto-generates developer-facing documentation from source.
-
-Primary commands:
-```bash
-ai-docs generate
-ai-docs check
-make docs-ai-build
-make docs-ai-check
-```
-
-Use them when:
-- changing public API
-- changing docstrings that are meant to become guides
-- preparing a release
-- investigating why `.ai-docs/` is stale in CI
-
-### Public vs private API controls
-Documentation visibility is controlled structurally:
-- `_`-prefixed files and symbols are private
-- public names are documented
-- moving a module from public to private can remove low-value guide content
-- making subclass hooks public can improve the usefulness of generated guides
-
-This was used concretely to:
-- improve the provider guide by exposing subclass-facing methods
-- remove the logger guide by making logger internals fully private
-- keep the generated README within its size limit
-
-### Generated README constraints
-The generated `.ai-docs/README.md` has a strict size limit. Operational consequences:
-- public API bloat can break docs generation
-- some utility functions may need to be privatized if they are not useful to application authors
-- the docs generator itself may need compact rendering strategies to stay within size limits
-
-### Pre-commit docs behavior
-The workflow evolved toward auto-updating docs in the commit path rather than only failing on stale docs. The important operational point for developers is:
-- changing public API often requires regenerated `.ai-docs/`
-- version bumps can require regen because guide headers and references change
-- do not treat doc generation as optional after API work
-
 ## 8. Release and Versioning Workflow
 
 A typical release workflow is:
 
 1. update version in `pyproject.toml`
 2. run formatting and full checks
-3. regenerate `.ai-docs`
-4. verify README/guide size constraints
-5. `git add`
-6. commit
-7. add tag
-8. push commit and tags
-9. if the GitHub release tag already exists, bump the patch version and repeat
+3. `git add`
+4. commit
+5. add tag
+6. push commit and tags
+7. if the GitHub release tag already exists, bump the patch version and repeat
 
 ### Common release pitfalls
-- version bump without `.ai-docs` regen can make docs stale because guides embed versioned content
-- adding public API can push the generated README over the size limit
-- pre-commit may pass freshness while a full docs build still exposes a size issue if the docs were not regenerated locally
 - if a release tag already exists remotely, create a new version instead of trying to reuse it
 
 ## 9. Tooling Compatibility and Known Operational Pitfalls
@@ -426,12 +373,6 @@ When behavior is unclear:
 - inspect raw serialized document payloads before writing custom decoders
 - verify timeout and auth behavior with real integration tests
 - use provider override or scoped test replacement for isolated failure cases
-
-### If it is a docs bug
-- regenerate `.ai-docs`
-- check public/private symbol visibility
-- inspect whether the guide is missing subclass hooks because the API is still private
-- check README size before and after API changes
 
 ## 11. What Application Developers Should Internalize
 

@@ -1,6 +1,7 @@
 """Subprocess execution with output capture and summary formatting."""
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ from pathlib import Path
 MAX_INLINE_FAILURES = 5
 SLOW_TEST_THRESHOLD_SECONDS = 30
 MAX_RUN_FILE_AGE_SECONDS = 86400  # 24 hours
+CACHEABLE_CHECK_STEPS = frozenset({"lint", "typecheck", "deadcode"})
 
 
 _cleanup_done = False
@@ -73,10 +75,11 @@ def run_command(
     *,
     log_suffix: str | None = None,
     use_reportlog: bool = False,
-) -> tuple[int, str, str]:
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str, bool]:
     """Run a command, capture output to file, print summary.
 
-    Returns (exit_code, summary_line, log_file_relative_path).
+    Returns (exit_code, summary_line, log_file_relative_path, is_collection_failure).
     """
     _cleanup_old_runs()
 
@@ -89,6 +92,7 @@ def run_command(
     suffix = log_suffix or label.replace(" ", "-")
     log_filename = f"{now:%Y%m%d-%H%M%S}-{suffix}.log"
     log_path = cfg.runs_dir / log_filename
+    rel_log = str(log_path.relative_to(cfg.repo_root))
 
     report_path = cfg.runs_dir / f"{now:%Y%m%d-%H%M%S}-{suffix}.jsonl" if use_reportlog else None
 
@@ -97,31 +101,102 @@ def run_command(
         full_cmd.extend(["--report-log", str(report_path)])
 
     try:
-        result = subprocess.run(full_cmd, capture_output=True, text=True, cwd=cfg.repo_root)
+        run_env = os.environ.copy()
+        if env:
+            run_env.update(env)
+        with open(log_path, "w") as f:
+            f.write(f"$ {' '.join(full_cmd)}\n")
+            f.write(f"# timestamp: {now.isoformat()}\n\n")
+            f.flush()
+            result = subprocess.run(
+                full_cmd,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                text=True,
+                cwd=cfg.repo_root,
+                env=run_env,
+                timeout=TEST_TIMEOUT_SECONDS,
+            )
+            f.write(f"\n# exit code: {result.returncode}\n")
+    except subprocess.TimeoutExpired:
+        with open(log_path, "a") as f:
+            f.write(f"\n# timeout after {TEST_TIMEOUT_SECONDS}s\n")
+        summary = f"FAIL  {label} — timeout after {TEST_TIMEOUT_SECONDS}s\n  Details: {rel_log}"
+        return 124, summary, rel_log, False
     except FileNotFoundError:
         tool_name = full_cmd[0]
-        summary = f"FAIL  {label} — '{tool_name}' not found\n  Install it or check your PATH. Command was: {' '.join(full_cmd)}"
-        return 127, summary, ""
+        with open(log_path, "a") as f:
+            f.write(f"\n# file not found: {tool_name}\n")
+        summary = f"FAIL  {label} — '{tool_name}' not found\n  Details: {rel_log}\n  Install it or check your PATH. Command was: {' '.join(full_cmd)}"
+        return 127, summary, rel_log, False
 
-    # Save full output to log file
-    with open(log_path, "w") as f:
-        f.write(f"$ {' '.join(full_cmd)}\n")
-        f.write(f"# exit code: {result.returncode}\n")
-        f.write(f"# timestamp: {now.isoformat()}\n\n")
-        if result.stdout:
-            f.write(result.stdout)
-        if result.stderr:
-            f.write("\n--- stderr ---\n")
-            f.write(result.stderr)
-
-    rel_log = str(log_path.relative_to(cfg.repo_root))
+    log_text = log_path.read_text(encoding="utf-8", errors="replace")
 
     if use_reportlog and report_path and report_path.exists():
-        summary = _summarize_pytest_report(report_path, result.returncode, rel_log, result.stdout)
+        summary, is_collection_failure = _summarize_pytest_report(report_path, result.returncode, rel_log, log_text)
     else:
-        summary = _summarize_generic(result, label, rel_log)
+        summary = _summarize_generic(result, label, rel_log, log_text)
+        is_collection_failure = False
 
-    return result.returncode, summary, rel_log
+    return result.returncode, summary, rel_log, is_collection_failure
+
+
+def run_check_step(step_name: str, commands: tuple[tuple[str, ...], ...]) -> int:
+    """Run a dev check step, using the per-step cache for safe steps."""
+    from dev_cli._project import load_config
+    from dev_cli._state import hash_tracked_files, load_step_cache, save_step_cache
+
+    cfg = load_config()
+    started = time.monotonic()
+    cacheable = step_name in CACHEABLE_CHECK_STEPS
+    input_hash = hash_tracked_files(*cfg.source_packages, "tests", "examples", "benchmarks", "tools/dev-cli", "tools/trace-inspector")
+    tool_version = _tool_version_for_commands(commands)
+    if cacheable:
+        cached = load_step_cache(step_name)
+        if (
+            cached is not None
+            and cached.input_hash == input_hash
+            and cached.tool_version == tool_version
+            and cached.result == "PASS"
+            and (cfg.repo_root / cached.log_file).exists()
+        ):
+            print(f"SKIP  {step_name} (cached)")
+            print(f"  Details: {cached.log_file}")
+            return 0
+
+    last_log_file = ""
+    for cmd_tuple in commands:
+        exit_code, summary, log_file, _ = run_command(list(cmd_tuple), step_name, log_suffix=f"check-{step_name}")
+        last_log_file = log_file
+        if exit_code != 0:
+            print(summary)
+            return exit_code
+
+    if cacheable:
+        save_step_cache(step_name, input_hash, tool_version, "PASS", last_log_file)
+    elapsed = time.monotonic() - started
+    print(f"PASS  {step_name} ({elapsed:.1f}s)")
+    print(f"  Details: {last_log_file}")
+    return 0
+
+
+def _tool_version_for_commands(commands: tuple[tuple[str, ...], ...]) -> str:
+    parts: list[str] = []
+    for command in commands:
+        version_cmd = _version_command(command)
+        try:
+            result = subprocess.run(version_cmd, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            parts.append(f"{' '.join(version_cmd)}: {exc}")
+            continue
+        parts.append(f"{' '.join(version_cmd)}: {result.stdout.strip() or result.stderr.strip()}")
+    return "\n".join(parts)
+
+
+def _version_command(command: tuple[str, ...]) -> list[str]:
+    if len(command) >= 3 and command[0] in {"uv", "poetry"} and command[1] == "run":
+        return [command[0], command[1], command[2], "--version"]
+    return [command[0], "--version"]
 
 
 _DESELECTED_RE = re.compile(r"(\d+) deselected")
@@ -133,7 +208,7 @@ def _parse_deselected_count(stdout: str) -> int:
     return int(match.group(1)) if match else 0
 
 
-def _summarize_pytest_report(report_path: Path, exit_code: int, log_file: str, stdout: str = "") -> str:
+def _summarize_pytest_report(report_path: Path, exit_code: int, log_file: str, stdout: str = "") -> tuple[str, bool]:
     """Summarize pytest results from reportlog JSONL."""
     passed = 0
     failed = 0
@@ -197,17 +272,23 @@ def _summarize_pytest_report(report_path: Path, exit_code: int, log_file: str, s
     wall_time = (last_stop - first_start) if first_start is not None and last_stop is not None else total_duration
     duration_str = f"{wall_time:.1f}s"
 
+    if failed:
+        from dev_cli._project import load_config
+        from dev_cli._rerun import record_failure_dependency_hashes
+
+        record_failure_dependency_hashes(load_config().repo_root, tuple(str(f["nodeid"]) for f in failures))
+
     # Collection failure — no tests ran
     if total == 0 and exit_code != 0:
         lines = [f"FAIL  test — collection failed (exit code {exit_code})"]
+        lines.append(f"  Details: {log_file}")
         if collect_errors:
             lines.append("")
             for err in collect_errors[:MAX_INLINE_FAILURES]:
                 lines.append(f"  COLLECT ERROR: {err}")
             if len(collect_errors) > MAX_INLINE_FAILURES:
                 lines.append(f"  ... and {len(collect_errors) - MAX_INLINE_FAILURES} more")
-        lines.append(f"\n  Full output: {log_file}")
-        return "\n".join(lines)
+        return "\n".join(lines), True
 
     parts = []
     if passed:
@@ -227,6 +308,7 @@ def _summarize_pytest_report(report_path: Path, exit_code: int, log_file: str, s
             lines.append(f"PASS  test — {counts}, {deselected} unchanged (testmon) in {duration_str}")
         else:
             lines.append(f"PASS  test — {counts} in {duration_str}")
+        lines.append(f"  Details: {log_file}")
         if slow_tests:
             slow_tests.sort(key=lambda x: -x[1])
             lines.append("")
@@ -237,6 +319,7 @@ def _summarize_pytest_report(report_path: Path, exit_code: int, log_file: str, s
                 lines.append(f"    ... and {len(slow_tests) - MAX_INLINE_FAILURES} more")
     else:
         lines.append(f"FAIL  test — {counts} in {duration_str}")
+        lines.append(f"  Details: {log_file}")
         lines.append("")
         for f in failures[:MAX_INLINE_FAILURES]:
             lines.append(f"  FAIL {f['nodeid']}")
@@ -244,12 +327,11 @@ def _summarize_pytest_report(report_path: Path, exit_code: int, log_file: str, s
                 lines.append(f"       {f['message']}")
         if len(failures) > MAX_INLINE_FAILURES:
             lines.append(f"  ... and {len(failures) - MAX_INLINE_FAILURES} more failures")
-        lines.append("")
-        lines.append(f"  Full output: {log_file}")
         if failed > 0:
-            lines.append("  Next step:   dev test --lf")
+            lines.append("")
+            lines.append("  Next step:   dev test --rerun-failed")
 
-    return "\n".join(lines)
+    return "\n".join(lines), False
 
 
 def _extract_failure_message(entry: dict) -> str:
@@ -270,22 +352,20 @@ def _extract_failure_message(entry: dict) -> str:
     return ""
 
 
-def _summarize_generic(result: subprocess.CompletedProcess, label: str, log_file: str) -> str:
+def _summarize_generic(result: subprocess.CompletedProcess, label: str, log_file: str, output: str = "") -> str:
     """Summarize a non-pytest command result."""
     if result.returncode == 0:
-        return f"PASS  {label}"
+        return f"PASS  {label}\n  Details: {log_file}"
 
     lines = [f"FAIL  {label} (exit code {result.returncode})"]
+    lines.append(f"  Details: {log_file}")
 
-    # Prefer stderr for diagnostics, fall back to stdout
-    output = result.stderr or result.stdout or ""
-    output_lines = [l for l in output.splitlines() if l.strip()]
+    output_lines = [l for l in output.splitlines() if l.strip() and not l.startswith(("$ ", "# "))]
     if output_lines:
         lines.append("")
         for line in output_lines[-5:]:
             lines.append(f"  {line.rstrip()}")
 
-    lines.append(f"\n  Full output: {log_file}")
     return "\n".join(lines)
 
 
@@ -324,9 +404,9 @@ def print_skip(label: str, previous_timestamp: str, previous_exit_code: int, log
     """Print skip message when no code changed since last run. Returns previous exit code."""
     status = "PASS" if previous_exit_code == 0 else "FAIL"
     print(f"SKIP  {label} — no changes since last run ({status} at {previous_timestamp})")
+    print(f"  Details: {log_file}")
     if previous_exit_code != 0:
-        print(f"  Previous log: {log_file}")
-        print("  Rerun failures: dev test --lf")
+        print("  Rerun failures: dev test --rerun-failed")
     else:
         print("  All tests already verified. No action needed.")
     return previous_exit_code

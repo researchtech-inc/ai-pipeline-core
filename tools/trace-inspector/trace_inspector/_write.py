@@ -1,7 +1,5 @@
 """Deterministic markdown bundle writing for trace-inspector."""
 
-from __future__ import annotations
-
 from pathlib import Path
 from uuid import UUID
 

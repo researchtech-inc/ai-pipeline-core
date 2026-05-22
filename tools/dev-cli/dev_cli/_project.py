@@ -373,8 +373,12 @@ def _build_check_steps(cfg_partial: _PartialConfig, root: Path, source_packages:
         steps.append(CheckStep("deadcode", "Vulture dead code", (tuple(vulture_cmd),)))
 
     if (root / ".semgrep").is_dir():
-        # semgrep is run via uvx, not installed locally — detect by config dir presence
-        steps.append(CheckStep("semgrep", "Semgrep custom rules", (("uvx", "semgrep", "--config", ".semgrep/", ".", "--error", "--quiet"),)))
+        semgrep_cmd = (*r, "semgrep", "--config", ".semgrep/", ".", "--error", "--quiet")
+        if not cfg_partial.has_semgrep:
+            semgrep_cmd = ("uvx", "semgrep", "--config", ".semgrep/", ".", "--error", "--quiet")
+        steps.append(CheckStep("semgrep", "Semgrep custom rules", (semgrep_cmd,)))
+
+    steps.append(CheckStep("test-validator", "Test authoring AST validator", ((*r, "python", "-m", "dev_cli._test_validator"),)))
 
     if cfg_partial.has_interrogate and source_packages:
         # Target source packages, not the whole repo (avoids scanning tests/tools)
@@ -383,9 +387,7 @@ def _build_check_steps(cfg_partial: _PartialConfig, root: Path, source_packages:
             interrogate_targets = source_packages
         steps.append(CheckStep("docstrings", "Docstring coverage", ((*r, "interrogate", "-v", "--fail-under", "100", *interrogate_targets),)))
 
-    steps.append(CheckStep("test-collect", "Verify test modules importable", ((*r, "pytest", "--collect-only", "-q", "--no-header"),)))
-
-    steps.append(CheckStep("test", "Unit tests", ((*r, "pytest", "-q", "--tb=short", "--no-header", "--testmon"),)))
+    steps.append(CheckStep("test", "Unit tests", ((*r, "dev", "test", "--lane=unit"),)))
 
     return tuple(steps)
 

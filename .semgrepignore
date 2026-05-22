@@ -7,6 +7,4 @@ build/
 dist/
 *.egg-info/
 .eggs/
-.ai-docs/
-ai_pipeline_core/.ai-docs/
 tools/

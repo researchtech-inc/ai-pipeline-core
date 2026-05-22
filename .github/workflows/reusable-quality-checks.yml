@@ -9,75 +9,13 @@ on:
         required: false
         default: '["3.14"]'
       skip_integration_tests:
-        description: 'Skip integration tests'
+        description: 'Deprecated; integration coverage is controlled by dev verify'
         type: boolean
         required: false
         default: false
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          python-version: '3.14'
-
-      - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-      - name: Ruff check
-        run: ruff check .
-
-      - name: Ruff format (check only)
-        run: ruff format --check .
-
-  static-analysis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          python-version: '3.14'
-
-      - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-      - name: BasedPyright (source)
-        run: basedpyright --level warning
-
-      - name: BasedPyright (tests, errors only)
-        run: basedpyright --level error -p pyrightconfig.tests.json
-
-      - name: Vulture dead code
-        run: vulture ai_pipeline_core/ .vulture_whitelist.py --min-confidence 80
-
-      - name: Semgrep custom rules
-        run: uvx semgrep --config .semgrep/ ai_pipeline_core/ tests/ --error --quiet
-
-      - name: Docstring coverage (Interrogate)
-        run: interrogate -v --fail-under 100 ai_pipeline_core
-
-      - name: File size limits
-        run: make filesize
-
-      - name: AI docs freshness
-        run: make docs-ai-check
-
-      - name: Verify all test modules importable
-        run: pytest --collect-only -q --no-header
-
-  test:
+  verify:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -92,83 +30,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+        run: uv pip install --system -e '.[dev]'
 
-      - name: Run tests with coverage (unit only)
-        run: pytest -v --tb=short --maxfail=1 --durations=10 --cov=ai_pipeline_core --cov-report=term-missing --cov-fail-under=80 -n 4 -m "not integration and not clickhouse and not pubsub and not pubsub_live"
-
-  clickhouse-test:
-    if: github.event_name == 'push' || github.event_name == 'workflow_call'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          python-version: '3.14'
-
-      - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-      - name: Run ClickHouse integration tests
-        run: pytest -v --tb=short -m "clickhouse" --maxfail=1 --durations=30 -n 0
-
-  pubsub-test:
-    if: github.event_name == 'push' || github.event_name == 'workflow_call'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          python-version: '3.14'
-
-      - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-      - name: Run Pub/Sub emulator integration tests
-        run: pytest -v --tb=short -m "pubsub" --maxfail=1 --durations=30 -n 0
-
-  integration-test:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_call') && inputs.skip_integration_tests != true
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          python-version: '3.14'
-
-      - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-      - name: Run integration tests
+      - name: Verify
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-        run: |
-          if [ -n "$OPENAI_API_KEY" ]; then
-            echo "Running integration tests with configured API keys..."
-            pytest -v --tb=short -m "integration" --maxfail=1 --durations=30 -n 4
-          else
-            if [ "${{ github.event_name }}" == "workflow_call" ]; then
-              echo "ERROR: Integration tests are required for releases but OPENAI_API_KEY is not set!"
-              exit 1
-            else
-              echo "WARNING: Skipping integration tests - OPENAI_API_KEY not set"
-            fi
-          fi
+        run: dev verify

@@ -16,8 +16,10 @@ from prefect.settings import get_current_settings
 if "prefect" in sys.modules and get_current_settings().cloud.enable_orchestration_telemetry:
     refresh_global_settings_context()
 
+from . import _llm_core_bootstrap as _llm_core_bootstrap  # populate _llm_core config from Settings
 from . import llm
 from ._codec import CodecError, UniversalCodec
+from ._pydantic_base import FrozenBaseModel
 from .deployment import DeploymentPlan, DeploymentResult, FieldGate, FlowOutputs, FlowStep, PipelineDeployment
 from .deployment.remote import RemoteDeployment
 from .documents import (
@@ -30,19 +32,31 @@ from .documents import (
     sanitize_url,
 )
 from .exceptions import (
+    ContentPolicyError,
     DocumentNameError,
     DocumentSizeError,
     DocumentValidationError,
+    GroupExhaustedError,
     LLMError,
+    LLMValidationError,
+    MidStreamProviderError,
     NonRetriableError,
-    OutputDegenerationError,
+    PartialToolCallStreamError,
+    PayloadTooLargeError,
     PipelineCoreError,
+    ProseContaminationError,
+    RetryableError,
+    StreamWatchdogError,
+    StrictModeViolationError,
+    StructuredSchemaError,
     StubNotImplementedError,
+    TerminalError,
 )
 from .llm import (
+    AIModel,
     Citation,
     Conversation,
-    ModelName,
+    ImagePreset,
     ModelOptions,
     TokenUsage,
     Tool,
@@ -67,6 +81,16 @@ from .pipeline import (
     traced_operation,
 )
 from .prompt_compiler import Guide, ListField, MultiLineField, OutputRule, OutputT, PromptSpec, Role, Rule, StructuredField, render_preview, render_text
+from .prompt_contract import (
+    CitedText,
+    DocumentCitation,
+    Methodology,
+    PromptContract,
+    PromptResult,
+    ToolAvailability,
+    ToolBinding,
+    ValidationFailure,
+)
 from .providers import (
     ExternalProvider,
     ProviderAuthError,
@@ -80,13 +104,17 @@ from .settings import Settings
 __version__ = importlib.metadata.version("ai-pipeline-core")
 
 __all__ = [
+    "AIModel",
     "Attachment",
     "Citation",
+    "CitedText",
     "CodecError",
+    "ContentPolicyError",
     "Conversation",
     "DeploymentPlan",
     "DeploymentResult",
     "Document",
+    "DocumentCitation",
     "DocumentNameError",
     "DocumentSha256",
     "DocumentSizeError",
@@ -98,39 +126,56 @@ __all__ = [
     "FlowOptions",
     "FlowOutputs",
     "FlowStep",
+    "FrozenBaseModel",
+    "GroupExhaustedError",
     "Guide",
+    "ImagePreset",
     "LLMError",
+    "LLMValidationError",
     "LimitKind",
     "ListField",
-    "ModelName",
+    "Methodology",
+    "MidStreamProviderError",
     "ModelOptions",
     "MultiLineField",
     "NonRetriableError",
-    "OutputDegenerationError",
     "OutputRule",
     "OutputT",
+    "PartialToolCallStreamError",
+    "PayloadTooLargeError",
     "PipelineCoreError",
     "PipelineDeployment",
     "PipelineFlow",
     "PipelineLimit",
     "PipelineTask",
+    "PromptContract",
+    "PromptResult",
     "PromptSpec",
+    "ProseContaminationError",
     "ProviderAuthError",
     "ProviderError",
     "ProviderOutcome",
     "RemoteDeployment",
+    "RetryableError",
     "Role",
     "Rule",
     "Settings",
     "StatelessPollingProvider",
+    "StreamWatchdogError",
+    "StrictModeViolationError",
     "StructuredField",
+    "StructuredSchemaError",
     "StubNotImplementedError",
     "TaskBatch",
     "TaskHandle",
+    "TerminalError",
     "TokenUsage",
     "Tool",
+    "ToolAvailability",
+    "ToolBinding",
     "ToolOutput",
     "UniversalCodec",
+    "ValidationFailure",
     "add_cost",
     "as_task_completed",
     "collect_tasks",

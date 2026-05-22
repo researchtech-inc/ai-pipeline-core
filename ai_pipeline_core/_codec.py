@@ -34,6 +34,7 @@ DOCUMENT_REF_TYPE = "document_ref"
 BLOB_REF_TYPE = "blob_ref"
 PYDANTIC_TYPE = "pydantic"
 TUPLE_TYPE = "tuple"
+FROZENSET_TYPE = "frozenset"
 TYPE_REF_TYPE = "type_ref"
 UUID_TYPE = "uuid"
 DATETIME_TYPE = "datetime"
@@ -81,14 +82,20 @@ class CodecImportError(CodecError, ImportError):
 # Protocol
 @runtime_checkable
 class CodecState(Protocol):
-    """Object state hooks for value objects with non-field state."""
+    """Explicit codec hooks for value objects with non-field state.
 
-    def __codec_state__(self) -> dict[str, Any]:  # noqa: PLW3201 - Required codec hook name from the replay protocol.
+    Implementing types may define ``codec_state()`` and ``codec_load()`` when
+    default Pydantic field serialization is not enough. These are normal
+    framework extension methods discovered by ``getattr``; they are
+    intentionally not Python data-model dunders.
+    """
+
+    def codec_state(self) -> dict[str, Any]:
         """Return replayable state for the instance."""
         ...
 
     @classmethod
-    def __codec_load__(cls, state: dict[str, Any]) -> Self:  # noqa: PLW3201 - Required codec hook name from the replay protocol.
+    def codec_load(cls, state: dict[str, Any]) -> Self:
         """Reconstruct an instance from codec state."""
         ...
 
@@ -170,13 +177,15 @@ class UniversalCodec:
             return self._encode_list(value, ctx)
         if isinstance(value, tuple):
             return self._encode_tuple(value, ctx)
+        if isinstance(value, frozenset):
+            return self._encode_frozenset(value, ctx)
         if isinstance(value, dict):
             return self._encode_dict(value, ctx)
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
             return self._encode_dataclass(value, ctx)
         raise CodecError(
             f"Codec cannot encode value at {ctx.path} with type {type(value).__module__}:{type(value).__qualname__}. "
-            "Use JSON primitives, bytes, Document, BaseModel, dataclass, UUID, datetime, Enum, type, list, tuple, or dict."
+            "Use JSON primitives, bytes, Document, BaseModel, dataclass, UUID, datetime, Enum, type, list, tuple, frozenset, or dict."
         )
 
     def _encode_simple(self, value: Any, ctx: _EncodeContext) -> Any:
@@ -211,6 +220,11 @@ class UniversalCodec:
         with _cycle_guard(value, ctx):
             return {TYPE_KEY: TUPLE_TYPE, "items": [self._encode_value(item, ctx.child(_index_path(ctx.path, i))) for i, item in enumerate(value)]}
 
+    def _encode_frozenset(self, value: frozenset[Any], ctx: _EncodeContext) -> dict[str, Any]:
+        with _cycle_guard(value, ctx):
+            items = sorted(value, key=repr)
+            return {TYPE_KEY: FROZENSET_TYPE, "items": [self._encode_value(item, ctx.child(_index_path(ctx.path, i))) for i, item in enumerate(items)]}
+
     def _encode_dict(self, value: dict[Any, Any], ctx: _EncodeContext) -> dict[str, Any]:
         with _cycle_guard(value, ctx):
             return {_escape_user_key(k, path=ctx.path): self._encode_value(v, ctx.child(_dict_path(ctx.path, k))) for k, v in value.items()}
@@ -225,11 +239,11 @@ class UniversalCodec:
 
     def _encode_pydantic(self, value: BaseModel, ctx: _EncodeContext) -> dict[str, Any]:
         with _cycle_guard(value, ctx):
-            codec_state = getattr(value, "__codec_state__", None)
+            codec_state = getattr(value, "codec_state", None)
             if callable(codec_state):
                 state = codec_state()
                 if not isinstance(state, dict):
-                    raise CodecError(f"{_class_path(type(value))}.__codec_state__() must return dict[str, Any]. Got {type(state).__name__} instead.")
+                    raise CodecError(f"{_class_path(type(value))}.codec_state() must return dict[str, Any]. Got {type(state).__name__} instead.")
                 data = self._encode_value(state, ctx.child(f"{ctx.path}.state"))
             else:
                 model_data = {field_name: getattr(value, field_name) for field_name in type(value).model_fields}
@@ -274,6 +288,8 @@ class UniversalCodec:
             return await self._decode_enum(payload, db=db, memo=memo)
         if type_name == TUPLE_TYPE:
             return await self._decode_tuple(payload, db=db, memo=memo)
+        if type_name == FROZENSET_TYPE:
+            return await self._decode_frozenset(payload, db=db, memo=memo)
         if type_name == TYPE_REF_TYPE:
             return _decode_type_ref(payload)
         if type_name == UUID_TYPE:
@@ -284,7 +300,7 @@ class UniversalCodec:
             return Path(_require_string(payload, "value", type_name=PATH_TYPE))
         raise CodecError(
             f"Codec encountered unsupported envelope type {type_name!r}. "
-            "Only document_ref, blob_ref, pydantic, dataclass, tuple, type_ref, uuid, datetime, path, and enum are supported."
+            "Only document_ref, blob_ref, pydantic, dataclass, tuple, frozenset, type_ref, uuid, datetime, path, and enum are supported."
         )
 
     @staticmethod
@@ -326,18 +342,16 @@ class UniversalCodec:
                 "Store BaseModel instances with the pydantic envelope."
             )
         data = await self._decode_value(payload.get("data"), db=db, memo=memo)
-        codec_load = getattr(model_cls, "__codec_load__", None)
+        codec_load = getattr(model_cls, "codec_load", None)
         if callable(codec_load):
             if not isinstance(data, dict):
-                raise CodecError(
-                    f"Codec stateful model {class_path!r} requires 'data' to decode into a JSON object. Return dict[str, Any] from __codec_state__()."
-                )
+                raise CodecError(f"Codec stateful model {class_path!r} requires 'data' to decode into a JSON object. Return dict[str, Any] from codec_state().")
             try:
                 return cast(BaseModel, codec_load(data))
             except CodecError:
                 raise
             except Exception as exc:
-                raise CodecError(f"__codec_load__ failed for {class_path!r}: {exc}") from exc
+                raise CodecError(f"codec_load failed for {class_path!r}: {exc}") from exc
         try:
             return cast(BaseModel, model_cls.model_validate(data))
         except CodecError:
@@ -388,6 +402,13 @@ class UniversalCodec:
             raise CodecError("Codec tuple payloads require a JSON array under 'items'. Use {'$type': 'tuple', 'items': [...]}.")
         decoded = [await self._decode_value(item, db=db, memo=memo) for item in items]
         return tuple(decoded)
+
+    async def _decode_frozenset(self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> frozenset[Any]:
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise CodecError("Codec frozenset payloads require a JSON array under 'items'. Use {'$type': 'frozenset', 'items': [...]}.")
+        decoded = [await self._decode_value(item, db=db, memo=memo) for item in items]
+        return frozenset(decoded)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────

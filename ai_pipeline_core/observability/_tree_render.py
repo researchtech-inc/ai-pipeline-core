@@ -63,9 +63,9 @@ def _format_token_count(count: int) -> str:
 
 
 def _format_token_parts(span: SpanRecord, metrics: dict[str, Any], view: SpanTreeView) -> str:
-    if span.kind not in {SpanKind.CONVERSATION, SpanKind.LLM_ROUND}:
+    if span.kind not in {SpanKind.CONVERSATION, SpanKind.PROMPT_EXECUTION, SpanKind.LLM_ROUND}:
         return ""
-    if span.kind == SpanKind.CONVERSATION:
+    if span.kind in {SpanKind.CONVERSATION, SpanKind.PROMPT_EXECUTION}:
         dt = view.descendant_tokens.get(span.span_id, _TokenTotals())
         tokens_input, tokens_output = dt.tokens_input, dt.tokens_output
         tokens_cache_read, tokens_reasoning = dt.tokens_cache_read, dt.tokens_reasoning
@@ -150,6 +150,32 @@ def _format_attempt_line(span: SpanRecord, meta: dict[str, Any], view: SpanTreeV
     return rendered
 
 
+def _format_conversation_like_line(
+    span: SpanRecord,
+    view: SpanTreeView,
+    meta: dict[str, Any],
+    metrics: dict[str, Any],
+    *,
+    indent: str,
+    duration: str,
+    cache_suffix: str,
+    include_filenames: bool,
+    label_prefix: str,
+    chain_suffix: str,
+) -> str:
+    model = _detail_str(meta, MODEL_KEY) or UNKNOWN_MODEL_LABEL
+    tokens = _format_token_parts(span, metrics, view)
+    cost = span.cost_usd + view.descendant_costs.get(span.span_id, 0.0)
+    line = f"{indent}{label_prefix}: {_conversation_label(span, meta)} {duration} {model}{chain_suffix}"
+    if tokens:
+        line += f" {tokens}"
+    if cost > 0:
+        line += f" ${cost:.4f}"
+    rendered = f"{line}{cache_suffix}"
+    filename = _span_local_filename(span, view) if include_filenames else None
+    return f"{rendered}  -> {filename}" if filename is not None else rendered
+
+
 def _format_tree_line(span: SpanRecord, view: SpanTreeView, *, depth: int, include_filenames: bool) -> str:
     indent = _FOUR_SPACES * depth
     meta = view.meta_by_id[span.span_id]
@@ -158,19 +184,21 @@ def _format_tree_line(span: SpanRecord, view: SpanTreeView, *, depth: int, inclu
     duration = _format_duration(span)
     cache_suffix = _cache_hit_suffix(meta)
 
-    if span.kind == SpanKind.CONVERSATION:
-        model = _detail_str(meta, MODEL_KEY) or UNKNOWN_MODEL_LABEL
-        tokens = _format_token_parts(span, metrics, view)
-        cost = span.cost_usd + view.descendant_costs.get(span.span_id, 0.0)
-        chain_suffix = f" (continues {str(span.previous_conversation_id)[:8]}…)" if span.previous_conversation_id else ""
-        line = f"{indent}conversation: {_conversation_label(span, meta)} {duration} {model}{chain_suffix}"
-        if tokens:
-            line += f" {tokens}"
-        if cost > 0:
-            line += f" ${cost:.4f}"
-        rendered = f"{line}{cache_suffix}"
-        filename = _span_local_filename(span, view) if include_filenames else None
-        return f"{rendered}  -> {filename}" if filename is not None else rendered
+    if span.kind in {SpanKind.CONVERSATION, SpanKind.PROMPT_EXECUTION}:
+        chain_suffix = f" (continues {str(span.previous_conversation_id)[:8]}…)" if span.kind == SpanKind.CONVERSATION and span.previous_conversation_id else ""
+        label_prefix = "conversation" if span.kind == SpanKind.CONVERSATION else "prompt_exec"
+        return _format_conversation_like_line(
+            span,
+            view,
+            meta,
+            metrics,
+            indent=indent,
+            duration=duration,
+            cache_suffix=cache_suffix,
+            include_filenames=include_filenames,
+            label_prefix=label_prefix,
+            chain_suffix=chain_suffix,
+        )
 
     if span.kind == SpanKind.LLM_ROUND:
         model = _detail_str(meta, MODEL_KEY) or UNKNOWN_MODEL_LABEL
@@ -252,6 +280,7 @@ def format_span_overview_lines(view: SpanTreeView) -> list[str]:
             f"Attempts: {view.counts_by_kind.get(SpanKind.ATTEMPT, 0)}  "
             f"Operations: {view.counts_by_kind.get(SpanKind.OPERATION, 0)}  "
             f"Conversations: {view.counts_by_kind.get(SpanKind.CONVERSATION, 0)}  "
+            f"Prompt Executions: {view.counts_by_kind.get(SpanKind.PROMPT_EXECUTION, 0)}  "
             f"LLM Rounds: {view.counts_by_kind.get(SpanKind.LLM_ROUND, 0)}  "
             f"Tool Calls: {view.counts_by_kind.get(SpanKind.TOOL_CALL, 0)}"
         ),

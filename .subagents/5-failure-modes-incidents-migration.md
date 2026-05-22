@@ -255,7 +255,7 @@ The goal is not to restate abstract principles. The goal is to show what failed,
 ### 3.3 One monolithic `ai_search` provider hid fundamentally different subproviders
 **Symptom:** The system treated multiple AI search products as one generic provider, so prompt guides, routing, and request shaping never matched the actual execution engine.
 
-**Cause:** Provider configuration collapsed `chatgpt`, `grok`, `gemini`, `perplexity`, `copilot`, and `google_ai_mode` into one logical bucket.
+**Cause:** Provider configuration collapsed several distinct search products into one logical bucket.
 
 **Fix:** Model subproviders explicitly where behavior differs, or at least preserve subprovider identity through request generation.
 

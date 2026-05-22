@@ -1,7 +1,5 @@
 """Conversation message rendering with XML-preserving truncation."""
 
-from __future__ import annotations
-
 import json
 import re
 from typing import Any

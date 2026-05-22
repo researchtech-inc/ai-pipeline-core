@@ -14,6 +14,7 @@ from prefect import flow as _prefect_flow
 
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline._document_type_metadata import _FrozenDocumentTypesMeta, freeze_document_type_metadata
+from ai_pipeline_core.pipeline._file_rules import is_exempt, register_flow, register_stub, require_docstring
 from ai_pipeline_core.pipeline._task import PipelineTask
 from ai_pipeline_core.pipeline._type_validation import (
     collect_document_types,
@@ -315,14 +316,6 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
             return
 
         is_stub = stub
-
-        from ai_pipeline_core.pipeline._file_rules import (  # noqa: PLC0415  # deferred: avoid import-order issues during package init
-            is_exempt,
-            register_flow,
-            register_stub,
-            require_docstring,
-        )
-
         exempt = is_exempt(cls)
         if not exempt:
             require_docstring(cls, kind="PipelineFlow")

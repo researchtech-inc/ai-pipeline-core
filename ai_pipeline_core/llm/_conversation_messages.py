@@ -4,17 +4,17 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from html import escape
 from typing import Any
 
 from ai_pipeline_core._llm_core import CoreMessage
-from ai_pipeline_core._llm_core._validation import validate_text
 from ai_pipeline_core._llm_core.model_response import ModelResponse
-from ai_pipeline_core._llm_core.types import ContentPart, ImageContent, PDFContent, TextContent
+from ai_pipeline_core._llm_core.request import ListOf, get_list_item_type, is_list_output_type
+from ai_pipeline_core._llm_core.types import ContentPart, ImageContent, ImagePreset, PDFContent, TextContent
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.documents._hashing import compute_content_sha256
 from ai_pipeline_core.llm._images import validated_binary_parts
 
-from ._list_wrappers import get_list_item_type, is_list_output_type
 from .tools import Tool
 
 __all__ = [
@@ -31,7 +31,6 @@ __all__ = [
     "_document_to_xml_header",
     "_escape_xml_content",
     "_escape_xml_metadata",
-    "_finish_reason",
     "_normalize_content",
     "_prompt_parts",
     "_response_format_path",
@@ -42,19 +41,38 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 ConversationContent = str | Document | list[Document]
+_WRAPPER_TAG_RE = re.compile(
+    r"<(/?)(document|content|description|attachment|id|name)\b([^>]*)>",
+    re.IGNORECASE,
+)
 
-# Regex matching XML tags whose names are wrapper elements used by document serialization.
-# Only these tags are escaped in content bodies; other content remains unchanged.
-_WRAPPER_TAG_RE = re.compile(r"<(/?)(document|content|description|attachment|id|name)\b([^>]*)>", re.IGNORECASE)
+
+def validate_text(data: bytes, name: str) -> str | None:
+    """Validate text bytes before wrapping into the LLM XML envelope.
+
+    Document-layer concern (not LLM transport): rejects empty, binary, and
+    non-UTF-8 content before XML wrapping. ``_llm_core`` no longer owns text
+    validation; only multimodal (image/PDF) validators live in
+    ``_llm_core/_validation.py``.
+    """
+    if not data:
+        return f"empty text content in '{name}'"
+    if b"\x00" in data:
+        return f"binary content (null bytes) in text '{name}'"
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return f"invalid UTF-8 encoding in '{name}': {e}"
+    return None
 
 
 def _escape_xml_metadata(text: str) -> str:
-    """Escape < and > in metadata fields to prevent tag injection."""
-    return text.replace("<", "&lt;").replace(">", "&gt;")
+    """Escape metadata for XML text and attribute positions."""
+    return escape(text, quote=True)
 
 
 def _escape_xml_content(text: str) -> str:
-    """Escape only wrapper tags that could break document XML structure."""
+    """Escape wrapper-tag-like text so user content cannot break the document envelope."""
     return _WRAPPER_TAG_RE.sub(lambda match: f"&lt;{match.group(1)}{match.group(2)}{match.group(3)}&gt;", text)
 
 
@@ -66,14 +84,19 @@ def _document_to_xml_header(doc: Document) -> str:
     return f"<document>\n<id>{escaped_id}</id>\n<name>{escaped_name}</name>\n{description}<content>\n"
 
 
-def _document_to_content_parts(doc: Document, model: str) -> list[ContentPart]:
+def _document_to_content_parts(doc: Document, preset: ImagePreset) -> list[ContentPart]:
     """Convert a Document to content parts for CoreMessage."""
     parts: list[ContentPart] = []
     header = _document_to_xml_header(doc)
 
     if doc.is_text:
         if err := validate_text(doc.content, doc.name):
-            logger.warning("Skipping invalid document: %s", err)
+            logger.warning(
+                "Skipping invalid text document '%s' (validation failed: %s). "
+                "Re-create the Document with valid UTF-8 text content before sending it to the LLM.",
+                doc.name,
+                err,
+            )
             return []
         text = _escape_xml_content(doc.content.decode("utf-8"))
         text_fragments = [f"{header}{text}\n"]
@@ -85,7 +108,7 @@ def _document_to_content_parts(doc: Document, model: str) -> list[ContentPart]:
                 if attachment_content:
                     text_fragments.append(attachment_content)
                 continue
-            binary_attachment_parts.extend(_build_attachment_parts(attachment, model))
+            binary_attachment_parts.extend(_build_attachment_parts(attachment, preset))
 
         if binary_attachment_parts:
             parts.append(TextContent(text="".join(text_fragments)))
@@ -97,17 +120,21 @@ def _document_to_content_parts(doc: Document, model: str) -> list[ContentPart]:
         return parts
 
     if doc.is_image or doc.is_pdf:
-        binary_parts = validated_binary_parts(doc.content, doc.name, is_image=doc.is_image, model=model)
+        binary_parts = validated_binary_parts(doc.content, doc.name, is_image=doc.is_image, preset=preset)
         if binary_parts is None:
             return []
         parts.append(TextContent(text=header))
         parts.extend(binary_parts)
         for attachment in doc.attachments:
-            parts.extend(_build_attachment_parts(attachment, model))
+            parts.extend(_build_attachment_parts(attachment, preset))
         parts.append(TextContent(text="</content>\n</document>"))
         return parts
 
-    logger.warning("Skipping unsupported document type: %s - %s", doc.name, doc.mime_type)
+    logger.warning(
+        "Skipping unsupported document '%s' with MIME type '%s'. Use a text, image, or PDF Document subclass for LLM context.",
+        doc.name,
+        doc.mime_type,
+    )
     return []
 
 
@@ -116,7 +143,12 @@ def _build_attachment_content(attachment: Any) -> str | None:
     if not attachment.is_text:
         return None
     if err := validate_text(attachment.content, attachment.name):
-        logger.warning("Skipping invalid attachment: %s", err)
+        logger.warning(
+            "Skipping invalid text attachment '%s' (validation failed: %s). "
+            "Re-create the attachment with valid UTF-8 text content before sending it to the LLM.",
+            attachment.name,
+            err,
+        )
         return None
 
     escaped_name = _escape_xml_metadata(attachment.name)
@@ -125,7 +157,7 @@ def _build_attachment_content(attachment: Any) -> str | None:
     return f'<attachment name="{escaped_name}"{description_attr}>\n{attachment_text}\n</attachment>\n'
 
 
-def _build_attachment_parts(attachment: Any, model: str) -> list[ContentPart]:
+def _build_attachment_parts(attachment: Any, preset: ImagePreset) -> list[ContentPart]:
     """Build content parts for one attachment."""
     parts: list[ContentPart] = []
     escaped_name = _escape_xml_metadata(attachment.name)
@@ -134,14 +166,19 @@ def _build_attachment_parts(attachment: Any, model: str) -> list[ContentPart]:
 
     if attachment.is_text:
         if err := validate_text(attachment.content, attachment.name):
-            logger.warning("Skipping invalid attachment: %s", err)
+            logger.warning(
+                "Skipping invalid text attachment '%s' (validation failed: %s). "
+                "Re-create the attachment with valid UTF-8 text content before sending it to the LLM.",
+                attachment.name,
+                err,
+            )
             return []
         attachment_text = _escape_xml_content(attachment.content.decode("utf-8"))
         parts.append(TextContent(text=f"{attachment_open}{attachment_text}\n</attachment>\n"))
         return parts
 
     if attachment.is_image or attachment.is_pdf:
-        binary_parts = validated_binary_parts(attachment.content, attachment.name, is_image=attachment.is_image, model=model)
+        binary_parts = validated_binary_parts(attachment.content, attachment.name, is_image=attachment.is_image, preset=preset)
         if binary_parts is None:
             return []
         parts.append(TextContent(text=attachment_open))
@@ -149,7 +186,11 @@ def _build_attachment_parts(attachment: Any, model: str) -> list[ContentPart]:
         parts.append(TextContent(text="</attachment>\n"))
         return parts
 
-    logger.warning("Skipping unsupported attachment type: %s - %s", attachment.name, attachment.mime_type)
+    logger.warning(
+        "Skipping unsupported attachment '%s' with MIME type '%s'. Use a text, image, or PDF attachment for LLM context.",
+        attachment.name,
+        attachment.mime_type,
+    )
     return []
 
 
@@ -254,6 +295,8 @@ def _response_format_path(response_format: Any) -> str:
     """
     if response_format is None:
         return ""
+    if isinstance(response_format, ListOf):
+        return f"list[{response_format.inner.__module__}:{response_format.inner.__qualname__}]"
     if is_list_output_type(response_format):
         item_type = get_list_item_type(response_format)
         return f"list[{item_type.__module__}:{item_type.__qualname__}]"
@@ -292,13 +335,3 @@ def _serialize_response_tool_calls(tool_calls: tuple[Any, ...]) -> list[dict[str
             "arguments": arguments,
         })
     return serialized
-
-
-def _finish_reason(response: ModelResponse[Any]) -> str:
-    """Infer a finish reason for span detail_json."""
-    raw_finish_reason = response.metadata.get("finish_reason")
-    if isinstance(raw_finish_reason, str) and raw_finish_reason:
-        return raw_finish_reason
-    if response.has_tool_calls:
-        return "tool_calls"
-    return "stop"

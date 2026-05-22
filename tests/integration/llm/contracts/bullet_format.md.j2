@@ -1,0 +1,21 @@
+## Formatting rule
+
+The `answer` field MUST be a multi-line string where EVERY line begins with
+the literal two-character prefix `{{ "→ " }}` (right-arrow followed by a
+space). Single-line answers must still start with that prefix.
+
+## Examples
+
+Acceptable:
+
+```
+{{ "→ First point about the topic." }}
+{{ "→ Second point about the topic." }}
+```
+
+Unacceptable (missing prefix):
+
+```
+First point about the topic.
+{{ "→ Second point about the topic." }}
+```

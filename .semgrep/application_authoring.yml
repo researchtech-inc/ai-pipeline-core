@@ -15,6 +15,7 @@ rules:
       exclude:
         - "ai_pipeline_core/**"
         - "tests/**"
+        - "benchmarks/**"
 
   - id: no-application-nested-loops-in-flow-run
     patterns:
@@ -43,6 +44,7 @@ rules:
       exclude:
         - "ai_pipeline_core/**"
         - "tests/**"
+        - "benchmarks/**"
 
   - id: no-application-dict-unpacking-task-run
     patterns:
@@ -69,3 +71,4 @@ rules:
       exclude:
         - "ai_pipeline_core/**"
         - "tests/**"
+        - "benchmarks/**"

@@ -103,17 +103,6 @@ Use replay when:
 - you want to reproduce a failure with a different model or options
 - you want to isolate a single task or conversation without rerunning the whole pipeline
 
-## 3.3 `.ai-docs`
-Before debugging an application deeply, read the framework `.ai-docs` for:
-- document model behavior
-- prompt compiler behavior
-- deployment and flow semantics
-- replay and observability conventions
-
-These are not run artifacts, but they are part of the debugging toolchain because they explain what the trace fields mean.
-
----
-
 ## 4. Downloading A Run Correctly
 
 A run may exist in different backends depending on how it was executed.

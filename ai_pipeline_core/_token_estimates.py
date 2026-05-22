@@ -24,7 +24,7 @@ TOKENS_PER_BINARY = 1024
 
 @functools.cache
 def _get_tiktoken_encoding() -> tiktoken.Encoding:
-    return tiktoken.encoding_for_model("gpt-4")
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def estimate_text_tokens(text: str) -> int:
