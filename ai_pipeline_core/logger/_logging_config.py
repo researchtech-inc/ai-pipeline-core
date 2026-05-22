@@ -112,7 +112,7 @@ _setup_lock = threading.Lock()
 
 def setup_logging(config_path: Path | None = None, level: str | None = None) -> None:
     """Configure stdlib logging for framework and CLI entry points."""
-    global _logging_config  # noqa: PLW0603
+    global _logging_config  # noqa: PLW0603  # module singleton initialization
 
     with _setup_lock:
         root_logger = logging.getLogger()

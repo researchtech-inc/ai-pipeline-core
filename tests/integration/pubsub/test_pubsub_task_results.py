@@ -141,7 +141,7 @@ class TestTaskEventConstruction:
     def test_task_events_are_frozen(self):
         event = _make_started_event()
         with pytest.raises(AttributeError):
-            event.task_name = "other"  # type: ignore[misc]
+            event.task_name = "other"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_asdict_roundtrip(self):
         event = _make_completed_event(
@@ -210,7 +210,7 @@ class TestPubSubPublisherTaskEnvelopes:
                 service_type="test-service",
             )
             # Replace _publish with an AsyncMock to capture calls without real Pub/Sub
-            publisher._publish = AsyncMock()  # type: ignore[assignment]
+            publisher._publish = AsyncMock()  # type: ignore[assignment]  # test mock attribute injection
             yield publisher, publisher._publish
 
     async def test_task_started_envelope(self, publisher_and_publish):

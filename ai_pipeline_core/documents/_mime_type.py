@@ -64,7 +64,7 @@ def detect_mime_type(content: bytes, name: str) -> str:
         # If magic returns a valid mime type, use it
         if mime and mime != "application/octet-stream":
             return mime
-    except (AttributeError, OSError, magic.MagicException) as e:
+    except (AttributeError, OSError, magic.MagicException) as e:  # fmt: skip
         logger.warning("MIME detection failed for %s: %s", name, e)
     except Exception:
         logger.exception("Unexpected error in MIME detection for %s", name)

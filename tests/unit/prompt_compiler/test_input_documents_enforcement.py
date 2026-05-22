@@ -81,6 +81,6 @@ class TestInputDocumentsEnforcementNotImplemented:
     @pytest.mark.xfail(reason="InputDocumentError not yet implemented", strict=True)
     def test_input_document_error_importable(self) -> None:
         """After fix: InputDocumentError should be importable."""
-        from ai_pipeline_core.prompt_compiler._validation import InputDocumentError  # type: ignore[import-not-found]
+        from ai_pipeline_core.prompt_compiler._validation import InputDocumentError  # type: ignore[import-not-found]  # import may be absent; test asserts absence
 
         assert InputDocumentError is not None

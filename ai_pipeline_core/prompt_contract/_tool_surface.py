@@ -30,7 +30,7 @@ class ToolAvailability:
         # because ``tool: type[Tool]`` is the declared field type; the
         # check exists to defend against runtime callers that bypass the
         # annotation.
-        if not isinstance(self.tool, type) or not issubclass(self.tool, Tool):  # type: ignore[unreachable]
+        if not isinstance(self.tool, type) or not issubclass(self.tool, Tool):  # type: ignore[unreachable]  # runtime defensive check despite static narrowing
             raise TypeError(f"ToolAvailability.tool must be a Tool subclass, got {self.tool!r}")
         if isinstance(self.max_calls, bool) or not isinstance(self.max_calls, int) or self.max_calls < 1:
             raise TypeError(f"ToolAvailability.max_calls must be a positive int, got {self.max_calls!r}")

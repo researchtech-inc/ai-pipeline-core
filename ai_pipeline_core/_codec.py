@@ -372,7 +372,7 @@ class UniversalCodec:
             raise CodecError(f"Codec dataclass {class_path!r} requires 'data' to be a JSON object.")
         try:
             return dc_cls(**data)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # fmt: skip
             raise CodecError(f"Dataclass construction failed for {class_path!r}: {exc}") from exc
 
     async def _decode_enum(self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> Enum:
@@ -524,5 +524,5 @@ def _document_from_hydrated_record(hydrated: HydratedDocument, class_path: str) 
         )
     try:
         return hydrate_document(document_cls, hydrated)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError) as exc:  # fmt: skip
         raise CodecError(str(exc)) from exc

@@ -49,6 +49,6 @@ async def traced_operation(name: str, description: str = "") -> AsyncGenerator[N
             span_ctx.set_meta(description=description)
             try:
                 yield
-            except Exception, asyncio.CancelledError:
+            except (Exception, asyncio.CancelledError):  # fmt: skip
                 span_ctx.set_meta(description=description)
                 raise

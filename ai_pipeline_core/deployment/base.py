@@ -634,7 +634,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 )
             )
             return result
-        except (Exception, asyncio.CancelledError) as exc:
+        except (Exception, asyncio.CancelledError) as exc:  # fmt: skip
             if deployment_span_ctx is not None:
                 deployment_span_ctx.set_meta(error_code=str(_classify_error(exc)))
             try:
@@ -914,7 +914,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 "output_documents": previous_output_documents,
             })
             return result, last_flow_output_sha256s
-        except Exception, asyncio.CancelledError:
+        except (Exception, asyncio.CancelledError):  # fmt: skip
             current_exec_ctx = get_execution_context()
             if current_exec_ctx is not None:
                 await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=set())

@@ -239,7 +239,7 @@ class ExternalProvider:
                     params=params,
                     timeout=effective_timeout,
                 )
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:  # fmt: skip
                 last_error = exc
                 if attempt < max_attempts - 1:
                     delay = self.retry_delay * (2**attempt)

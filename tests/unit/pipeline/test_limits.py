@@ -58,7 +58,7 @@ class TestPipelineLimit:
     def test_frozen(self):
         pl = PipelineLimit(limit=10)
         with pytest.raises(AttributeError):
-            pl.limit = 20  # type: ignore[misc]
+            pl.limit = 20  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_limit_must_be_positive(self):
         with pytest.raises(ValueError, match="limit must be >= 1"):
@@ -129,7 +129,7 @@ class TestValidateConcurrencyLimits:
 
     def test_invalid_name_not_str(self):
         with pytest.raises(TypeError, match="key must be str"):
-            _validate_concurrency_limits("TestDeploy", {123: PipelineLimit(10)})  # type: ignore[dict-item]
+            _validate_concurrency_limits("TestDeploy", {123: PipelineLimit(10)})  # type: ignore[dict-item]  # negative test: wrong dict value type
 
     @pytest.mark.ai_docs
     def test_invalid_name_pattern(self):
@@ -138,7 +138,7 @@ class TestValidateConcurrencyLimits:
 
     def test_invalid_config_type(self):
         with pytest.raises(TypeError, match="must be PipelineLimit"):
-            _validate_concurrency_limits("TestDeploy", {"test": "not a limit"})  # type: ignore[dict-item]
+            _validate_concurrency_limits("TestDeploy", {"test": "not a limit"})  # type: ignore[dict-item]  # negative test: wrong dict value type
 
     def test_invalid_kind_type(self):
         """Test that kind must be LimitKind enum instance."""
@@ -159,7 +159,7 @@ class TestValidateConcurrencyLimits:
     def test_returns_immutable(self):
         result = _validate_concurrency_limits("TestDeploy", {"a": PipelineLimit(10)})
         with pytest.raises(TypeError):
-            result["new"] = PipelineLimit(5)  # type: ignore[index]
+            result["new"] = PipelineLimit(5)  # type: ignore[index]  # guaranteed non-empty by prior assertion
 
 
 # ---------------------------------------------------------------------------

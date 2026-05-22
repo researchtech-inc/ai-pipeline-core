@@ -128,10 +128,10 @@ class TestIsDocumentSha256:
     def test_edge_cases(self):
         """Test edge cases and special inputs."""
         # Non-string inputs
-        assert not _is_document_sha256(None)  # type: ignore[arg-type]
-        assert not _is_document_sha256(123)  # type: ignore[arg-type]
-        assert not _is_document_sha256([])  # type: ignore[arg-type]
-        assert not _is_document_sha256(b"A" * 26)  # type: ignore[arg-type]
+        assert not _is_document_sha256(None)  # type: ignore[arg-type]  # negative test: wrong runtime type
+        assert not _is_document_sha256(123)  # type: ignore[arg-type]  # negative test: wrong runtime type
+        assert not _is_document_sha256([])  # type: ignore[arg-type]  # negative test: wrong runtime type
+        assert not _is_document_sha256(b"A" * 26)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
         # Empty string
         assert not _is_document_sha256("")

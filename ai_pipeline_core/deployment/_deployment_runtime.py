@@ -290,7 +290,7 @@ async def _run_flow_with_retries(
             ) as attempt_ctx:
                 attempt_ctx.set_meta(attempt=flow_attempt, max_attempts=flow_attempts)
                 return await _execute_single_flow_attempt(flow_class, flow_instance, resolved_kwargs)
-        except _CoreNonRetriable, TypeError, asyncio.CancelledError:
+        except (_CoreNonRetriable, TypeError, asyncio.CancelledError):  # fmt: skip
             raise
         except Exception as attempt_exc:
             if current_exec_ctx is not None:
@@ -437,7 +437,7 @@ async def _execute_flow_with_context(
                 )
                 span_ctx.set_output_preview({"documents": [document.name for document in validated_docs]})
                 span_ctx._set_output_value(validated_docs)
-        except (Exception, asyncio.CancelledError) as flow_exc:
+        except (Exception, asyncio.CancelledError) as flow_exc:  # fmt: skip
             if current_exec_ctx is not None:
                 await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=active_handles_before)
             flow_error_message = str(flow_exc)
@@ -499,7 +499,7 @@ def _safe_uuid(value: str) -> UUID | None:
     """Parse a UUID string, returning None if invalid."""
     try:
         return UUID(value)
-    except ValueError, AttributeError:
+    except (ValueError, AttributeError):  # fmt: skip
         return None
 
 

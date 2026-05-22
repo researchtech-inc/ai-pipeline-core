@@ -51,7 +51,7 @@ def _read_lastfailed(repo_root: Path) -> tuple[str, ...]:
         return ()
     try:
         raw = json.loads(cache_path.read_text())
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):  # fmt: skip
         return ()
     if not isinstance(raw, dict):
         return ()

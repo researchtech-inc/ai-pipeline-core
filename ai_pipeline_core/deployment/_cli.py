@@ -31,11 +31,11 @@ async def _shutdown_database(database: Database) -> None:
     """Flush and shut down the CLI database."""
     try:
         await database.flush()
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:  # fmt: skip
         logger.warning("Database flush failed: %s", exc)
     try:
         await database.shutdown()
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:  # fmt: skip
         logger.warning("Database shutdown failed: %s", exc)
 
 

@@ -139,11 +139,11 @@ class TestRunCompletedEvent:
         finally:
             try:
                 second_resources.subscriber_client.delete_subscription(subscription=second_resources.subscription_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
             try:
                 second_resources.publisher_client.delete_topic(topic=second_resources.topic_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
 
     async def test_completed_event_correct_after_full_resume_3flow(
@@ -172,9 +172,9 @@ class TestRunCompletedEvent:
         finally:
             try:
                 second_resources.subscriber_client.delete_subscription(subscription=second_resources.subscription_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
             try:
                 second_resources.publisher_client.delete_topic(topic=second_resources.topic_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass

@@ -315,7 +315,7 @@ def test_follows_with_input_documents() -> None:
 def test_follows_must_be_prompt_spec_subclass() -> None:
     with pytest.raises(TypeError, match="must be a PromptSpec subclass"):
 
-        class BadSpec(PromptSpec, follows=str):  # type: ignore[arg-type]
+        class BadSpec(PromptSpec, follows=str):  # type: ignore[arg-type]  # negative test: wrong runtime type
             """Bad."""
 
             task = "do it"
@@ -545,7 +545,7 @@ def test_spec_output_type_explicit_str() -> None:
 def test_spec_output_type_rejects_invalid_generic_param() -> None:
     with pytest.raises(TypeError, match=r"generic parameter must be 'str', a BaseModel subclass, or list\[BaseModel\]"):
 
-        class BadOutputSpec(PromptSpec[int]):  # type: ignore[type-arg]
+        class BadOutputSpec(PromptSpec[int]):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Doc."""
 
             input_documents = ()
@@ -1081,7 +1081,7 @@ def test_spec_frozen_model() -> None:
 
     spec = FrozenSpec(item="x")
     with pytest.raises(Exception):
-        spec.item = "y"  # type: ignore[misc]
+        spec.item = "y"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 # ---------------------------------------------------------------------------

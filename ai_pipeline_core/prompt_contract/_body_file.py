@@ -82,7 +82,7 @@ def _validate_no_h1(source: str, *, cls_name: str, kind: str, path: Path) -> Non
 def _validate_jinja_syntax(source: str, *, cls_name: str, kind: str, path: Path) -> None:
     """Compile the template once at import time so syntax errors surface early."""
     # autoescape=False: rendered output is markdown for an LLM, not HTML; escaping would corrupt the prompt.
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False)  # noqa: S701
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=False)  # noqa: S701  # templates render markdown, not HTML
     try:
         env.parse(source)
     except jinja2.TemplateSyntaxError as exc:

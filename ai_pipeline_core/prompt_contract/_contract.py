@@ -219,7 +219,7 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
     # ``BaseModel.validate`` is a deprecated v1 classmethod alias; we shadow it
     # intentionally with an instance method so contract subclasses can read
     # ``self`` while running semantic checks on the parsed response.
-    def validate(self, response: OutputT) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # noqa: PLR6301
+    def validate(self, response: OutputT) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # noqa: PLR6301  # method exposed as ABC override; instance self required
         """Override to add semantic validation. Default: always passes."""
         _ = response
         return ()
@@ -232,7 +232,7 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
     ) -> PromptResult[OutputT]:
         """Execute this contract against ``model`` and return a parsed result."""
         if not isinstance(model, AIModel):  # type: ignore[unreachable]  # runtime defensive check despite static type
-            raise TypeError(f"PromptContract.execute(model=...) requires an AIModel; got {type(model).__name__}.")  # type: ignore[unreachable]
+            raise TypeError(f"PromptContract.execute(model=...) requires an AIModel; got {type(model).__name__}.")  # type: ignore[unreachable]  # runtime defensive check despite static narrowing
 
         # Refuse to dispatch the LLM when called directly from a flow body without a task.
         assert_llm_scope(source="PromptContract.execute()")

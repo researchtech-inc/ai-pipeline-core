@@ -56,7 +56,7 @@ class _RecordingSpanDatabase(_MemoryDatabase):
 
     async def insert_span(self, span: object) -> None:
         self.inserted_spans.append(span)
-        await super().insert_span(span)  # type: ignore[arg-type]
+        await super().insert_span(span)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 class _ConversationInsertFailureDatabase(_RecordingSpanDatabase):
@@ -92,7 +92,7 @@ def _make_response(
         response_id=response_id,
         citations=(),
         reasoning_content="reasoning",
-        tool_calls=tool_calls,  # type: ignore[arg-type]
+        tool_calls=tool_calls,  # type: ignore[arg-type]  # negative test: wrong runtime type
     )
 
 

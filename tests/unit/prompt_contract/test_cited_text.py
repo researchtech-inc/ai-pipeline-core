@@ -29,11 +29,11 @@ class TestDocumentCitation:
     def test_is_frozen(self) -> None:
         citation = DocumentCitation(url="https://x.com")
         with pytest.raises(ValidationError):
-            citation.url = "https://y.com"  # type: ignore[misc]
+            citation.url = "https://y.com"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_extra_keys_forbidden(self) -> None:
         with pytest.raises(ValidationError):
-            DocumentCitation(unknown_field="x")  # type: ignore[call-arg]
+            DocumentCitation(unknown_field="x")  # type: ignore[call-arg]  # negative test: wrong call signature
 
     def test_subclass_of_frozen_base_model(self) -> None:
         assert issubclass(DocumentCitation, FrozenBaseModel)
@@ -76,7 +76,7 @@ class TestCitedText:
     def test_is_frozen(self) -> None:
         cited = CitedText(text="x")
         with pytest.raises(ValidationError):
-            cited.text = "y"  # type: ignore[misc]
+            cited.text = "y"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_subclass_of_frozen_base_model(self) -> None:
         assert issubclass(CitedText, FrozenBaseModel)

@@ -43,7 +43,7 @@ class TestRunContext:
     def test_frozen(self):
         ctx = _RunContext(run_id="test")
         with pytest.raises(AttributeError):
-            ctx.run_id = "changed"  # type: ignore[misc]
+            ctx.run_id = "changed"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_get_returns_none_by_default(self):
         assert _run_context.get() is None

@@ -123,4 +123,4 @@ def load_document_from_file[D](doc_type: type[D], file_path: Path, *, reason: st
         content: str | bytes = content_bytes.decode("utf-8")
     except UnicodeDecodeError:
         content = content_bytes
-    return doc_type.create_root(name=file_path.name, content=content, reason=reason)  # type: ignore[return-value]
+    return doc_type.create_root(name=file_path.name, content=content, reason=reason)  # type: ignore[return-value]  # intentional wrong return type for test

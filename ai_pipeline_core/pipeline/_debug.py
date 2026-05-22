@@ -254,11 +254,11 @@ async def _safe_shutdown(database: FilesystemDatabase) -> None:
     """Flush and shutdown database, suppressing errors."""
     try:
         await database.flush()
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:  # fmt: skip
         logger.warning("Debug database flush failed: %s", exc)
     try:
         await database.shutdown()
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:  # fmt: skip
         logger.warning("Debug database shutdown failed: %s", exc)
 
 

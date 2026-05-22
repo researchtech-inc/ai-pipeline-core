@@ -38,7 +38,7 @@ class CityFactContract(PromptContract[CityFact]):
 
     city: str = Field(description="Name of the city to identify.")
 
-    def validate(self, response: CityFact) -> tuple[ValidationFailure, ...]:  # type: ignore[override]
+    def validate(self, response: CityFact) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # test-scaffold signature divergence
         """Reject empty fields."""
         failures: list[ValidationFailure] = []
         if not response.name.strip():

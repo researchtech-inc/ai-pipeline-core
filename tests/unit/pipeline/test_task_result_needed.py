@@ -29,7 +29,7 @@ class TestTaskReturnConstraint:
 
             class BadReturnTask(PipelineTask):
                 @classmethod
-                async def run(cls, input_docs: tuple[TRInputDoc, ...]) -> dict:  # type: ignore[override]
+                async def run(cls, input_docs: tuple[TRInputDoc, ...]) -> dict:  # type: ignore[override]  # test-scaffold signature divergence
                     _ = (cls, input_docs)
                     return {"metadata": "value"}
 
@@ -44,7 +44,7 @@ class TestTaskReturnConstraint:
 
             class MetaReturnTask(PipelineTask):
                 @classmethod
-                async def run(cls, input_docs: tuple[TRInputDoc, ...]) -> TaskMeta:  # type: ignore[override]
+                async def run(cls, input_docs: tuple[TRInputDoc, ...]) -> TaskMeta:  # type: ignore[override]  # test-scaffold signature divergence
                     _ = (cls, input_docs)
                     return TaskMeta(cost=0.5)
 
@@ -55,6 +55,6 @@ class TestTaskResultNotImplemented:
     @pytest.mark.xfail(reason="TaskResult[T] not yet implemented", strict=True)
     def test_task_result_importable(self) -> None:
         """TaskResult should be importable from the pipeline module."""
-        from ai_pipeline_core.pipeline._task_result import TaskResult  # type: ignore[import-not-found]
+        from ai_pipeline_core.pipeline._task_result import TaskResult  # type: ignore[import-not-found]  # import may be absent; test asserts absence
 
         assert TaskResult is not None

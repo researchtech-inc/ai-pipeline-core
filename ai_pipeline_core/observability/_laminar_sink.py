@@ -90,7 +90,7 @@ class LaminarSpanSink:
                 span_type=_laminar_type(kind),
                 parent_span_context=parent_ctx,
                 input=input_preview,
-                attributes={  # pyright: ignore[reportCallIssue]
+                attributes={
                     "ai_pipeline.span_kind": kind.value,
                     "ai_pipeline.target": target,
                 },

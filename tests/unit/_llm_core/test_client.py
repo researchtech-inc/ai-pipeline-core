@@ -276,7 +276,7 @@ class TestStructuredOutputPrompts:
         # so the cache prefix still covers [SYSTEM(retry), doc1, doc2].
         assert retry_attempt.call.cache.context_count == 3
         assert retry_attempt.call.messages[0].role == Role.SYSTEM
-        assert _STRUCTURED_RETRY_SYSTEM_PROMPT in retry_attempt.call.messages[0].content  # type: ignore[operator]
+        assert _STRUCTURED_RETRY_SYSTEM_PROMPT in retry_attempt.call.messages[0].content  # type: ignore[operator]  # runtime type wider than declared
 
         api_kwargs, _cache_key = _prepare_api_kwargs(retry_attempt)
         api_messages = api_kwargs["messages"]

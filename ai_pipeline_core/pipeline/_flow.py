@@ -104,7 +104,7 @@ def _parse_run_source_tree(run_fn: Any) -> ast.Module | None:
     """Parse ``run_fn`` source into an AST module, or return None when unavailable."""
     try:
         source = textwrap.dedent(inspect.getsource(run_fn))
-    except OSError, TypeError:
+    except (OSError, TypeError):  # fmt: skip
         return None
     try:
         return ast.parse(source)
@@ -214,7 +214,7 @@ def _parse_task_graph_from_source(run_fn: Any) -> list[tuple[str, str, float]]:
     try:
         source = textwrap.dedent(inspect.getsource(run_fn))
         tree = ast.parse(source)
-    except OSError, TypeError, SyntaxError:
+    except (OSError, TypeError, SyntaxError):  # fmt: skip
         return []
 
     graph: list[tuple[str, str, float]] = []

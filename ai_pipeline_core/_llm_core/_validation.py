@@ -28,7 +28,7 @@ def validate_image_content(data: bytes) -> str | None:
         with Image.open(BytesIO(data)) as img:
             width, height = img.size
             img.verify()
-    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:  # fmt: skip
         return f"invalid image: {exc}"
     if width < _MIN_IMAGE_DIMENSION or height < _MIN_IMAGE_DIMENSION:
         return f"zero-pixel image ({width}x{height})"
@@ -49,7 +49,7 @@ def validate_pdf_content(data: bytes) -> str | None:
         return "missing %PDF- header"
     try:
         reader = PdfReader(BytesIO(data))
-    except (PdfReadError, OSError, ValueError) as exc:
+    except (PdfReadError, OSError, ValueError) as exc:  # fmt: skip
         return f"corrupted PDF: {exc}"
     if reader.is_encrypted:
         return "password-protected PDF"

@@ -93,7 +93,7 @@ class RequireExactWordContract(PromptContract[ShortAnswer]):
     question: str = Field(description="The question to answer.")
     required_word: str = Field(description="The exact word that must appear in the answer.")
 
-    def validate(self, response: ShortAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]
+    def validate(self, response: ShortAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # test-scaffold signature divergence
         if self.required_word.lower() not in response.answer.lower():
             return (
                 ValidationFailure(
@@ -138,7 +138,7 @@ class AlwaysFailingContract(PromptContract[ImpossibleAnswer]):
     returns: ClassVar[str] = "An ImpossibleAnswer the validator will always reject."
     success_criteria: ClassVar[str] = "(intentionally unsatisfiable for this test)."
 
-    def validate(self, response: ImpossibleAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]
+    def validate(self, response: ImpossibleAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # test-scaffold signature divergence
         _ = response
         return (ValidationFailure(message="The validator always rejects (test contract)."),)
 

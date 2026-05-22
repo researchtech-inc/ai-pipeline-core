@@ -191,7 +191,7 @@ class TestFlowRetryWithinDeployment:
             await _NonRetriableDeployment().run("nr-1", [_make_input()], FlowOptions(), publisher=pub, database=_MemoryDatabase())
 
     async def test_exhausts_all_retries(self) -> None:
-        _AlwaysFailTask._attempt_count = 0  # type: ignore[attr-defined]
+        _AlwaysFailTask._attempt_count = 0  # type: ignore[attr-defined]  # attribute injected at runtime for test
         with pytest.raises(RuntimeError, match="always fails"):
             await _ExhaustRetriesDeployment().run("exhaust", [_make_input()], FlowOptions(), database=_MemoryDatabase())
 

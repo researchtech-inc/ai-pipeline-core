@@ -214,7 +214,7 @@ async def fetch_trace(call_id: str | None) -> dict[str, Any] | None:
                 response.reason_phrase,
                 response.text[:_TRACE_ERROR_BODY_PREVIEW_CHARS],
             )
-    except (httpx.HTTPError, ValueError) as trace_exc:
+    except (httpx.HTTPError, ValueError) as trace_exc:  # fmt: skip
         logger.debug("AIPL trace fetch failed for call_id=%s: %s", call_id, trace_exc)
     return None
 

@@ -100,11 +100,11 @@ class TestResumedFlowCachedStatus:
         finally:
             try:
                 sub_client.delete_subscription(subscription=sub_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
             try:
                 pub_client.delete_topic(topic=topic_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
 
 
@@ -166,11 +166,11 @@ class TestResumedPipelineLifecycle:
         finally:
             try:
                 sub_client.delete_subscription(subscription=sub_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
             try:
                 pub_client.delete_topic(topic=topic_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
 
 
@@ -243,9 +243,9 @@ class TestPartialResumeMix:
         finally:
             try:
                 sub_client.delete_subscription(subscription=sub_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass
             try:
                 pub_client.delete_topic(topic=topic_path)
-            except OSError, GoogleAPICallError:
+            except (OSError, GoogleAPICallError):  # fmt: skip
                 pass

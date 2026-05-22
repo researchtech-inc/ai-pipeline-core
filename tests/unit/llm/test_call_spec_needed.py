@@ -28,6 +28,6 @@ class TestCallSpecNotImplemented:
     @pytest.mark.xfail(reason="call_spec() not yet implemented", strict=True)
     def test_call_spec_importable(self) -> None:
         """After fix: call_spec should be importable."""
-        from ai_pipeline_core import call_spec  # type: ignore[attr-defined]
+        from ai_pipeline_core import call_spec  # type: ignore[attr-defined]  # attribute injected at runtime for test
 
         assert callable(call_spec)

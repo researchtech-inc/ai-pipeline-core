@@ -60,4 +60,4 @@ def test_tool_binding_importable_from_prompt_contract_package() -> None:
 
 def test_tool_binding_rejects_non_tool() -> None:
     with pytest.raises(TypeError, match="must be a Tool subclass"):
-        ToolBinding(tool=str)  # type: ignore[arg-type]
+        ToolBinding(tool=str)  # type: ignore[arg-type]  # negative test: wrong runtime type

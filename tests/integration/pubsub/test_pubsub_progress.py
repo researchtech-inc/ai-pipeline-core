@@ -124,12 +124,12 @@ class TestHeartbeatCloudEventsEnvelope:
 
     async def test_publish_heartbeat_calls_publish_with_correct_envelope(self, publisher: PubSubPublisher) -> None:
         """publish_heartbeat() builds envelope with RUN_HEARTBEAT type and publishes it."""
-        publisher._publish = AsyncMock()  # type: ignore[assignment]
+        publisher._publish = AsyncMock()  # type: ignore[assignment]  # test mock attribute injection
 
         await publisher.publish_heartbeat("run-full-test", root_deployment_id="root-full-test", span_id="span-full-test")
 
-        publisher._publish.assert_called_once()  # type: ignore[union-attr]
-        call_args = publisher._publish.call_args  # type: ignore[union-attr]
+        publisher._publish.assert_called_once()  # type: ignore[union-attr]  # narrowed by prior assertion
+        call_args = publisher._publish.call_args  # type: ignore[union-attr]  # narrowed by prior assertion
 
         # First arg is the envelope bytes
         envelope = json.loads(call_args[0][0])

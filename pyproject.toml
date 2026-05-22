@@ -1,6 +1,6 @@
 [project]
 name = "ai-pipeline-core"
-version = "0.22.5"
+version = "0.23.0"
 description = "Core utilities for AI-powered processing pipelines using prefect"
 readme = "README.md"
 license = {text = "MIT"}
@@ -326,6 +326,11 @@ members = ["tools/dev-cli", "tools/trace-inspector"]
 [tool.dev-cli.infrastructure]
 integration = { env = ["OPENAI_API_KEY", "OPENAI_BASE_URL"], label = "LLM API" }
 docker = { command = "docker info", label = "Docker" }
+
+[tool.dev-cli.lanes]
+unit = { paths = ["tests/unit"] }
+integration = { paths = ["tests/integration"] }
+qualification = { paths = ["tests/qualification"] }
 
 [tool.dev-cli.scopes]
 _llm_core = "tests/unit/_llm_core"

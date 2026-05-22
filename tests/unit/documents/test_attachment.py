@@ -170,17 +170,17 @@ class TestAttachmentImmutability:
     def test_cannot_set_name(self):
         att = Attachment(name="test.txt", content=b"data")
         with pytest.raises(ValidationError):
-            att.name = "other.txt"  # type: ignore[misc]
+            att.name = "other.txt"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_cannot_set_content(self):
         att = Attachment(name="test.txt", content=b"data")
         with pytest.raises(ValidationError):
-            att.content = b"other"  # type: ignore[misc]
+            att.content = b"other"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_cannot_set_description(self):
         att = Attachment(name="test.txt", content=b"data", description="desc")
         with pytest.raises(ValidationError):
-            att.description = "new"  # type: ignore[misc]
+            att.description = "new"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 class TestAttachmentExtraFields:
@@ -188,4 +188,4 @@ class TestAttachmentExtraFields:
 
     def test_extra_field_rejected(self):
         with pytest.raises(ValidationError, match="extra"):
-            Attachment(name="test.txt", content=b"data", extra_field="bad")  # type: ignore[call-arg]
+            Attachment(name="test.txt", content=b"data", extra_field="bad")  # type: ignore[call-arg]  # negative test: wrong call signature

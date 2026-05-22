@@ -74,7 +74,7 @@ MAX_TOTAL_DERIVED_FROM_BYTES = 200 * 1024
 
 # Registry of class __name__ -> Document subclass for collision detection.
 # Only non-test classes are registered. Test modules (tests.*, conftest, etc.) are skipped.
-_class_name_registry: dict[str, type[Document]] = {}  # nosemgrep: no-mutable-module-globals
+_class_name_registry: dict[str, type[Document]] = {}  # nosemgrep: no-mutable-module-globals  # import-time registry per CLAUDE.md §1.2 category 3
 
 # Metadata keys added by serialize_model() that should be stripped before validation.
 _DOCUMENT_SERIALIZE_METADATA_KEYS: frozenset[str] = frozenset({
@@ -182,7 +182,7 @@ def _validate_content_schema(
     try:
         if name_lower.endswith((".yaml", ".yml")):
             yaml = YAML()
-            raw = yaml.load(content_bytes.decode("utf-8"))  # type: ignore[no-untyped-call]
+            raw = yaml.load(content_bytes.decode("utf-8"))  # type: ignore[no-untyped-call]  # third-party untyped callable
             content_type.model_validate(raw)
         elif name_lower.endswith(".json"):
             content_type.model_validate_json(content_bytes)
@@ -209,7 +209,7 @@ def _parse_list_bytes(content_bytes: bytes, name: str, item_type: type[BaseModel
     name_lower = name.lower()
     if name_lower.endswith((".yaml", ".yml")):
         yaml = YAML()
-        raw = yaml.load(content_bytes.decode("utf-8"))  # type: ignore[no-untyped-call]
+        raw = yaml.load(content_bytes.decode("utf-8"))  # type: ignore[no-untyped-call]  # third-party untyped callable
     elif name_lower.endswith(".json"):
         raw = json.loads(content_bytes)
     else:
@@ -218,7 +218,7 @@ def _parse_list_bytes(content_bytes: bytes, name: str, item_type: type[BaseModel
         )
     if not isinstance(raw, list):
         raise TypeError(f"Expected list content for Document[list[{item_type.__name__}]], got {type(raw).__name__}")
-    return raw  # type: ignore[no-any-return]
+    return raw  # type: ignore[no-any-return]  # third-party untyped callable
 
 
 def _validate_list_content_schema(
@@ -867,7 +867,7 @@ class Document[TContent: BaseModel = Any](BaseModel):
     def as_yaml(self) -> Any:
         """Parse content as YAML via ruamel.yaml."""
         yaml = YAML()
-        return yaml.load(self.text)  # type: ignore[no-untyped-call, no-any-return]
+        return yaml.load(self.text)  # type: ignore[no-untyped-call, no-any-return]  # third-party untyped callable
 
     def as_json(self) -> Any:
         """Parse content as JSON."""

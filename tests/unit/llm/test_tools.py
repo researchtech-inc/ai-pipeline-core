@@ -116,7 +116,7 @@ def test_tool_definition_non_async_execute() -> None:
             class Output(BaseModel):
                 result: str
 
-            def run(self, input: Input) -> Output:  # type: ignore[override]
+            def run(self, input: Input) -> Output:  # type: ignore[override]  # test-scaffold signature divergence
                 return self.Output(result="")
 
 
@@ -235,7 +235,7 @@ def test_tool_output_frozen() -> None:
 
     output = ToolOutput(content="hello")
     with pytest.raises(ValidationError):
-        output.content = "world"  # type: ignore[misc]
+        output.content = "world"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 # ── ToolCallRecord ───────────────────────────────────────────────────────────
@@ -475,7 +475,7 @@ def test_handled_exceptions_not_tuple() -> None:
         class BadTool(Tool):
             """Bad exceptions type."""
 
-            handled_exceptions: ClassVar[Any] = ValueError  # type: ignore[assignment]
+            handled_exceptions: ClassVar[Any] = ValueError  # type: ignore[assignment]  # test mock attribute injection
 
             class Input(BaseModel):
                 x: str = Field(description="x")
@@ -493,7 +493,7 @@ def test_handled_exceptions_non_exception_entry() -> None:
         class BadTool(Tool):
             """Non-Exception in tuple."""
 
-            handled_exceptions: ClassVar[Any] = (str,)  # type: ignore[assignment]
+            handled_exceptions: ClassVar[Any] = (str,)  # type: ignore[assignment]  # test mock attribute injection
 
             class Input(BaseModel):
                 x: str = Field(description="x")
@@ -538,7 +538,7 @@ def test_async_handle_error_rejected() -> None:
             async def run(self, input: Input) -> Output:
                 return self.Output(result="")
 
-            async def handle_error(self, error: Exception) -> ToolOutput:  # type: ignore[override]
+            async def handle_error(self, error: Exception) -> ToolOutput:  # type: ignore[override]  # test-scaffold signature divergence
                 return ToolOutput(content="err")
 
 
@@ -557,7 +557,7 @@ def test_async_is_retryable_rejected() -> None:
             async def run(self, input: Input) -> Output:
                 return self.Output(result="")
 
-            async def _is_retryable(self, error: Exception) -> bool:  # type: ignore[override]
+            async def _is_retryable(self, error: Exception) -> bool:  # type: ignore[override]  # test-scaffold signature divergence
                 return False
 
 
@@ -569,7 +569,7 @@ def test_async_handle_error_inherited_from_abstract_base_rejected() -> None:
 
         _abstract_tool: ClassVar[bool] = True
 
-        async def handle_error(self, error: Exception) -> ToolOutput:  # type: ignore[override]
+        async def handle_error(self, error: Exception) -> ToolOutput:  # type: ignore[override]  # test-scaffold signature divergence
             return ToolOutput(content="err")
 
     with pytest.raises(TypeError, match="handle_error must be sync"):
@@ -595,7 +595,7 @@ def test_async_is_retryable_inherited_from_abstract_base_rejected() -> None:
 
         _abstract_tool: ClassVar[bool] = True
 
-        async def _is_retryable(self, error: Exception) -> bool:  # type: ignore[override]
+        async def _is_retryable(self, error: Exception) -> bool:  # type: ignore[override]  # test-scaffold signature divergence
             return False
 
     with pytest.raises(TypeError, match="_is_retryable must be sync"):
@@ -745,7 +745,7 @@ async def test_sealed_execute_validates_return_type() -> None:
             result: str
 
         async def run(self, input: Input) -> Output:
-            return WrongOutput(wrong="bad")  # type: ignore[return-value]
+            return WrongOutput(wrong="bad")  # type: ignore[return-value]  # intentional wrong return type for test
 
     with pytest.raises(TypeError, match="must return Output"):
         await WrongReturnTool().execute(WrongReturnTool.Input(x="test"))

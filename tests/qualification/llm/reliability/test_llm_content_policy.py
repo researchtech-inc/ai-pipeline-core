@@ -42,7 +42,7 @@ class TestLLMContentPolicy:
                 raise pytest.skip.Exception(
                     "Precondition not met: provider produced a safe answer instead of finish_reason=content_filter on canonical refusal prompt"
                 )
-        except EmptyResponseError, APIError:
+        except (EmptyResponseError, APIError):  # fmt: skip
             raise pytest.skip.Exception("Upstream provider overload — precondition not met") from None
 
         assert isinstance(exc_info.value.deployment_id, str)

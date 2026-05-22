@@ -81,7 +81,7 @@ def test_span_record_defaults_and_immutability() -> None:
     assert not hasattr(span, "detail_json")
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        span.name = "changed"  # type: ignore[misc]
+        span.name = "changed"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_document_record_defaults_and_attachment_fields() -> None:
@@ -105,7 +105,7 @@ def test_document_record_defaults_and_attachment_fields() -> None:
     assert record.attachment_size_bytes == ()
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        record.name = "changed"  # type: ignore[misc]
+        record.name = "changed"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_document_record_rejects_mismatched_attachment_lengths() -> None:
@@ -129,7 +129,7 @@ def test_blob_record_defaults_and_immutability() -> None:
     assert blob.content == b"hello"
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        blob.content = b"changed"  # type: ignore[misc]
+        blob.content = b"changed"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_log_record_defaults_and_immutability() -> None:
@@ -149,7 +149,7 @@ def test_log_record_defaults_and_immutability() -> None:
     assert record.exception_text == ""
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        record.message = "changed"  # type: ignore[misc]
+        record.message = "changed"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_supporting_records_construct() -> None:

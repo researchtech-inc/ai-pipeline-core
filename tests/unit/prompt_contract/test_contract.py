@@ -88,7 +88,7 @@ def test_contract_inherited_classvar_does_not_satisfy() -> None:
 
     with pytest.raises(TypeError, match="must inherit directly from PromptContract"):
 
-        class ChildContract(ParentContract):  # type: ignore[misc]
+        class ChildContract(ParentContract):  # type: ignore[misc]  # frozen model mutation negative test
             """Child."""
 
             returns = "child returns"
@@ -181,7 +181,7 @@ def test_contract_rejects_whitespace_only_docstring() -> None:
 def test_contract_requires_generic_parameter() -> None:
     with pytest.raises(TypeError, match="must declare a structured output type"):
 
-        class NoGenericContract(PromptContract):  # type: ignore[type-arg]
+        class NoGenericContract(PromptContract):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Doc."""
 
             purpose = "p"
@@ -192,7 +192,7 @@ def test_contract_requires_generic_parameter() -> None:
 def test_contract_rejects_non_basemodel_generic_parameter() -> None:
     with pytest.raises(TypeError, match="must be a FrozenBaseModel subclass"):
 
-        class StringContract(PromptContract[str]):  # type: ignore[type-var]
+        class StringContract(PromptContract[str]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
             """Doc."""
 
             purpose = "p"
@@ -203,7 +203,7 @@ def test_contract_rejects_non_basemodel_generic_parameter() -> None:
 def test_contract_rejects_list_generic_parameter() -> None:
     with pytest.raises(TypeError, match="must be a FrozenBaseModel subclass"):
 
-        class ListContract(PromptContract[list[ContractOutput]]):  # type: ignore[type-var]
+        class ListContract(PromptContract[list[ContractOutput]]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
             """Doc."""
 
             purpose = "p"
@@ -226,7 +226,7 @@ def test_contract_rejects_plain_basemodel_generic_parameter() -> None:
 
     with pytest.raises(TypeError, match="must be a FrozenBaseModel subclass"):
 
-        class NonFrozenContract(PromptContract[NonFrozenOutput]):  # type: ignore[type-var]
+        class NonFrozenContract(PromptContract[NonFrozenOutput]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
             """Doc."""
 
             purpose = "p"
@@ -346,7 +346,7 @@ def test_contract_tools_rejects_non_availability() -> None:
             purpose = "p"
             returns = "r"
             success_criteria = "s"
-            tools = ("not an availability",)  # type: ignore[assignment]
+            tools = ("not an availability",)  # type: ignore[assignment]  # test mock attribute injection
 
 
 def test_contract_tools_accepts_availability_values() -> None:
@@ -443,7 +443,7 @@ def test_contract_frozen_instance() -> None:
 
     instance = FrozenContract(topic="x")
     with pytest.raises(ValidationError):
-        instance.topic = "y"  # type: ignore[misc]
+        instance.topic = "y"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +578,7 @@ def test_contract_rejects_multi_level_inheritance() -> None:
 
     with pytest.raises(TypeError, match="must inherit directly from PromptContract"):
 
-        class SecondContract(FirstContract):  # type: ignore[misc]
+        class SecondContract(FirstContract):  # type: ignore[misc]  # frozen model mutation negative test
             """Second."""
 
             purpose: ClassVar[str] = "p2"
@@ -609,7 +609,7 @@ def test_contract_inheritance_guard_protects_methodologies_from_silent_wipe() ->
 
     with pytest.raises(TypeError, match="must inherit directly from PromptContract"):
 
-        class ChildOmittingMethodologyContract(ParentWithMethodologyContract):  # type: ignore[misc]
+        class ChildOmittingMethodologyContract(ParentWithMethodologyContract):  # type: ignore[misc]  # frozen model mutation negative test
             """Child omits methodologies."""
 
             purpose: ClassVar[str] = "p"
@@ -628,7 +628,7 @@ def test_contract_rejects_multiple_bases() -> None:
 
     with pytest.raises(TypeError, match="must inherit directly from PromptContract"):
 
-        class MultiBaseContract(PromptContract[ContractOutput], Mixin):  # type: ignore[misc]
+        class MultiBaseContract(PromptContract[ContractOutput], Mixin):  # type: ignore[misc]  # frozen model mutation negative test
             """Multi-base."""
 
             purpose: ClassVar[str] = "p"

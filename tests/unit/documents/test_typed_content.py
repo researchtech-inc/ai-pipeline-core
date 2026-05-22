@@ -35,7 +35,7 @@ class UntypedDoc(Document):
 _invalid_int_doc_error: TypeError | None = None
 try:
 
-    class _ValidateIntDoc(Document[int]):  # type: ignore[type-var]
+    class _ValidateIntDoc(Document[int]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
         pass
 
 except TypeError as exc:
@@ -45,7 +45,7 @@ except TypeError as exc:
 _invalid_str_doc_error: TypeError | None = None
 try:
 
-    class _ValidateStrDoc(Document[str]):  # type: ignore[type-var]
+    class _ValidateStrDoc(Document[str]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
         pass
 
 except TypeError as exc:

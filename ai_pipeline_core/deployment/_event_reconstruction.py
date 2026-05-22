@@ -156,7 +156,7 @@ def _parse_cursor(after_cursor: str) -> tuple[datetime, int, int, str]:
             int(phase_text),
             span_id,
         )
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError) as exc:  # fmt: skip
         raise InvalidLifecycleCursorError("Invalid cursor. Clients should restart from the full history by omitting `after_cursor`.") from exc
 
 

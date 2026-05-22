@@ -47,7 +47,7 @@ def _file_defines_class(file: Path, class_name: str) -> bool:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
             tree = ast.parse(file.read_text(encoding="utf-8"))
-    except SyntaxError, OSError, UnicodeDecodeError:
+    except (SyntaxError, OSError, UnicodeDecodeError):  # fmt: skip
         return False
     return any(isinstance(node, ast.ClassDef) and node.name == class_name for node in tree.body)
 
@@ -56,7 +56,7 @@ def _file_may_contain_specs(file: Path) -> bool:
     """Quick text scan for PromptSpec references (avoids importing every file)."""
     try:
         return "PromptSpec" in file.read_text(encoding="utf-8")
-    except OSError, UnicodeDecodeError:
+    except (OSError, UnicodeDecodeError):  # fmt: skip
         return False
 
 
@@ -88,7 +88,7 @@ def _import_matching_modules(root: Path, file_filter: Callable[[Path], bool]) ->
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", SyntaxWarning)
                 _import_module_by_name(module_name)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001  # boundary catch: report-or-skip semantics
             errors.append(f"{module_name}: {e}")
     return errors
 

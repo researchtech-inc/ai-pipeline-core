@@ -135,7 +135,7 @@ def test_flow_rejects_sync_run() -> None:
     with pytest.raises(TypeError, match="must be async def"):
 
         class SyncFlow(PipelineFlow):
-            def run(self, input_docs: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]
+            def run(self, input_docs: tuple[LowInputDoc, ...], options: FlowOptions) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]  # test-scaffold signature divergence
                 _ = (input_docs, options)
                 return ()
 
@@ -145,7 +145,7 @@ def test_flow_rejects_missing_named_input() -> None:
     with pytest.raises(TypeError, match="at least one named input parameter"):
 
         class BadParamFlow(PipelineFlow):
-            async def run(self) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]
+            async def run(self) -> tuple[LowOutputDoc, ...]:  # type: ignore[override]  # test-scaffold signature divergence
                 return ()
 
 

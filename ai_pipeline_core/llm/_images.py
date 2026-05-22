@@ -268,7 +268,7 @@ def process_image(
 
     try:
         img = _load_and_normalize(raw)
-    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:  # fmt: skip
         raise ImageProcessingError(f"Failed to decode image: {exc}") from exc
 
     original_width, original_height = img.size
@@ -321,7 +321,7 @@ def _image_needs_processing(data: bytes, preset: ImagePreset) -> bool:
             w, h = img.size
             fmt = img.format
             return w > config.max_dimension or h > config.max_dimension or w * h > config.max_pixels or fmt not in _LLM_SUPPORTED_IMAGE_FORMATS
-    except OSError, ValueError:
+    except (OSError, ValueError):  # fmt: skip
         return True
 
 
@@ -336,7 +336,7 @@ def _process_image_to_parts(data: bytes, preset: ImagePreset) -> list[ContentPar
             with Image.open(BytesIO(data)) as img:
                 mime_type: _ImageMimeType = _FORMAT_TO_MIME.get(img.format or "", "image/jpeg")
             return [ImageContent(data=base64.b64encode(data), mime_type=mime_type)]
-        except OSError, ValueError:
+        except (OSError, ValueError):  # fmt: skip
             pass
 
     result = process_image(data, preset=preset)

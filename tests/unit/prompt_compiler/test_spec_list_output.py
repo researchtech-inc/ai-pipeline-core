@@ -60,7 +60,7 @@ def test_list_output_spec_is_not_str() -> None:
 def test_spec_rejects_list_str() -> None:
     with pytest.raises(TypeError, match="requires T to be a BaseModel subclass"):
 
-        class BadSpec(PromptSpec[list[str]]):  # type: ignore[type-arg]
+        class BadSpec(PromptSpec[list[str]]):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Doc."""
 
             input_documents = ()
@@ -71,7 +71,7 @@ def test_spec_rejects_list_str() -> None:
 def test_spec_rejects_list_int() -> None:
     with pytest.raises(TypeError, match="requires T to be a BaseModel subclass"):
 
-        class BadSpec2(PromptSpec[list[int]]):  # type: ignore[type-arg]
+        class BadSpec2(PromptSpec[list[int]]):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Doc."""
 
             input_documents = ()
@@ -82,7 +82,7 @@ def test_spec_rejects_list_int() -> None:
 def test_spec_rejects_nested_list() -> None:
     with pytest.raises(TypeError):
 
-        class BadSpec3(PromptSpec[list[list[OutputModel]]]):  # type: ignore[type-arg]
+        class BadSpec3(PromptSpec[list[list[OutputModel]]]):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Doc."""
 
             input_documents = ()

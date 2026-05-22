@@ -447,7 +447,7 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     else:
                         result = await _maybe_with_timeout(cls.timeout_seconds, lambda: cls._run_and_normalize(arguments))
                     return result, attempt
-            except (_CoreNonRetriable, asyncio.CancelledError) as exc:
+            except (_CoreNonRetriable, asyncio.CancelledError) as exc:  # fmt: skip
                 _attach_task_attempt(exc, attempt)
                 raise
             except RETRY_CAPTURE_EXCEPTIONS as exc:

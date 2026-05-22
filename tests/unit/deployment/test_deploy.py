@@ -215,8 +215,8 @@ async def _capture_deployed_runner() -> RunnerDeployment:
     }
     deployer.api_url = "http://test.api"
     deployer._project_wheel_name = ""
-    deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
-    deployer._die = lambda msg: (_ for _ in ()).throw(RuntimeError(msg))  # type: ignore[assignment]
+    deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
+    deployer._die = lambda msg: (_ for _ in ()).throw(RuntimeError(msg))  # type: ignore[assignment]  # test mock attribute injection
 
     mock_client = AsyncMock()
     mock_client.read_work_pool.return_value = MagicMock(type="process")
@@ -487,8 +487,8 @@ class TestBuildBundle:
                 (Path(dest) / "dep-1.0.0-py3-none-any.whl").write_bytes(b"dep")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value="/usr/bin/uv"):
             deployer._build_bundle()
@@ -526,8 +526,8 @@ class TestBuildBundle:
                 (Path(dest) / "pydantic-2.11.0-py3-none-any.whl").write_bytes(b"pydantic")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value="/usr/bin/uv"):
             bundle_path = deployer._build_bundle()
@@ -554,7 +554,7 @@ class TestPullStepConfiguration:
         deployment = await _capture_deployed_runner()
         storage = deployment.storage
 
-        pull_steps = storage.pull_steps  # type: ignore[union-attr]
+        pull_steps = storage.pull_steps  # type: ignore[union-attr]  # narrowed by prior assertion
         shell_step = pull_steps[1]
         script = shell_step["prefect.deployments.steps.run_shell_script"]["script"]
         body = _decode_install_body_from_script(script)
@@ -608,8 +608,8 @@ class TestPlatformTargeting:
                 (Path(dest) / "dep-1.0.0-py3-none-any.whl").write_bytes(b"dep")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value="/usr/bin/uv"):
             deployer._build_bundle()
@@ -637,8 +637,8 @@ class TestPlatformTargeting:
                 (Path(dest) / "dep-1.0.0-py3-none-any.whl").write_bytes(b"dep")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value="/usr/bin/uv"):
             deployer._build_bundle()
@@ -748,8 +748,8 @@ class TestVendorPackages:
                 Path(out_flag).write_text("lib-common==0.2.0\nhttpx==0.28.0\n")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value="/usr/bin/uv"):
             deployer._build_bundle()
@@ -774,8 +774,8 @@ class TestVendorPackages:
                 (Path(dest) / "dep-1.0.0-py3-none-any.whl").write_bytes(b"dep")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         with patch("ai_pipeline_core.deployment.deploy.shutil.which", return_value="/usr/bin/uv"):
             deployer._build_bundle()
@@ -797,8 +797,8 @@ class TestVendorPackages:
                 (Path(outdir) / "lib_common-0.2.0-py3-none-any.whl").write_bytes(b"vendor")
             return ""
 
-        deployer._run = mock_run  # type: ignore[assignment]
-        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]
+        deployer._run = mock_run  # type: ignore[assignment]  # test mock attribute injection
+        deployer._info = deployer._success = lambda *a, **k: None  # type: ignore[assignment]  # test mock attribute injection
 
         wheels_dir = tmp_path / "wheels"
         wheels_dir.mkdir()

@@ -100,7 +100,7 @@ class TestReasoningReplayLatch:
         assert first.call.routing.force_deployment_id is None
         first_assistant = next(msg for msg in first.call.messages if msg.role == Role.ASSISTANT)
         assert first_assistant.provider_specific_fields == {"thought_signature": "outer"}
-        first_call = first_assistant.tool_calls[0]  # type: ignore[index]
+        first_call = first_assistant.tool_calls[0]  # type: ignore[index]  # guaranteed non-empty by prior assertion
         assert first_call.id == "call_1__thought__sig"
         assert first_call.provider_specific_fields == {"thought_signature": "sig"}
 
@@ -110,7 +110,7 @@ class TestReasoningReplayLatch:
         second_assistant = next(msg for msg in second.call.messages if msg.role == Role.ASSISTANT)
         # Whole psf dropped because only signature keys were present.
         assert second_assistant.provider_specific_fields is None
-        second_call = second_assistant.tool_calls[0]  # type: ignore[index]
+        second_call = second_assistant.tool_calls[0]  # type: ignore[index]  # guaranteed non-empty by prior assertion
         assert second_call.id == "call_1"
         assert second_call.provider_specific_fields is None
         # Matching TOOL message tool_call_id also remapped.
@@ -122,7 +122,7 @@ class TestReasoningReplayLatch:
         assert third.call.routing.force_deployment_id == "deployment-a"
         third_assistant = next(msg for msg in third.call.messages if msg.role == Role.ASSISTANT)
         assert third_assistant.provider_specific_fields is None
-        third_call = third_assistant.tool_calls[0]  # type: ignore[index]
+        third_call = third_assistant.tool_calls[0]  # type: ignore[index]  # guaranteed non-empty by prior assertion
         assert third_call.id == "call_1"
 
         # Result response is stamped with reasoning_replay_stripped=True.
@@ -153,7 +153,7 @@ class TestReasoningReplayLatch:
             assert attempt.call.routing.force_deployment_id is None
             assistant = next(msg for msg in attempt.call.messages if msg.role == Role.ASSISTANT)
             assert assistant.provider_specific_fields == {"thought_signature": "outer"}
-            assert assistant.tool_calls[0].id == "call_1__thought__sig"  # type: ignore[union-attr]
+            assert assistant.tool_calls[0].id == "call_1__thought__sig"  # type: ignore[union-attr]  # narrowed by prior assertion
         # Response not stamped.
         assert result.response is not None
         assert result.response.transport.aipl.reasoning_replay_stripped is False
@@ -179,7 +179,7 @@ class TestReasoningReplayLatch:
         assert rebuilt.call.routing.force_deployment_id == "deployment-z"
         assistant = next(msg for msg in rebuilt.call.messages if msg.role == Role.ASSISTANT)
         assert assistant.provider_specific_fields is None
-        assert assistant.tool_calls[0].id == "call_1"  # type: ignore[union-attr]
+        assert assistant.tool_calls[0].id == "call_1"  # type: ignore[union-attr]  # narrowed by prior assertion
         tool_msg = next(msg for msg in rebuilt.call.messages if msg.role == Role.TOOL)
         assert tool_msg.tool_call_id == "call_1"
 
@@ -193,4 +193,4 @@ class TestReasoningReplayLatch:
         assert rebuilt.call.routing.force_deployment_id is None
         # Signature strip still happened.
         assistant = next(msg for msg in rebuilt.call.messages if msg.role == Role.ASSISTANT)
-        assert assistant.tool_calls[0].id == "call_1"  # type: ignore[union-attr]
+        assert assistant.tool_calls[0].id == "call_1"  # type: ignore[union-attr]  # narrowed by prior assertion

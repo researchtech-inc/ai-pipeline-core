@@ -20,8 +20,8 @@ class SampleModel(BaseModel):
 
     name: str
     age: int = Field(ge=0)
-    tags: list[str] = []
-    config: dict[str, Any] = {}
+    tags: list[str] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class TestConstructorWithBytes:

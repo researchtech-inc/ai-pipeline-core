@@ -143,7 +143,7 @@ class TestTOptionsValidation:
 
         with pytest.raises(TypeError, match="FlowOptions subclass"):
 
-            class Bad(RemoteDeployment[NotFlowOptions, SimpleResult]):  # type: ignore[type-var]
+            class Bad(RemoteDeployment[NotFlowOptions, SimpleResult]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
                 pass
 
     def test_accepts_flow_options_subclass(self):
@@ -163,7 +163,7 @@ class TestTResultValidation:
 
         with pytest.raises(TypeError, match="DeploymentResult subclass"):
 
-            class Bad(RemoteDeployment[FlowOptions, NotAResult]):  # type: ignore[type-var]
+            class Bad(RemoteDeployment[FlowOptions, NotAResult]):  # type: ignore[type-var]  # negative test: invalid TypeVar binding
                 pass
 
     def test_accepts_deployment_result_subclass(self):
@@ -177,7 +177,7 @@ class TestMissingGenerics:
     def test_rejects_no_generic_params(self):
         with pytest.raises(TypeError, match="must specify 2 Generic parameters"):
 
-            class Bad(RemoteDeployment):  # type: ignore[type-arg]
+            class Bad(RemoteDeployment):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
                 pass
 
     def test_defaults_result_type_when_one_generic_param_is_provided(self):
@@ -910,7 +910,7 @@ class TestDeriveRemoteRunId:
         from pathlib import Path
 
         class CliOptions(FlowOptions):
-            working_directory: Path = Path(".")
+            working_directory: Path = Path("/tmp/default")  # value irrelevant; test below overrides explicitly
             start: str = ""
             budget: float = 10.0
 

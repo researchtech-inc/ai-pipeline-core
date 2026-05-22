@@ -48,12 +48,12 @@ async def test_log_file_append_only_io() -> None:
 
         original_open = Path.open
 
-        def tracking_open(self_path: Path, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        def tracking_open(self_path: Path, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]  # test helper without annotations
             handle = original_open(self_path, *args, **kwargs)
             if str(self_path).endswith("logs.jsonl") and args and args[0] == "a":
 
                 class TrackingWriter:
-                    def __init__(self, h):  # type: ignore[no-untyped-def]
+                    def __init__(self, h):  # type: ignore[no-untyped-def]  # test helper without annotations
                         self._h = h
 
                     def write(self, data: str) -> int:
@@ -61,11 +61,11 @@ async def test_log_file_append_only_io() -> None:
                         total_bytes_written += len(data.encode("utf-8"))
                         return self._h.write(data)
 
-                    def __enter__(self):  # type: ignore[no-untyped-def]
+                    def __enter__(self):  # type: ignore[no-untyped-def]  # test helper without annotations
                         self._h.__enter__()
                         return self
 
-                    def __exit__(self, *exc):  # type: ignore[no-untyped-def]
+                    def __exit__(self, *exc):  # type: ignore[no-untyped-def]  # test helper without annotations
                         return self._h.__exit__(*exc)
 
                 return TrackingWriter(handle)

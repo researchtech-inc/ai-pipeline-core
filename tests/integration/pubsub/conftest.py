@@ -295,7 +295,7 @@ def pull_events(
                 max_messages=expected_count - len(events),
                 timeout=min(remaining, 5.0),
             )
-        except OSError, TimeoutError, ValueError:
+        except (OSError, TimeoutError, ValueError):  # fmt: skip
             continue
 
         ack_ids: list[str] = []
@@ -405,11 +405,11 @@ def pubsub_test_resources(pubsub_emulator: str) -> Generator[PubsubTestResources
 
     try:
         sub_client.delete_subscription(subscription=sub_path)
-    except (OSError, GoogleAPICallError) as exc:
+    except (OSError, GoogleAPICallError) as exc:  # fmt: skip
         logger.debug("Failed to delete subscription %s during teardown: %s", sub_path, exc)
     try:
         pub_client.delete_topic(topic=topic_path)
-    except (OSError, GoogleAPICallError) as exc:
+    except (OSError, GoogleAPICallError) as exc:  # fmt: skip
         logger.debug("Failed to delete topic %s during teardown: %s", topic_path, exc)
 
 

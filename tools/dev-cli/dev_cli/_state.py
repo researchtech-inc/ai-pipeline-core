@@ -119,7 +119,7 @@ def _uv_pip_list_digest(repo_root: Path) -> str:
             cwd=repo_root,
             timeout=20,
         )
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return ""
     if result.returncode != 0:
         return ""
@@ -198,7 +198,7 @@ def load_previous_run(command_key: str) -> PreviousRun | None:
             summary=r["summary"],
             log_file=r["log_file"],
         )
-    except (json.JSONDecodeError, KeyError) as e:
+    except (json.JSONDecodeError, KeyError) as e:  # fmt: skip
         print(f"WARN  Ignoring corrupt state file: {e}", file=sys.stderr)
         return None
 
@@ -234,7 +234,7 @@ def check_idempotency(command_key: str, file_hash: str) -> PreviousRun | None:
                 summary=r["summary"],
                 log_file=r["log_file"],
             )
-    except (json.JSONDecodeError, KeyError) as e:
+    except (json.JSONDecodeError, KeyError) as e:  # fmt: skip
         print(f"WARN  Ignoring corrupt state file: {e}", file=sys.stderr)
     return None
 

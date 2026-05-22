@@ -119,7 +119,7 @@ class RepairOnceContract(PromptContract[ContractAnswer]):
     returns: ClassVar[str] = "ContractAnswer."
     success_criteria: ClassVar[str] = "answer != 'bad'."
 
-    def validate(self, response: ContractAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]
+    def validate(self, response: ContractAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # test-scaffold signature divergence
         if response.answer == "bad":
             return (ValidationFailure(field="answer", message="answer must not be 'bad'"),)
         return ()
@@ -158,7 +158,7 @@ class AlwaysRejectsContract(PromptContract[ContractAnswer]):
     returns: ClassVar[str] = "ContractAnswer."
     success_criteria: ClassVar[str] = "impossible to satisfy."
 
-    def validate(self, response: ContractAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]
+    def validate(self, response: ContractAnswer) -> tuple[ValidationFailure, ...]:  # type: ignore[override]  # test-scaffold signature divergence
         _ = response
         return (ValidationFailure(message="always fails"),)
 
@@ -386,7 +386,7 @@ async def test_execute_round_trip_through_replay_adapter(monkeypatch: pytest.Mon
     # round-trip integrity.
     assert callable(callable_obj)
     assert hasattr(callable_obj, "__self__")
-    rebuilt_instance = callable_obj.__self__  # type: ignore[attr-defined]
+    rebuilt_instance = callable_obj.__self__  # type: ignore[attr-defined]  # attribute injected at runtime for test
     assert isinstance(rebuilt_instance, cls)
     assert rebuilt_instance.topic == "machine learning"
 
@@ -469,7 +469,7 @@ async def test_document_field_goes_into_context_count(monkeypatch: pytest.Monkey
 async def test_execute_rejects_non_aimodel() -> None:
     """execute(model=...) must reject anything that is not an AIModel."""
     with pytest.raises(TypeError, match="AIModel"):
-        await TrivialPassContract().execute("not-a-model")  # type: ignore[arg-type]
+        await TrivialPassContract().execute("not-a-model")  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +681,7 @@ async def test_replay_round_trip_with_tool_bindings(monkeypatch: pytest.MonkeyPa
     target = f"decoded_promptcontract:{cls.__module__}:{cls.__qualname__}.execute"
     callable_obj = resolve_callable(target, receiver=rebuilt_receiver)
     assert hasattr(callable_obj, "__self__")  # bound method
-    rebuilt_instance = callable_obj.__self__  # type: ignore[attr-defined]
+    rebuilt_instance = callable_obj.__self__  # type: ignore[attr-defined]  # attribute injected at runtime for test
     assert isinstance(rebuilt_instance, cls)
 
     _patch_generate(monkeypatch, [_make_structured_response(ContractAnswer(answer="replayed"))])

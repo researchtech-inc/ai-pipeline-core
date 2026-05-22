@@ -18,7 +18,7 @@ def test_raw_tool_call_string_arguments() -> None:
 
 def test_raw_tool_call_dict_coercion() -> None:
     """Dict arguments are coerced to JSON string (provider quirk)."""
-    tc = RawToolCall(id="call_1", function_name="search", arguments={"q": "test"})  # type: ignore[arg-type]
+    tc = RawToolCall(id="call_1", function_name="search", arguments={"q": "test"})  # type: ignore[arg-type]  # negative test: wrong runtime type
     assert tc.arguments == json.dumps({"q": "test"})
 
 
@@ -27,7 +27,7 @@ def test_raw_tool_call_frozen() -> None:
 
     tc = RawToolCall(id="call_1", function_name="search", arguments="{}")
     with pytest.raises(ValidationError):
-        tc.id = "call_2"  # type: ignore[misc]
+        tc.id = "call_2"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 # ── CoreMessage tool field validation ────────────────────────────────────────
@@ -85,7 +85,7 @@ def test_core_messages_to_api_tool_result() -> None:
     api = core_messages_to_api([msg], max_inline_file_total_bytes=50_000_000)
     assert len(api) == 1
     assert api[0]["role"] == "tool"
-    assert api[0]["tool_call_id"] == "call_42"  # type: ignore[typeddict-item]
+    assert api[0]["tool_call_id"] == "call_42"  # type: ignore[typeddict-item]  # API dict access in test
     assert api[0]["content"] == "result text"
 
 
@@ -96,8 +96,8 @@ def test_core_messages_to_api_assistant_with_tool_calls() -> None:
     assert len(api) == 1
     assert api[0]["role"] == "assistant"
     assert api[0].get("content") is None  # empty content becomes None
-    assert len(api[0]["tool_calls"]) == 1  # type: ignore[typeddict-item]
-    tc_api = api[0]["tool_calls"][0]  # type: ignore[typeddict-item]
+    assert len(api[0]["tool_calls"]) == 1  # type: ignore[typeddict-item]  # API dict access in test
+    tc_api = api[0]["tool_calls"][0]  # type: ignore[typeddict-item]  # API dict access in test
     assert tc_api["id"] == "call_1"
     assert tc_api["function"]["name"] == "get_weather"
 

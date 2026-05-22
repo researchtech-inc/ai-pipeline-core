@@ -2,6 +2,7 @@
 
 # pyright: reportPrivateUsage=false
 
+import asyncio
 import json
 from types import MappingProxyType
 from uuid import uuid7
@@ -45,7 +46,7 @@ class _RecordingSpanDatabase(_MemoryDatabase):
 
     async def insert_span(self, span: object) -> None:
         self.inserted_spans.append(span)
-        await super().insert_span(span)  # type: ignore[arg-type]
+        await super().insert_span(span)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 def _make_response(content: str) -> ModelResponse[str]:
@@ -194,4 +195,4 @@ async def test_traced_operation_inside_task_records_conversation_children(monkey
 
 
 async def _noop() -> None:
-    await __import__("asyncio").sleep(0)
+    await asyncio.sleep(0)

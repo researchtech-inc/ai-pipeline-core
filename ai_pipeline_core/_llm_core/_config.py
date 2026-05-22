@@ -59,7 +59,7 @@ class LLMCoreConfig:
 _config: ContextVar[LLMCoreConfig | None] = ContextVar("_llm_core_config", default=None)
 # infrastructure singleton: cache-invalidation listener list, populated at
 # module import via register_on_config_change().
-_on_config_change: list[Callable[[], None]] = []  # nosemgrep: no-mutable-module-globals
+_on_config_change: list[Callable[[], None]] = []  # nosemgrep: no-mutable-module-globals  # import-time registry per CLAUDE.md §1.2 category 3
 
 
 def register_on_config_change(listener: Callable[[], None]) -> None:

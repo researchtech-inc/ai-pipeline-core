@@ -22,4 +22,4 @@ def test_validation_failure_is_frozen() -> None:
 
     failure = ValidationFailure(message="x")
     with pytest.raises(ValidationError):
-        failure.message = "y"  # type: ignore[misc]
+        failure.message = "y"  # type: ignore[misc]  # frozen model mutation negative test

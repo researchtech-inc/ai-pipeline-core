@@ -68,7 +68,7 @@ class TestModelResponse:
         response = create_test_model_response(content="test")
 
         with pytest.raises(ValidationError):
-            response.content = "new content"  # type: ignore[misc]
+            response.content = "new content"  # type: ignore[misc]  # frozen model mutation negative test
 
 
 class TestModelResponseSerialization:

@@ -54,6 +54,6 @@ class TestValidateOutputNotImplemented:
     @pytest.mark.xfail(reason="OutputValidationError not yet implemented", strict=True)
     def test_output_validation_error_importable(self) -> None:
         """After fix: OutputValidationError is importable."""
-        from ai_pipeline_core.prompt_compiler._validation import OutputValidationError  # type: ignore[import-not-found]
+        from ai_pipeline_core.prompt_compiler._validation import OutputValidationError  # type: ignore[import-not-found]  # import may be absent; test asserts absence
 
         assert OutputValidationError is not None

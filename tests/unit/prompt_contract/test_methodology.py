@@ -63,7 +63,7 @@ def test_methodology_rejects_non_string_purpose() -> None:
         class BadTypePurposeMethodology(Methodology):
             """Doc."""
 
-            purpose = 42  # type: ignore[assignment]
+            purpose = 42  # type: ignore[assignment]  # test mock attribute injection
 
 
 def test_methodology_cannot_be_instantiated() -> None:

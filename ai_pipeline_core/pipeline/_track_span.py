@@ -257,7 +257,7 @@ async def _notify_sinks(
     except asyncio.CancelledError as exc:
         _handle_sink_error(method_name, exc, suppress_shutdown_errors=suppress_shutdown_errors)
         return
-    except (KeyboardInterrupt, SystemExit) as exc:
+    except (KeyboardInterrupt, SystemExit) as exc:  # fmt: skip
         _handle_sink_error(method_name, exc, suppress_shutdown_errors=suppress_shutdown_errors)
         return
     for result in results:

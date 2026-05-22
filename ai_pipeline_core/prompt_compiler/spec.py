@@ -194,7 +194,7 @@ def _warn_large_task(name: str, task: str) -> None:
     )
 
 
-def _validate_prompt_spec(cls: type, name: str, follows: type[PromptSpec] | None) -> None:  # noqa: C901, PLR0912, PLR0915
+def _validate_prompt_spec(cls: type, name: str, follows: type[PromptSpec] | None) -> None:  # noqa: C901, PLR0912, PLR0915  # complexity acceptable; refactor would obscure structure
     """Validate a PromptSpec subclass at definition time."""
     # File-level structural rules — exemption check is early; register_spec()
     # still fires at the end so failed validation does not poison the registry.

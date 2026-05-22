@@ -32,7 +32,7 @@ def test_tool_availability_basic() -> None:
 
 def test_tool_availability_rejects_non_tool() -> None:
     with pytest.raises(TypeError, match="must be a Tool subclass"):
-        ToolAvailability(str, max_calls=1)  # type: ignore[arg-type]
+        ToolAvailability(str, max_calls=1)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 def test_tool_availability_rejects_non_positive_max_calls() -> None:
@@ -47,7 +47,7 @@ def test_tool_availability_rejects_negative_max_calls() -> None:
 
 def test_tool_availability_rejects_bool_max_calls() -> None:
     with pytest.raises(TypeError, match="positive int"):
-        ToolAvailability(_SampleTool, max_calls=True)  # type: ignore[arg-type]
+        ToolAvailability(_SampleTool, max_calls=True)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 def test_tool_availability_is_frozen() -> None:
@@ -55,7 +55,7 @@ def test_tool_availability_is_frozen() -> None:
 
     availability = ToolAvailability(_SampleTool, max_calls=1)
     with pytest.raises(FrozenInstanceError):
-        availability.max_calls = 5  # type: ignore[misc]
+        availability.max_calls = 5  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_tool_binding_with_args() -> None:
@@ -71,9 +71,9 @@ def test_tool_binding_default_args_empty() -> None:
 
 def test_tool_binding_rejects_non_tool() -> None:
     with pytest.raises(TypeError, match="must be a Tool subclass"):
-        ToolBinding(str)  # type: ignore[arg-type]
+        ToolBinding(str)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 def test_tool_binding_rejects_non_mapping_args() -> None:
     with pytest.raises(TypeError, match="Mapping"):
-        ToolBinding(_SampleTool, args=["x"])  # type: ignore[arg-type]
+        ToolBinding(_SampleTool, args=["x"])  # type: ignore[arg-type]  # negative test: wrong runtime type

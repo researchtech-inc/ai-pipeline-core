@@ -42,17 +42,17 @@ class _RecordingMemoryDatabase(_MemoryDatabase):
     async def insert_span(self, span: object) -> None:
         self.inserted_spans.append(span)
         self.write_order.append("span")
-        await super().insert_span(span)  # type: ignore[arg-type]
+        await super().insert_span(span)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
     async def save_blob_batch(self, blobs: list[object]) -> None:
         if blobs:
             self.write_order.append("blob")
-        await super().save_blob_batch(blobs)  # type: ignore[arg-type]
+        await super().save_blob_batch(blobs)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
     async def save_document_batch(self, records: list[object]) -> None:
         if records:
             self.write_order.append("document")
-        await super().save_document_batch(records)  # type: ignore[arg-type]
+        await super().save_document_batch(records)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 class _FailingBlobDatabase(_RecordingMemoryDatabase):

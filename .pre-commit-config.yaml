@@ -58,40 +58,13 @@ repos:
           - pre-commit
   - repo: local
     hooks:
-      - id: vulture
-        name: vulture dead code check
-        entry: vulture ai_pipeline_core/ .vulture_whitelist.py --min-confidence 80
-        language: system
-        types:
-          - python
-        pass_filenames: false
-        stages:
-          - pre-commit
-      - id: semgrep
-        name: semgrep custom rules
-        entry: semgrep --config .semgrep/ ai_pipeline_core/ tests/ --error --quiet
-        language: system
-        types:
-          - python
-        pass_filenames: false
-        stages:
-          - pre-commit
-      - id: basedpyright
-        name: basedpyright (source)
-        entry: basedpyright
+      - id: dev-check
+        name: dev check (full pipeline)
+        entry: dev check
         language: system
         types:
           - python
         pass_filenames: false
         fail_fast: true
-        stages:
-          - pre-commit
-      - id: basedpyright-tests
-        name: basedpyright (tests, errors only)
-        entry: basedpyright --level error -p pyrightconfig.tests.json
-        language: system
-        types:
-          - python
-        pass_filenames: false
         stages:
           - pre-commit

@@ -238,7 +238,7 @@ class TestPipelineFlowWithInheritedOptions:
         assert StrictFlow.input_document_types == (InDoc,)
 
         with pytest.raises(ValidationError):
-            StrictFlowOptions()  # type: ignore[call-arg]
+            StrictFlowOptions()  # type: ignore[call-arg]  # negative test: wrong call signature
 
     def test_multiple_inheritance_levels(self):
         """Test FlowOptions with multiple inheritance levels."""

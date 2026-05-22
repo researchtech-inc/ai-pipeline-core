@@ -293,7 +293,7 @@ async def _tool_loop(
     messages.append(CoreMessage(role=Role.USER, content=final_message))
     try:
         response = await _single_call(request, messages, max_rounds, None)
-    except asyncio.CancelledError, KeyboardInterrupt, SystemExit:
+    except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):  # fmt: skip
         raise
     except Exception as exc:
         logger.warning(
@@ -536,13 +536,13 @@ async def _execute_single_tool(
     ) as span_ctx:
         try:
             parsed_input = tool_cls.Input.model_validate_json(tool_call.arguments)
-        except (ValidationError, json.JSONDecodeError) as exc:
+        except (ValidationError, json.JSONDecodeError) as exc:  # fmt: skip
             output = ToolOutput(content=f"Error: Invalid arguments for tool '{snake_name}': {exc}")
             _record_tool_span(span_ctx, tool_cls, tool_call, round_num, output)
             return None, output
         try:
             result = await tool.execute(parsed_input)
-        except asyncio.CancelledError, KeyboardInterrupt, SystemExit, TypeError, AssertionError:
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit, TypeError, AssertionError):  # fmt: skip
             raise
         except Exception as exc:
             logger.warning("Tool '%s' failed during execution: %s", snake_name, exc, exc_info=exc)

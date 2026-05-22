@@ -200,7 +200,7 @@ async def _run_probe(request: LLMRequest, evaluator: _Evaluator) -> tuple[Status
         response = await generate(request)
     except TerminalError as exc:
         return "ERROR", False, f"TerminalError: {exc!s}"[:300], 0.0, None, time.monotonic() - start
-    except (openai.APIError, httpx.HTTPError, TimeoutError) as exc:
+    except (openai.APIError, httpx.HTTPError, TimeoutError) as exc:  # fmt: skip
         return "ERROR", False, f"{type(exc).__name__}: {exc!s}"[:300], 0.0, None, time.monotonic() - start
     except LLMError as exc:
         return "FAIL", False, f"{type(exc).__name__}: {exc!s}"[:300], 0.0, None, time.monotonic() - start

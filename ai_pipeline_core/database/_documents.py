@@ -101,7 +101,7 @@ def _reconstruct_document(
                 attachment_contents=attachment_contents,
             ),
         )
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError) as exc:  # fmt: skip
         logger.warning("Cannot reconstruct document '%s': %s", record.name, exc)
         return None
 

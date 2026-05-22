@@ -290,7 +290,7 @@ class TestCreateMethod:
         with pytest.raises(ValueError) as exc_info:
             ConcreteTestDocument.create_root(
                 name="test.txt",
-                content=obj,  # type: ignore[arg-type]
+                content=obj,  # type: ignore[arg-type]  # negative test: wrong runtime type
                 reason="test input",
             )
         assert "Unsupported content type" in str(exc_info.value)

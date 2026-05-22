@@ -39,7 +39,7 @@ def evaluate_field_gate(
         parsed: Any | None = None
         try:
             parsed = latest_match.parsed
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError) as exc:  # fmt: skip
             logger.warning(
                 "FieldGate could not parse '%s' (%s) for %s.%s with op=%s. Treating the document as missing because .parsed failed: %s",
                 latest_match.name,

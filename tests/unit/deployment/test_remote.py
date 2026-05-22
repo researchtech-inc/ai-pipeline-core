@@ -68,7 +68,7 @@ class TestIsAlreadyTraced:
         async def my_func() -> None:
             pass
 
-        my_func.__is_traced__ = True  # type: ignore[attr-defined]
+        my_func.__is_traced__ = True  # type: ignore[attr-defined]  # attribute injected at runtime for test
 
         assert is_already_traced(my_func) is True
 
@@ -79,13 +79,13 @@ class TestIsAlreadyTraced:
         async def base_func() -> None:
             pass
 
-        base_func.__is_traced__ = True  # type: ignore[attr-defined]
+        base_func.__is_traced__ = True  # type: ignore[attr-defined]  # attribute injected at runtime for test
 
         @wraps(base_func)
         async def wrapper() -> None:
             pass
 
-        wrapper.__wrapped__ = base_func  # type: ignore[attr-defined]
+        wrapper.__wrapped__ = base_func  # type: ignore[attr-defined]  # attribute injected at runtime for test
 
         assert is_already_traced(wrapper) is True
 

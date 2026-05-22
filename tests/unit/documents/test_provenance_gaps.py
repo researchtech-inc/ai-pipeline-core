@@ -82,6 +82,6 @@ class TestProvenanceNotImplemented:
     @pytest.mark.xfail(reason="ProvenanceWarning not yet implemented", strict=True)
     def test_provenance_warning_class_exists(self) -> None:
         """After fix: ProvenanceWarning should be importable."""
-        from ai_pipeline_core.documents.document import ProvenanceWarning  # type: ignore[attr-defined]
+        from ai_pipeline_core.documents.document import ProvenanceWarning  # type: ignore[attr-defined]  # attribute injected at runtime for test
 
         assert issubclass(ProvenanceWarning, UserWarning)

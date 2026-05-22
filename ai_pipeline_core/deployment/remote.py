@@ -284,7 +284,7 @@ async def _publish_remote_task_started(
                 input_document_sha256s=input_sha256s,
             )
         )
-    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:  # fmt: skip
         logger.warning("Remote task started event publish failed for '%s': %s", task_name, exc)
 
 
@@ -300,7 +300,7 @@ async def _publish_remote_task_terminal(
     publish_method = publisher.publish_task_completed if isinstance(event, TaskCompletedEvent) else publisher.publish_task_failed
     try:
         await publish_method(event)
-    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:  # fmt: skip
         logger.warning("Remote task %s event publish failed for '%s': %s", terminal_kind, event.task_name, exc)
 
 
@@ -473,7 +473,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                     )
                 span_ctx.set_output_preview(result.model_dump(mode="json"))
                 span_ctx._set_output_value(result)
-        except (Exception, asyncio.CancelledError) as task_failure:
+        except (Exception, asyncio.CancelledError) as task_failure:  # fmt: skip
             await _publish_remote_task_terminal(
                 publisher=publisher,
                 flow_frame=flow_frame,

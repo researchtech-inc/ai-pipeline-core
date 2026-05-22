@@ -470,7 +470,7 @@ unzip -q -o "$WHEEL" -d .
 
         self._info("Applying deployment (create or update)...")
         try:
-            deployment_id = await deployment.apply()  # type: ignore[no-untyped-call]
+            deployment_id = await deployment.apply()  # type: ignore[no-untyped-call]  # third-party untyped callable
             self._success(f"Deployment ID: {deployment_id}")
 
             if self.api_url:

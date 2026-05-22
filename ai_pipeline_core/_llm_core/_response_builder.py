@@ -112,11 +112,11 @@ def _parse_list_content(content: str, inner: type[BaseModel], *, strict_schema: 
         if strict_schema:
             _raise_on_strict_extra_keys(payload, schema)
         parsed = TypeAdapter(list[inner]).validate_python(payload["items"])
-    except ProseContaminationError, StrictModeViolationError, StructuredSchemaError:
+    except (ProseContaminationError, StrictModeViolationError, StructuredSchemaError):  # fmt: skip
         raise
     except ValidationError as exc:
         raise StructuredSchemaError(_schema_error_message(label, content), original=exc) from exc
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError) as exc:  # fmt: skip
         raise StructuredSchemaError(_schema_error_message(label, content)) from exc
     array_content = json.dumps([item.model_dump(mode="json") for item in parsed], indent=2)
     return array_content, parsed
@@ -132,11 +132,11 @@ def _parse_model_content(content: str, response_format: type[BaseModel], *, stri
         if strict_schema:
             _raise_on_strict_extra_keys(payload, schema)
         return normalized, response_format.model_validate(payload)
-    except ProseContaminationError, StrictModeViolationError, StructuredSchemaError:
+    except (ProseContaminationError, StrictModeViolationError, StructuredSchemaError):  # fmt: skip
         raise
     except ValidationError as exc:
         raise StructuredSchemaError(_schema_error_message(label, content), original=exc) from exc
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError) as exc:  # fmt: skip
         raise StructuredSchemaError(_schema_error_message(label, content)) from exc
 
 
@@ -453,5 +453,5 @@ def _coerce_index(value: Any) -> int:
         return 0
     try:
         return int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):  # fmt: skip
         return 0

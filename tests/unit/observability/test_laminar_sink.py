@@ -23,7 +23,7 @@ class _FakeSpan:
     def get_laminar_span_context(self) -> str:
         if _FakeLaminar.fail_get_context:
             raise RuntimeError("get context failed")
-        return self._record["context"]  # type: ignore[return-value]
+        return self._record["context"]  # type: ignore[return-value]  # intentional wrong return type for test
 
     def set_attributes(self, attributes: dict[str, object]) -> None:
         if _FakeLaminar.fail_set_attributes:
@@ -352,7 +352,7 @@ async def test_laminar_sink_sets_error_status_and_records_exception(monkeypatch:
 
     assert record["recorded_exception"] is error
 
-    attrs: dict[str, object] = record["attribute_updates"]  # type: ignore[assignment]
+    attrs: dict[str, object] = record["attribute_updates"]  # type: ignore[assignment]  # test mock attribute injection
     assert attrs["ai_pipeline.error_type"] == "ValueError"
     assert attrs["ai_pipeline.error_message"] == "something went wrong"
 

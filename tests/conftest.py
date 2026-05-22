@@ -163,7 +163,7 @@ def docker_available() -> bool:
             timeout=DOCKER_INFO_TIMEOUT_SECONDS,
         )
         return result.returncode == 0
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return False
 
 

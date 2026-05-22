@@ -158,7 +158,7 @@ async def _run_probe(case: BenchmarkCase) -> ProbeResult:
         result = await PROBES[case.probe_key](case)
     except LLMError as exc:
         return _with_elapsed(_fail(case, "llm_error", exc), started)
-    except (ValidationError, TimeoutError, StreamWatchdogError) as exc:
+    except (ValidationError, TimeoutError, StreamWatchdogError) as exc:  # fmt: skip
         return _with_elapsed(_fail(case, type(exc).__name__.lower(), exc), started)
     except AssertionError as exc:
         result = getattr(exc, "result", None)
@@ -269,5 +269,5 @@ def _hash_value(value: str) -> str:
 def _git_sha() -> str:
     try:
         return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    except OSError, subprocess.CalledProcessError:
+    except (OSError, subprocess.CalledProcessError):  # fmt: skip
         return ""

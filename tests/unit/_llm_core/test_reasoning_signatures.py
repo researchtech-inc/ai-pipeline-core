@@ -168,7 +168,7 @@ class TestStripReasoningSignatures:
         result = strip_reasoning_signatures((message,))
 
         assert len(result) == 1
-        cleaned_call = result[0].tool_calls[0]  # type: ignore[index]
+        cleaned_call = result[0].tool_calls[0]  # type: ignore[index]  # guaranteed non-empty by prior assertion
         # __thought__ suffix is stripped from the id.
         assert cleaned_call.id == "call_1"
         # Signature key dropped, unrelated key survives.

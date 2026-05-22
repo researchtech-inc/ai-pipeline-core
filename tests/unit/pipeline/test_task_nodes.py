@@ -30,7 +30,7 @@ class _RecordingSpanDatabase(_MemoryDatabase):
 
     async def insert_span(self, span: object) -> None:
         self.inserted_spans.append(span)
-        await super().insert_span(span)  # type: ignore[arg-type]
+        await super().insert_span(span)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 class _NodeInDoc(Document):

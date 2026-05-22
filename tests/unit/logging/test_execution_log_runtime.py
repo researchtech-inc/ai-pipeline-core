@@ -30,7 +30,7 @@ def _make_log(**kwargs: object) -> LogRecord:
         "exception_text": "",
     }
     defaults.update(kwargs)
-    return LogRecord(**defaults)  # type: ignore[arg-type]
+    return LogRecord(**defaults)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 def test_execution_log_buffer_sequences_summaries_and_flush_request() -> None:

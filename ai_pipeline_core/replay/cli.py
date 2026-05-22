@@ -281,12 +281,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             try:
                 asyncio.run(sink_db.flush())
                 asyncio.run(sink_db.shutdown())
-            except (OSError, RuntimeError, ValueError) as flush_exc:
+            except (OSError, RuntimeError, ValueError) as flush_exc:  # fmt: skip
                 logger.warning("Replay sink shutdown failed: %s", flush_exc)
         if database is not None:
             try:
                 asyncio.run(database.shutdown())
-            except (OSError, RuntimeError, ValueError) as db_exc:
+            except (OSError, RuntimeError, ValueError) as db_exc:  # fmt: skip
                 logger.warning("Source database shutdown failed: %s", db_exc)
 
 

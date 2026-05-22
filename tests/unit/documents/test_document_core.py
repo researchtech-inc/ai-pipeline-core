@@ -388,7 +388,7 @@ class TestNewDocumentMethods:
         class TestModel(BaseModel):
             name: str
             age: int = Field(ge=0)
-            tags: list[str] = []
+            tags: list[str] = Field(default_factory=list)
 
         # Create a JSON document
         json_content = '{"name": "Alice", "age": 30, "tags": ["python", "ai"]}'
@@ -1017,7 +1017,7 @@ class TestConvertContentHelpers:
         from ai_pipeline_core.documents.document import _convert_content
 
         with pytest.raises(ValueError, match="Unsupported content type"):
-            _convert_content("test.txt", 42)  # type: ignore[arg-type]
+            _convert_content("test.txt", 42)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 class TestDocumentSizeWithAttachments:

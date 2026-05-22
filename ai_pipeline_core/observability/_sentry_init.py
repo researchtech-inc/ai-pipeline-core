@@ -12,7 +12,7 @@ _initialized = False
 
 def ensure_sentry_initialized(dsn: str | None) -> None:
     """Initialize the global Sentry SDK exactly once per process."""
-    global _initialized  # noqa: PLW0603
+    global _initialized  # noqa: PLW0603  # module singleton initialization
 
     if not dsn:
         return
@@ -32,6 +32,6 @@ def ensure_sentry_initialized(dsn: str | None) -> None:
 
 def _reset_for_testing() -> None:
     """Reset module state so tests can reinitialize Sentry independently."""
-    global _initialized  # noqa: PLW0603
+    global _initialized  # noqa: PLW0603  # module singleton initialization
     with _INIT_LOCK:
         _initialized = False

@@ -96,7 +96,7 @@ class TestProviderOutcome:
     def test_frozen(self):
         outcome = ProviderOutcome(key="k", status="completed", value={"a": 1})
         with pytest.raises(dataclasses.FrozenInstanceError):
-            outcome.key = "new"  # type: ignore[misc]
+            outcome.key = "new"  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_defaults(self):
         outcome = ProviderOutcome(key="k", status="ok")

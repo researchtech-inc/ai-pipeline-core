@@ -62,7 +62,7 @@ def _prune_stale_state_entries(cfg) -> None:
         if len(pruned) < len(runs):
             data["runs"] = pruned
             cfg.state_file.write_text(json.dumps(data, indent=2))
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):  # fmt: skip
         pass
 
 
@@ -186,7 +186,7 @@ def _tool_version_for_commands(commands: tuple[tuple[str, ...], ...]) -> str:
         version_cmd = _version_command(command)
         try:
             result = subprocess.run(version_cmd, capture_output=True, text=True, timeout=10)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (OSError, subprocess.TimeoutExpired) as exc:  # fmt: skip
             parts.append(f"{' '.join(version_cmd)}: {exc}")
             continue
         parts.append(f"{' '.join(version_cmd)}: {result.stdout.strip() or result.stderr.strip()}")

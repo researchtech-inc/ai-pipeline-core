@@ -53,18 +53,6 @@ check:
 # Targets that remain Make-native (not test/lint commands)
 # ---------------------------------------------------------------------------
 
-.PHONY: docstrings-cover
-docstrings-cover:
-	@interrogate -v --fail-under 100 ai_pipeline_core
-
-.PHONY: deadcode
-deadcode:
-	@vulture ai_pipeline_core/ .vulture_whitelist.py --min-confidence 80
-
-.PHONY: semgrep
-semgrep:
-	@uvx semgrep --config .semgrep/ ai_pipeline_core/ tests/ --error
-
 check-claude-md:
 	python scripts/check_claude_md_symbols.py
 

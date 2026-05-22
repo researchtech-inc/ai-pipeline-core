@@ -141,7 +141,7 @@ class TestIsExemptNotExempt:
 
     def test_none_module_not_exempt(self):
         cls = _make_cls("X")
-        cls.__module__ = None  # type: ignore[assignment]
+        cls.__module__ = None  # type: ignore[assignment]  # test mock attribute injection
         assert is_exempt(cls) is False
 
 

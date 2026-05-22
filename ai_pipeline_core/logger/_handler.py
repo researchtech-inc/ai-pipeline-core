@@ -178,5 +178,5 @@ class ExecutionLogHandler(logging.Handler):
                         "fields_json": fields_json,
                     },
                 )
-        except AttributeError, OSError, OverflowError, TypeError, ValueError:
+        except (AttributeError, OSError, OverflowError, TypeError, ValueError):  # fmt: skip
             self.handleError(record)

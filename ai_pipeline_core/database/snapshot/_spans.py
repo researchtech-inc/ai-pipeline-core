@@ -78,7 +78,7 @@ def _detail_int(payload: dict[str, Any], key: str, *, context: str, field_name: 
         return int(value)
     try:
         return int(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError) as exc:  # fmt: skip
         msg = f"{context} {field_name}[{key!r}] must be an integer value. Persist an integer before rendering summaries."
         raise ValueError(msg) from exc
 

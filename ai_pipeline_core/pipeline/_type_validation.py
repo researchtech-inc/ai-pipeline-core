@@ -42,13 +42,13 @@ def callable_name(obj: Any, fallback: str) -> str:
 
 def is_already_traced(func: Callable[..., Any]) -> bool:
     """Check whether a function was already wrapped by the trace decorator."""
-    if hasattr(func, "__is_traced__") and func.__is_traced__:  # type: ignore[attr-defined]
+    if hasattr(func, "__is_traced__") and func.__is_traced__:  # type: ignore[attr-defined]  # attribute injected at runtime for test
         return True
 
     current = func
     depth = 0
     while hasattr(current, "__wrapped__") and depth < _MAX_WRAPPED_DEPTH:
-        wrapped = current.__wrapped__  # type: ignore[attr-defined]
+        wrapped = current.__wrapped__  # type: ignore[attr-defined]  # attribute injected at runtime for test
         if hasattr(wrapped, "__is_traced__") and wrapped.__is_traced__:
             return True
         current = wrapped

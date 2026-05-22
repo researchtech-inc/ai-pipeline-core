@@ -37,9 +37,9 @@ def test_aimodel_cache_ttl_rejects_out_of_range(cache_ttl: int) -> None:
 def test_aimodel_cache_ttl_rejects_strings_and_none() -> None:
     """cache_ttl must be int — strings and None are no longer accepted."""
     with pytest.raises(TypeError, match="cache_ttl must be int"):
-        AIModel(name=DEFAULT_TEST_MODEL.name, cache_ttl="30s")  # type: ignore[arg-type]
+        AIModel(name=DEFAULT_TEST_MODEL.name, cache_ttl="30s")  # type: ignore[arg-type]  # negative test: wrong runtime type
     with pytest.raises(TypeError, match="cache_ttl must be int"):
-        AIModel(name=DEFAULT_TEST_MODEL.name, cache_ttl=None)  # type: ignore[arg-type]
+        AIModel(name=DEFAULT_TEST_MODEL.name, cache_ttl=None)  # type: ignore[arg-type]  # negative test: wrong runtime type
 
 
 def test_positional_name_constructor() -> None:

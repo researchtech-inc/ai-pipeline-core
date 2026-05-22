@@ -317,7 +317,7 @@ class TestPipelineDeploymentValidation:
         """Test that missing generic params raises TypeError."""
         with pytest.raises(TypeError, match="must specify Generic parameters"):
 
-            class RawDeployment(PipelineDeployment):  # type: ignore[type-arg]
+            class RawDeployment(PipelineDeployment):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
                 """No generics."""
 
                 def build_flows(self, options):

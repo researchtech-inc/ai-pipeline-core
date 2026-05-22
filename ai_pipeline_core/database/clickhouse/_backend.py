@@ -159,7 +159,7 @@ class ClickHouseDatabase:
         self._last_reconnect_attempt = now
         try:
             self._client = await get_async_clickhouse_client(self._settings)
-        except ClickHouseDatabaseError, ConnectionError, OSError:
+        except (ClickHouseDatabaseError, ConnectionError, OSError):  # fmt: skip
             await self._record_failure()
             raise
         self._record_success()
@@ -182,7 +182,7 @@ class ClickHouseDatabase:
         client = await self._ensure_client()
         try:
             result = await client.query(sql, parameters=parameters)
-        except ClickHouseDatabaseError, ConnectionError, OSError:
+        except (ClickHouseDatabaseError, ConnectionError, OSError):  # fmt: skip
             await self._record_failure()
             raise
         self._record_success()
@@ -194,7 +194,7 @@ class ClickHouseDatabase:
         client = await self._ensure_client()
         try:
             await client.insert(table, rows, column_names=list(column_names))
-        except ClickHouseDatabaseError, ConnectionError, OSError:
+        except (ClickHouseDatabaseError, ConnectionError, OSError):  # fmt: skip
             await self._record_failure()
             raise
         self._record_success()
@@ -203,7 +203,7 @@ class ClickHouseDatabase:
         client = await self._ensure_client()
         try:
             result = await client.command(sql, parameters=parameters)
-        except ClickHouseDatabaseError, ConnectionError, OSError:
+        except (ClickHouseDatabaseError, ConnectionError, OSError):  # fmt: skip
             await self._record_failure()
             raise
         self._record_success()

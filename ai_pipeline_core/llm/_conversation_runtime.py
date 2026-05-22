@@ -287,7 +287,7 @@ def restore_response(
                 update["parsed"] = TypeAdapter(response_format).validate_json(restored)
             else:
                 update["parsed"] = response_format.model_validate_json(restored)
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError) as exc:  # fmt: skip
             logger.warning(
                 "URL-restored content failed structured re-parse for %s: %s. Returning original parsed object with restored content.",
                 response_format,

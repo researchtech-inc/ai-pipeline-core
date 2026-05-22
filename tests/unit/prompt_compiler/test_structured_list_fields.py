@@ -626,7 +626,7 @@ def test_structured_field_requires_description() -> None:
             role = SLRole
             task = "Do it"
 
-            finding: Finding = StructuredField()  # type: ignore[call-arg]
+            finding: Finding = StructuredField()  # type: ignore[call-arg]  # negative test: wrong call signature
 
 
 def test_list_field_requires_description() -> None:
@@ -639,7 +639,7 @@ def test_list_field_requires_description() -> None:
             role = SLRole
             task = "Do it"
 
-            items: list[str] = ListField()  # type: ignore[call-arg]
+            items: list[str] = ListField()  # type: ignore[call-arg]  # negative test: wrong call signature
 
 
 def test_structured_field_frozen_spec() -> None:
@@ -654,7 +654,7 @@ def test_structured_field_frozen_spec() -> None:
 
     spec = FrozenStructSpec(finding=Finding(title="A", severity="high"))
     with pytest.raises(Exception):
-        spec.finding = Finding(title="B", severity="low")  # type: ignore[misc]
+        spec.finding = Finding(title="B", severity="low")  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_list_field_with_nested_models() -> None:

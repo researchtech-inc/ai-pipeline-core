@@ -113,7 +113,7 @@ def test_multi_line_field_requires_description() -> None:
             role = MlRole
             task = "Do it"
 
-            review: str = MultiLineField()  # type: ignore[call-arg]
+            review: str = MultiLineField()  # type: ignore[call-arg]  # negative test: wrong call signature
 
 
 def test_multi_line_field_coexists_with_regular_fields() -> None:

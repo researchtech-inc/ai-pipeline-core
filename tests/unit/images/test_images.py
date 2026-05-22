@@ -75,7 +75,7 @@ class TestConfig:
     def test_config_is_frozen(self):
         config = ImageProcessingConfig.for_preset(ImagePreset.HIGH_RES)
         with pytest.raises(Exception):
-            config.max_dimension = 1000  # type: ignore[misc]
+            config.max_dimension = 1000  # type: ignore[misc]  # frozen model mutation negative test
 
 
 # ---------------------------------------------------------------------------
@@ -272,12 +272,12 @@ class TestModels:
     def test_processed_image_frozen(self):
         result = process_image(make_image_bytes(800, 600))
         with pytest.raises(Exception):
-            result.original_width = 999  # type: ignore[misc]
+            result.original_width = 999  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_image_part_frozen(self):
         result = process_image(make_image_bytes(800, 600))
         with pytest.raises(Exception):
-            result[0].width = 999  # type: ignore[misc]
+            result[0].width = 999  # type: ignore[misc]  # frozen model mutation negative test
 
     def test_compression_ratio_with_zero_bytes(self):
         # Edge case: original_bytes <= 0

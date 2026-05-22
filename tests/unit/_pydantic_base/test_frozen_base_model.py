@@ -14,12 +14,12 @@ class Sample(FrozenBaseModel):
 def test_subclass_is_frozen() -> None:
     sample = Sample(name="x", value=1)
     with pytest.raises(ValidationError):
-        sample.value = 2  # type: ignore[misc]
+        sample.value = 2  # type: ignore[misc]  # frozen model mutation negative test
 
 
 def test_subclass_forbids_extra_keys() -> None:
     with pytest.raises(ValidationError):
-        Sample(name="x", value=1, extra="nope")  # type: ignore[call-arg]
+        Sample(name="x", value=1, extra="nope")  # type: ignore[call-arg]  # negative test: wrong call signature
 
 
 def test_subclass_json_round_trip() -> None:

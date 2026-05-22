@@ -336,7 +336,7 @@ def _make_jinja_environment() -> jinja2.Environment:
     # autoescape=False: rendered output is markdown for an LLM, not HTML; escaping would corrupt the prompt.
     env = jinja2.Environment(
         undefined=jinja2.StrictUndefined,
-        autoescape=False,  # noqa: S701
+        autoescape=False,  # noqa: S701  # templates render markdown, not HTML
         keep_trailing_newline=False,
         trim_blocks=False,
         lstrip_blocks=False,

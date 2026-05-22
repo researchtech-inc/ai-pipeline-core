@@ -107,12 +107,12 @@ def test_document_list_colocation_same_module_passes() -> None:
 def test_document_list_rejects_list_str() -> None:
     with pytest.raises(TypeError, match="requires T to be a BaseModel subclass"):
 
-        class BadListDoc(Document[list[str]]):  # type: ignore[type-arg]
+        class BadListDoc(Document[list[str]]):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Bad."""
 
 
 def test_document_list_rejects_list_int() -> None:
     with pytest.raises(TypeError, match="requires T to be a BaseModel subclass"):
 
-        class BadListDoc2(Document[list[int]]):  # type: ignore[type-arg]
+        class BadListDoc2(Document[list[int]]):  # type: ignore[type-arg]  # negative test: missing/invalid type argument
             """Bad."""
