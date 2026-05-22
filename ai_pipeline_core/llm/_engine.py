@@ -49,17 +49,20 @@ MAX_CONSECUTIVE_UNKNOWN_TOOL_ROUNDS = 3
 type _ToolDispatchResult = tuple[RawToolCall, ToolCallRecord | None, ToolOutput]
 
 _FORCED_FINAL_MAX_ROUNDS_MSG = (
-    "You have reached the maximum number of tool-call rounds. No more tools are available in this conversation. "
-    "Do not call any tools or functions. Use only the information already present in the conversation and the tool results "
-    "already returned to produce the final answer now. If a structured response format was requested earlier, follow it exactly. "
-    "If the available information is insufficient, explain the limitation instead of requesting another tool."
+    "You have reached the maximum number of tool-call rounds. No more tools are available "
+    "in this conversation. Do not call any tools or functions. Use only the information "
+    "already present in the conversation and the tool results already returned to produce "
+    "the final answer now. If a structured response format was requested earlier, follow it "
+    "exactly. If the available information is insufficient, explain the limitation instead "
+    "of requesting another tool."
 )
 _FORCED_FINAL_UNKNOWN_TOOLS_MSG = (
-    "Tool calling has been stopped because your recent requests targeted tools that do not exist. "
-    "No more tools are available in this conversation. Do not call any tools or functions. Use only the information already present "
-    "in the conversation and the tool results already returned to produce the final answer now. "
-    "If a structured response format was requested earlier, follow it exactly. If the available information is insufficient, "
-    "explain the limitation instead of requesting another tool."
+    "Tool calling has been stopped because your recent requests targeted tools that do not "
+    "exist. No more tools are available in this conversation. Do not call any tools or "
+    "functions. Use only the information already present in the conversation and the tool "
+    "results already returned to produce the final answer now. If a structured response "
+    "format was requested earlier, follow it exactly. If the available information is "
+    "insufficient, explain the limitation instead of requesting another tool."
 )
 
 
@@ -141,7 +144,9 @@ async def execute_interaction(request: InteractionRequest) -> EngineResult:  # n
 
     for attempt_index in range(max_attempts):
         final_attempt_index = attempt_index
-        response, attempt_records, attempt_accumulated, attempt_round_count = await _tool_loop(current_request, messages, remaining_calls)
+        response, attempt_records, attempt_accumulated, attempt_round_count = await _tool_loop(
+            current_request, messages, remaining_calls
+        )
         records.extend(attempt_records)
         accumulated.extend(attempt_accumulated)
         llm_round_count += attempt_round_count
@@ -160,7 +165,9 @@ async def execute_interaction(request: InteractionRequest) -> EngineResult:  # n
 
     if validation is not None and last_failures:
         formatted = ", ".join(_failure_summary(failure) for failure in last_failures)
-        raise TerminalError(f"PromptContract validation exhausted after {max_attempts} attempt(s); failures: {formatted}.")
+        raise TerminalError(
+            f"PromptContract validation exhausted after {max_attempts} attempt(s); failures: {formatted}."
+        )
 
     assert last_response is not None
     # ``repair_attempt_count`` is the number of validation-driven re-entries:
@@ -231,8 +238,8 @@ def _render_repair(failures: Sequence[Any]) -> str:
         else:
             lines.append(f"- {message}")
     lines.append(
-        "Re-emit the structured response that conforms exactly to the declared output schema and addresses every issue above. "
-        "Do not include prose, markdown, or commentary."
+        "Re-emit the structured response that conforms exactly to the declared output schema "
+        "and addresses every issue above. Do not include prose, markdown, or commentary."
     )
     return "\n".join(lines)
 
@@ -277,9 +284,22 @@ async def _tool_loop(
         for tool_call, record, output in tool_outputs:
             if record is not None:
                 records.append(record)
-            tool_content_for_llm = request.substitutor.substitute(output.content) if request.substitutor is not None else output.content
-            messages.append(CoreMessage(role=Role.TOOL, content=tool_content_for_llm, tool_call_id=tool_call.id, name=tool_call.function_name))
-            accumulated.append(ToolResultMessage(tool_call_id=tool_call.id, function_name=tool_call.function_name, content=output.content))
+            tool_content_for_llm = (
+                request.substitutor.substitute(output.content) if request.substitutor is not None else output.content
+            )
+            messages.append(
+                CoreMessage(
+                    role=Role.TOOL,
+                    content=tool_content_for_llm,
+                    tool_call_id=tool_call.id,
+                    name=tool_call.function_name,
+                )
+            )
+            accumulated.append(
+                ToolResultMessage(
+                    tool_call_id=tool_call.id, function_name=tool_call.function_name, content=output.content
+                )
+            )
 
         if all(tool_call.function_name not in runtime.instances for tool_call in response.tool_calls):
             consecutive_unknown_rounds += 1
@@ -288,7 +308,11 @@ async def _tool_loop(
         else:
             consecutive_unknown_rounds = 0
 
-    final_message = _FORCED_FINAL_UNKNOWN_TOOLS_MSG if consecutive_unknown_rounds >= MAX_CONSECUTIVE_UNKNOWN_TOOL_ROUNDS else _FORCED_FINAL_MAX_ROUNDS_MSG
+    final_message = (
+        _FORCED_FINAL_UNKNOWN_TOOLS_MSG
+        if consecutive_unknown_rounds >= MAX_CONSECUTIVE_UNKNOWN_TOOL_ROUNDS
+        else _FORCED_FINAL_MAX_ROUNDS_MSG
+    )
     messages.append(CoreMessage(role=Role.USER, content=final_message))
     try:
         response = await _single_call(request, messages, max_rounds, None)
@@ -338,7 +362,9 @@ async def _single_call(
     ) as span_ctx:
         response = await generate(llm_request)
         _record_round_meta(span_ctx, response, llm_request)
-        span_ctx.set_output_preview([response.reasoning_content, response.content] if response.reasoning_content else response.content)
+        span_ctx.set_output_preview(
+            [response.reasoning_content, response.content] if response.reasoning_content else response.content
+        )
         span_ctx._set_output_value(response)
         return response
 
@@ -359,13 +385,19 @@ def _build_llm_request(
         messages=messages,
         generation=GenerationSpec(
             temperature=_pick(generation_override.temperature if generation_override else None, model.temperature),
-            reasoning_effort=_pick(generation_override.reasoning_effort if generation_override else None, model.reasoning_effort),
+            reasoning_effort=_pick(
+                generation_override.reasoning_effort if generation_override else None, model.reasoning_effort
+            ),
             verbosity=_pick(generation_override.verbosity if generation_override else None, model.verbosity),
-            max_completion_tokens=_pick(generation_override.max_completion_tokens if generation_override else None, model.max_completion_tokens),
+            max_completion_tokens=_pick(
+                generation_override.max_completion_tokens if generation_override else None, model.max_completion_tokens
+            ),
             stop=generation_override.stop if generation_override else None,
         ),
         cache=CacheSpec(
-            context_count=cache_override.context_count if cache_override and cache_override.context_count else request.context_count,
+            context_count=cache_override.context_count
+            if cache_override and cache_override.context_count
+            else request.context_count,
             ttl=cache_override.ttl if cache_override else model.cache_ttl,
             key_override=cache_override.key_override if cache_override else None,
             bypass_response_cache=cache_override.bypass_response_cache if cache_override else False,
@@ -374,7 +406,9 @@ def _build_llm_request(
             workload_id=routing_override.workload_id if routing_override else None,
             force_deployment_id=routing_override.force_deployment_id if routing_override else None,
             preferred_deployment_id=routing_override.preferred_deployment_id if routing_override else None,
-            skip_cost_optimized=_pick(routing_override.skip_cost_optimized if routing_override else None, model.skip_cost_optimized),
+            skip_cost_optimized=_pick(
+                routing_override.skip_cost_optimized if routing_override else None, model.skip_cost_optimized
+            ),
             skip_ids=routing_override.skip_ids if routing_override else frozenset(),
         ),
         response=ResponseSpec(format=request.response_format),
@@ -416,15 +450,20 @@ async def _execute_tools(
             None,
             ToolOutput(
                 content=(
-                    f"Error: Tool '{tool_call.function_name}' has exhausted its max_calls budget for this execution. "
-                    "Do not call it again; use the results already returned or explain the limitation in the final answer."
+                    f"Error: Tool '{tool_call.function_name}' has exhausted its max_calls "
+                    "budget for this execution. Do not call it again; use the results already "
+                    "returned or explain the limitation in the final answer."
                 )
             ),
         )
 
     def _unknown(tool_call: RawToolCall) -> tuple[RawToolCall, ToolCallRecord | None, ToolOutput]:
         available = ", ".join(sorted(tools.keys()))
-        return tool_call, None, ToolOutput(content=f"Error: Unknown tool '{tool_call.function_name}'. Available tools: {available}")
+        return (
+            tool_call,
+            None,
+            ToolOutput(content=f"Error: Unknown tool '{tool_call.function_name}'. Available tools: {available}"),
+        )
 
     async def _run(tool: Tool, tool_call: RawToolCall) -> tuple[RawToolCall, ToolCallRecord | None, ToolOutput]:
         record, output = await _execute_single_tool(tool, tool_call, round_index)
@@ -528,7 +567,11 @@ async def _execute_single_tool(
         tool_target,
         sinks=get_sinks(),
         encode_receiver=receiver_payload,
-        encode_input={"input": _parse_tool_arguments(tool_call.arguments), "tool_call_id": tool_call.id, "round_index": round_num},
+        encode_input={
+            "input": _parse_tool_arguments(tool_call.arguments),
+            "tool_call_id": tool_call.id,
+            "round_index": round_num,
+        },
         db=execution_ctx.database if execution_ctx is not None else None,
         input_preview={"tool_name": snake_name, "arguments": _parse_tool_arguments(tool_call.arguments)},
     ) as span_ctx:

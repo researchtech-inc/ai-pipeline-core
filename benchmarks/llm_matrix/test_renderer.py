@@ -5,7 +5,15 @@ from datetime import UTC, datetime
 from ai_pipeline_core.llm import AIModel
 from tools.benchmark.render_llm_matrix import render_files
 
-from ._models import BenchmarkCase, BenchmarkDeployment, BenchmarkInventory, BenchmarkRun, BenchmarkRunManifest, ProbeResult, RENDERER_TEST_MODEL
+from ._models import (
+    BenchmarkCase,
+    BenchmarkDeployment,
+    BenchmarkInventory,
+    BenchmarkRun,
+    BenchmarkRunManifest,
+    ProbeResult,
+    RENDERER_TEST_MODEL,
+)
 
 
 def test_renderer_writes_matrix_investigation_and_summary(tmp_path) -> None:

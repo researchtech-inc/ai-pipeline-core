@@ -15,7 +15,12 @@ from ai_pipeline_core.database.clickhouse._ddl import (
     SCHEMA_VERSION,
     SPANS_DDL,
 )
-from ai_pipeline_core.database.clickhouse._connection import SchemaVersionError, _create_client, _ensure_schema, reset_schema_check
+from ai_pipeline_core.database.clickhouse._connection import (
+    SchemaVersionError,
+    _create_client,
+    _ensure_schema,
+    reset_schema_check,
+)
 from ai_pipeline_core.settings import Settings
 
 
@@ -48,7 +53,9 @@ def _extract_column_lines(ddl: str) -> list[str]:
 
 
 def _extract_index_lines(ddl: str) -> list[str]:
-    return [line.strip().rstrip(",") for line in _extract_table_body(ddl).splitlines() if line.strip().startswith("INDEX ")]
+    return [
+        line.strip().rstrip(",") for line in _extract_table_body(ddl).splitlines() if line.strip().startswith("INDEX ")
+    ]
 
 
 def test_ddl_statement_list_includes_all_tables() -> None:
@@ -345,7 +352,9 @@ async def test_create_client_retries_at_least_once_with_zero_retries_setting(moc
 @pytest.mark.asyncio
 @patch("ai_pipeline_core.database.clickhouse._connection._ensure_schema", new_callable=AsyncMock)
 @patch("ai_pipeline_core.database.clickhouse._connection._create_client", new_callable=AsyncMock)
-async def test_get_async_clickhouse_client_closes_client_on_schema_version_error(mock_create: AsyncMock, mock_schema: AsyncMock) -> None:
+async def test_get_async_clickhouse_client_closes_client_on_schema_version_error(
+    mock_create: AsyncMock, mock_schema: AsyncMock
+) -> None:
     mock_client = AsyncMock()
     mock_create.return_value = mock_client
     mock_schema.side_effect = SchemaVersionError("version mismatch")
@@ -361,7 +370,9 @@ async def test_get_async_clickhouse_client_closes_client_on_schema_version_error
 @pytest.mark.asyncio
 @patch("ai_pipeline_core.database.clickhouse._connection._ensure_schema", new_callable=AsyncMock)
 @patch("ai_pipeline_core.database.clickhouse._connection._create_client", new_callable=AsyncMock)
-async def test_get_async_clickhouse_client_closes_client_on_os_error(mock_create: AsyncMock, mock_schema: AsyncMock) -> None:
+async def test_get_async_clickhouse_client_closes_client_on_os_error(
+    mock_create: AsyncMock, mock_schema: AsyncMock
+) -> None:
     mock_client = AsyncMock()
     mock_create.return_value = mock_client
     mock_schema.side_effect = OSError("connection lost during schema check")

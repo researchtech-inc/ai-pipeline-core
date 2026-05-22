@@ -28,33 +28,43 @@ class FieldGate:
         content_type = self.document_type.get_content_type()
         if content_type is None:
             raise TypeError(
-                f"FieldGate document_type must be a typed Document subclass, but {self.document_type.__name__} has no content type. "
-                f"Declare it as 'class {self.document_type.__name__}(Document[MyModel]): ...' so .parsed.{self.field_name} is safe."
+                f"FieldGate document_type must be a typed Document subclass, "
+                f"but {self.document_type.__name__} has no content type. "
+                f"Declare it as 'class {self.document_type.__name__}(Document[MyModel]): ...' "
+                f"so .parsed.{self.field_name} is safe."
             )
         if self.document_type.content_is_list():
             raise TypeError(
-                f"FieldGate document_type must wrap a single Pydantic model, but {self.document_type.__name__} is Document[list[{content_type.__name__}]]. "
-                f"Use a control document with a single model so .parsed.{self.field_name} is unambiguous."
+                f"FieldGate document_type must wrap a single Pydantic model, "
+                f"but {self.document_type.__name__} is "
+                f"Document[list[{content_type.__name__}]]. "
+                f"Use a control document with a single model "
+                f"so .parsed.{self.field_name} is unambiguous."
             )
         if not self.field_name:
             raise TypeError(
                 f"FieldGate for {self.document_type.__name__} must declare a non-empty field_name. "
-                "Pass the exact model field to inspect, for example FieldGate(MyDecisionDoc, 'should_continue', op='falsy')."
+                "Pass the exact model field to inspect, for example "
+                "FieldGate(MyDecisionDoc, 'should_continue', op='falsy')."
             )
         if self.field_name not in content_type.model_fields:
             available_fields = ", ".join(sorted(content_type.model_fields)) or "(none)"
             raise TypeError(
-                f"FieldGate field '{self.field_name}' is not defined on {self.document_type.__name__}.parsed ({content_type.__name__}). "
+                f"FieldGate field '{self.field_name}' is not defined on "
+                f"{self.document_type.__name__}.parsed ({content_type.__name__}). "
                 f"Available fields: {available_fields}."
             )
         if self.op in {"eq", "ne"} and self.value is None:
             raise TypeError(
-                f"FieldGate op='{self.op}' requires a comparison value. Pass value=... when comparing {self.document_type.__name__}.parsed.{self.field_name}."
+                f"FieldGate op='{self.op}' requires a comparison value. "
+                f"Pass value=... when comparing "
+                f"{self.document_type.__name__}.parsed.{self.field_name}."
             )
         if self.op in {"truthy", "falsy"} and self.value is not None:
             raise TypeError(
                 f"FieldGate op='{self.op}' does not use value=. "
-                f"Remove value=... or switch to op='eq'/'ne' for {self.document_type.__name__}.parsed.{self.field_name}."
+                f"Remove value=... or switch to op='eq'/'ne' for "
+                f"{self.document_type.__name__}.parsed.{self.field_name}."
             )
 
 
@@ -89,7 +99,10 @@ class DeploymentPlan:
             raise ValueError("DeploymentPlan.steps must contain at least one FlowStep.")
         if any(not isinstance(step, FlowStep) for step in normalized_steps):
             bad_type = next(type(step).__name__ for step in normalized_steps if not isinstance(step, FlowStep))
-            raise TypeError(f"DeploymentPlan.steps must contain only FlowStep instances, got {bad_type}. Wrap each flow as FlowStep(MyFlow()).")
+            raise TypeError(
+                f"DeploymentPlan.steps must contain only FlowStep instances, got {bad_type}. "
+                "Wrap each flow as FlowStep(MyFlow())."
+            )
         object.__setattr__(self, "steps", normalized_steps)
 
         raw_group_stop_if = self.group_stop_if
@@ -98,7 +111,9 @@ class DeploymentPlan:
             if not group_name:
                 raise TypeError("DeploymentPlan.group_stop_if keys must be non-empty group names.")
             if not isinstance(gate, FieldGate):
-                raise TypeError(f"DeploymentPlan.group_stop_if['{group_name}'] must be a FieldGate, got {type(gate).__name__}.")
+                raise TypeError(
+                    f"DeploymentPlan.group_stop_if['{group_name}'] must be a FieldGate, got {type(gate).__name__}."
+                )
         object.__setattr__(self, "group_stop_if", MappingProxyType(normalized_group_stop_if))
 
 

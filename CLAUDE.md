@@ -526,7 +526,13 @@ Never:
   - Set max_completion_tokens / max_output_tokens / max_tokens in tests; use framework defaults.
   - Mock LLMs outside tests/unit/. No fake LLM clients in integration, qualification,
     examples, or benchmarks.
-  - Run live, benchmark, verify, or qualification commands from an agent session.
+  - Run `dev verify`, `dev benchmark`, or `dev examples --live` from an agent session.
+    These run broad or live validation outside the agent budget and are blocked by
+    the ai-dev-cli PreToolUse hook (`python -m ai_dev_cli.hook`).
+
+`dev test --lane=integration` and `dev test --lane=qualification` are allowed in
+agent sessions by default in ai-dev-cli v0.2.0; the hook will not block them.
+Probe model capabilities with `dev probe capabilities -- --models <csv> [--cost-limit <usd>]`.
 
 Run `dev info` to see lane state and which command to use next.
 

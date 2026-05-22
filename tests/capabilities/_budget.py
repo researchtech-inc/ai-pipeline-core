@@ -6,9 +6,6 @@ dataclass without triggering pytest's conftest collection machinery.
 
 from dataclasses import dataclass
 
-COST_LIMIT_ENV = "CAPABILITIES_COST_LIMIT_USD"
-DEFAULT_COST_LIMIT_USD = 25.0
-
 
 @dataclass(slots=True)
 class CapabilityCostBudget:
@@ -31,5 +28,6 @@ class CapabilityCostBudget:
             raise RuntimeError(
                 f"Capability suite cost ${self.total_usd:.4f} exceeded "
                 f"budget ${self.limit_usd:.2f}; aborting remaining probes. "
-                f"Raise the limit via {COST_LIMIT_ENV} or shrink the probe set."
+                "Raise the limit with `dev probe capabilities -- --cost-limit <usd>` "
+                "or shrink the probe set."
             )

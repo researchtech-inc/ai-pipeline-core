@@ -80,7 +80,19 @@ from .pipeline import (
     safe_gather_indexed,
     traced_operation,
 )
-from .prompt_compiler import Guide, ListField, MultiLineField, OutputRule, OutputT, PromptSpec, Role, Rule, StructuredField, render_preview, render_text
+from .prompt_compiler import (
+    Guide,
+    ListField,
+    MultiLineField,
+    OutputRule,
+    OutputT,
+    PromptSpec,
+    Role,
+    Rule,
+    StructuredField,
+    render_preview,
+    render_text,
+)
 from .prompt_contract import (
     CitedText,
     DocumentCitation,

@@ -393,7 +393,10 @@ class TestEnsureConcurrencyLimits:
                 await _ensure_concurrency_limits(limits)
 
             assert mock_client.upsert_global_concurrency_limit_by_name.call_count == 3
-            calls = {call.kwargs["name"]: call.kwargs for call in mock_client.upsert_global_concurrency_limit_by_name.call_args_list}
+            calls = {
+                call.kwargs["name"]: call.kwargs
+                for call in mock_client.upsert_global_concurrency_limit_by_name.call_args_list
+            }
             assert calls["bd"]["limit"] == 500
             assert calls["bd"]["slot_decay_per_second"] == pytest.approx(0.0)
             assert calls["sf"]["limit"] == 15

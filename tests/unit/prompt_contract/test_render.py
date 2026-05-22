@@ -327,7 +327,11 @@ def test_build_context_notation_active_populates_instruction() -> None:
 def test_default_renderer_minimal_layout() -> None:
     context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
     rendered = DefaultPromptRenderer().render(context)
-    expected = "# Purpose\n\nproduce an answer\n\n# Returns\n\nRenderOutput with answer\n\n# Success Criteria\n\nanswer is non-empty"
+    expected = (
+        "# Purpose\n\nproduce an answer\n\n"
+        "# Returns\n\nRenderOutput with answer\n\n"
+        "# Success Criteria\n\nanswer is non-empty"
+    )
     assert rendered == expected
 
 

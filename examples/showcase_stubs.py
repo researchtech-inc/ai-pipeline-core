@@ -149,7 +149,9 @@ class AnalysisFlow(PipelineFlow, stub=True):
     Output: AnalysisResultDoc with structured findings.
     """
 
-    async def run(self, cleaned_documents: tuple[CleanedDataDoc, ...], options: FlowOptions) -> tuple[AnalysisResultDoc, ...]:
+    async def run(
+        self, cleaned_documents: tuple[CleanedDataDoc, ...], options: FlowOptions
+    ) -> tuple[AnalysisResultDoc, ...]:
         _ = (cleaned_documents, options)
 
 
@@ -160,7 +162,9 @@ class ReportFlow(PipelineFlow, stub=True):
     Output: FinalReportDoc with formatted report.
     """
 
-    async def run(self, analysis_results: tuple[AnalysisResultDoc, ...], options: FlowOptions) -> tuple[FinalReportDoc, ...]:
+    async def run(
+        self, analysis_results: tuple[AnalysisResultDoc, ...], options: FlowOptions
+    ) -> tuple[FinalReportDoc, ...]:
         _ = (analysis_results, options)
 
 

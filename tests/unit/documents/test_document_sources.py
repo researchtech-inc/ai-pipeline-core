@@ -70,7 +70,9 @@ class TestDocumentDerivedFrom:
 
     def test_create_with_duplicate_derived_from(self):
         """Test creating document with duplicate derived_from entries."""
-        doc = SampleFlowDoc(name="test.txt", content=b"test", derived_from=("https://example.com/ref1", "https://example.com/ref1"))
+        doc = SampleFlowDoc(
+            name="test.txt", content=b"test", derived_from=("https://example.com/ref1", "https://example.com/ref1")
+        )
 
         # Both entries are kept (no deduplication at creation)
         assert len(doc.derived_from) == 2
@@ -245,7 +247,9 @@ class TestDocumentDerivedFrom:
         doc1 = SampleFlowDoc.create_root(name="source.txt", content="source", reason="test input")
 
         # Create doc with duplicate hash in derived_from
-        doc2 = SampleFlowDoc(name="derived.txt", content=b"derived", derived_from=(doc1.sha256, doc1.sha256, "https://example.com/other"))
+        doc2 = SampleFlowDoc(
+            name="derived.txt", content=b"derived", derived_from=(doc1.sha256, doc1.sha256, "https://example.com/other")
+        )
 
         # All duplicates are kept
         assert len(doc2.derived_from) == 3
@@ -269,7 +273,11 @@ class TestDocumentDerivedFrom:
         )
 
         # Add its own hash (would be unusual but should work)
-        doc3 = SampleFlowDoc(name="self2.txt", content=b"self-ref2", derived_from=(doc2.sha256, "https://example.com/self-reference-note"))
+        doc3 = SampleFlowDoc(
+            name="self2.txt",
+            content=b"self-ref2",
+            derived_from=(doc2.sha256, "https://example.com/self-reference-note"),
+        )
 
         assert doc3.has_derived_from(doc2)
         assert len(doc3.content_documents) == 1
@@ -282,7 +290,9 @@ class TestDocumentDerivedFrom:
             "https://example.com/local-file.csv",
         ]
 
-        original = SampleFlowDoc(name="test.json", content=b'{"key": "value"}', description="Test doc", derived_from=derived_from)
+        original = SampleFlowDoc(
+            name="test.json", content=b'{"key": "value"}', description="Test doc", derived_from=derived_from
+        )
 
         # Serialize and deserialize
         serialized = original.serialize_model()

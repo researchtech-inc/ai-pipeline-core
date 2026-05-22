@@ -15,7 +15,9 @@ _CONVERSATION_CLASS = "Conversation"
 
 def is_conversation_type(value: Any) -> bool:
     """Return whether ``value`` is the Conversation class or a parameterized variant."""
-    return isinstance(value, type) and value.__module__ == _CONVERSATION_MODULE and value.__name__ == _CONVERSATION_CLASS
+    return (
+        isinstance(value, type) and value.__module__ == _CONVERSATION_MODULE and value.__name__ == _CONVERSATION_CLASS
+    )
 
 
 def is_conversation_instance(value: Any) -> bool:

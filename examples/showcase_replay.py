@@ -7,7 +7,16 @@ Usage:
 
 import asyncio
 
-from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FlowOptions, FlowStep, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import (
+    DeploymentPlan,
+    DeploymentResult,
+    Document,
+    FlowOptions,
+    FlowStep,
+    PipelineDeployment,
+    PipelineFlow,
+    PipelineTask,
+)
 from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.replay import execute_span

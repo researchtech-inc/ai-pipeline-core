@@ -456,7 +456,9 @@ async def test_get_span_logs_filters_level_and_category() -> None:
     deployment_id = uuid4()
     await database.save_logs_batch([
         _make_log(span_id=span_id, deployment_id=deployment_id, level="INFO", category="framework", message="a"),
-        _make_log(span_id=span_id, deployment_id=deployment_id, level="ERROR", category="user", message="b", sequence_no=1),
+        _make_log(
+            span_id=span_id, deployment_id=deployment_id, level="ERROR", category="user", message="b", sequence_no=1
+        ),
     ])
 
     logs = await database.get_span_logs(span_id, level="ERROR")

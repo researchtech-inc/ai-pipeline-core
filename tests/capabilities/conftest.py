@@ -1,6 +1,5 @@
-"""Capability suite session fixtures: model input, cost budget, artifact writer."""
+"""Capability suite session fixtures: pytest options, cost budget, artifact writer."""
 
-import os
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,23 +8,51 @@ import pytest
 
 from ai_pipeline_core.llm import AIModel
 
-from ._budget import COST_LIMIT_ENV, DEFAULT_COST_LIMIT_USD, CapabilityCostBudget
-from ._model_input import parse_models
+from ._budget import CapabilityCostBudget
 from ._recorder import CapabilityMatrix, CapabilityResult
 
 _ARTIFACTS_ROOT = Path("artifacts/capabilities")
+_DEFAULT_COST_LIMIT_USD = 25.0
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register capability probe options consumed by the session fixtures."""
+    group = parser.getgroup("ai-pipeline-core capabilities")
+    group.addoption(
+        "--models",
+        action="store",
+        default="",
+        help="CSV of model names to probe. Required by 'dev probe capabilities'.",
+    )
+    group.addoption(
+        "--cost-limit",
+        action="store",
+        type=float,
+        default=_DEFAULT_COST_LIMIT_USD,
+        help="USD ceiling for the capability suite (default: 25.00).",
+    )
+
+
+def _parse_models(raw: str) -> tuple[AIModel, ...]:
+    names = tuple(name.strip() for name in raw.split(",") if name.strip())
+    if not names:
+        raise RuntimeError(
+            "Capability suite requires --models <csv>. Use `dev probe capabilities -- --models <csv>` instead."
+        )
+    return tuple(AIModel(name=name) for name in names)
 
 
 @pytest.fixture(scope="session")
-def models_under_test() -> tuple[AIModel, ...]:
-    """Return the runtime model list parsed from CAPABILITIES_MODELS."""
-    return parse_models()
+def models_under_test(request: pytest.FixtureRequest) -> tuple[AIModel, ...]:
+    """Return the runtime model list parsed from --models."""
+    raw = str(request.config.getoption("--models") or "").strip()
+    return _parse_models(raw)
 
 
 @pytest.fixture(scope="session")
-def capability_cost_budget() -> CapabilityCostBudget:
-    """Track capability suite spend. Mid-run aborts via ``add``; teardown summary lives on the matrix fixture."""
-    limit = float(os.environ.get(COST_LIMIT_ENV, DEFAULT_COST_LIMIT_USD))
+def capability_cost_budget(request: pytest.FixtureRequest) -> CapabilityCostBudget:
+    """Track capability suite spend; mid-run aborts via ``add``."""
+    limit = float(request.config.getoption("--cost-limit"))
     return CapabilityCostBudget(limit_usd=limit)
 
 

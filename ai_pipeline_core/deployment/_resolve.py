@@ -51,7 +51,10 @@ class _InputBase(BaseModel):
     """
 
     content: str | None = Field(default=None, description="Inline content string. Mutually exclusive with 'url'.")
-    url: str = Field(default="", description="URL to fetch content from. Supported schemes: https://, gs://. Mutually exclusive with 'content'.")
+    url: str = Field(
+        default="",
+        description="URL to fetch content from. Supported schemes: https://, gs://. Mutually exclusive with 'content'.",
+    )
 
     STRIP_KEYS: ClassVar[frozenset[str]] = frozenset()
 
@@ -87,14 +90,24 @@ class AttachmentInput(_InputBase):
 class _DocumentInput(_InputBase):
     """Document provided to a deployment — inline content or a URL reference."""
 
-    name: str = Field(default="", description="Document filename (e.g. 'task.md'). Auto-derived from URL path if omitted.")
+    name: str = Field(
+        default="", description="Document filename (e.g. 'task.md'). Auto-derived from URL path if omitted."
+    )
     description: str = Field(default="", description="Human-readable description of this document.")
     summary: str = Field(default="", description="Inline summary of the document content.")
-    class_name: str = Field(default="", description="Document type class name. Required when the pipeline accepts multiple input types.")
+    class_name: str = Field(
+        default="", description="Document type class name. Required when the pipeline accepts multiple input types."
+    )
 
-    derived_from: tuple[str, ...] = Field(default=(), description="Content provenance: SHA256 hashes of source documents or URIs.")
-    triggered_by: tuple[str, ...] = Field(default=(), description="Causal provenance: SHA256 hashes of triggering documents.")
-    attachments: tuple[AttachmentInput, ...] = Field(default=(), description="Secondary content attached to this document.")
+    derived_from: tuple[str, ...] = Field(
+        default=(), description="Content provenance: SHA256 hashes of source documents or URIs."
+    )
+    triggered_by: tuple[str, ...] = Field(
+        default=(), description="Causal provenance: SHA256 hashes of triggering documents."
+    )
+    attachments: tuple[AttachmentInput, ...] = Field(
+        default=(), description="Secondary content attached to this document."
+    )
 
     STRIP_KEYS: ClassVar[frozenset[str]] = frozenset({
         "id",
@@ -267,7 +280,9 @@ async def resolve_document_inputs(
                     raise ValueError("No input document types discoverable from flows; 'class_name' must be specified")
                 else:
                     available = sorted(inference_types.keys())
-                    raise ValueError(f"Multiple input types available ({', '.join(available)}); 'class_name' must be specified")
+                    raise ValueError(
+                        f"Multiple input types available ({', '.join(available)}); 'class_name' must be specified"
+                    )
 
             doc_type = type_map.get(class_name)
             if doc_type is None:
@@ -293,7 +308,8 @@ async def resolve_document_inputs(
                 if not name:
                     raise ValueError(f"Cannot derive document name from URL: {doc_input.url}")
 
-            return doc_type(  # nosemgrep: no-direct-document-init — framework-internal reconstruction from external API input with raw SHA256 provenance
+            # Framework-internal reconstruction from external API input with raw SHA256 provenance.
+            return doc_type(  # nosemgrep: no-direct-document-init - framework reconstruction
                 name=name,
                 content=content,
                 description=doc_input.description,

@@ -138,7 +138,9 @@ def _span_local_filename(span: SpanRecord, view: SpanTreeView) -> str | None:
     return span_filename(span.kind, span.name, span.span_id, sibling_index)
 
 
-def _format_attempt_line(span: SpanRecord, meta: dict[str, Any], view: SpanTreeView, *, indent: str, status: str, duration: str) -> str:
+def _format_attempt_line(
+    span: SpanRecord, meta: dict[str, Any], view: SpanTreeView, *, indent: str, status: str, duration: str
+) -> str:
     context = f"Span {span.span_id}"
     attempt_num = _detail_int(meta, "attempt", context=context, field_name="meta_json")
     max_attempts = _detail_int(meta, "max_attempts", context=context, field_name="meta_json")
@@ -185,7 +187,11 @@ def _format_tree_line(span: SpanRecord, view: SpanTreeView, *, depth: int, inclu
     cache_suffix = _cache_hit_suffix(meta)
 
     if span.kind in {SpanKind.CONVERSATION, SpanKind.PROMPT_EXECUTION}:
-        chain_suffix = f" (continues {str(span.previous_conversation_id)[:8]}…)" if span.kind == SpanKind.CONVERSATION and span.previous_conversation_id else ""
+        chain_suffix = (
+            f" (continues {str(span.previous_conversation_id)[:8]}…)"
+            if span.kind == SpanKind.CONVERSATION and span.previous_conversation_id
+            else ""
+        )
         label_prefix = "conversation" if span.kind == SpanKind.CONVERSATION else "prompt_exec"
         return _format_conversation_like_line(
             span,
@@ -247,7 +253,11 @@ def format_span_tree_lines(view: SpanTreeView, *, include_filenames: bool = Fals
         span = view.spans_by_id[span_id]
 
         if span.kind == SpanKind.ATTEMPT:
-            attempt_siblings = [c for c in view.children_map.get(span.parent_span_id, []) if view.spans_by_id[c].kind == SpanKind.ATTEMPT]
+            attempt_siblings = [
+                c
+                for c in view.children_map.get(span.parent_span_id, [])
+                if view.spans_by_id[c].kind == SpanKind.ATTEMPT
+            ]
             if len(attempt_siblings) == 1 and span.status != SpanStatus.FAILED:
                 # Single non-failed attempt — skip the ATTEMPT wrapper line and render children at same depth.
                 # Failed attempts are always shown so timing and error context remain visible for debugging.
@@ -267,7 +277,12 @@ def format_span_tree_lines(view: SpanTreeView, *, include_filenames: bool = Fals
 
 def format_span_overview_lines(view: SpanTreeView) -> list[str]:
     """Render a compact plain-text deployment overview for ai-trace show."""
-    total_tokens = view.totals.tokens_input + view.totals.tokens_output + view.totals.tokens_cache_read + view.totals.tokens_reasoning
+    total_tokens = (
+        view.totals.tokens_input
+        + view.totals.tokens_output
+        + view.totals.tokens_cache_read
+        + view.totals.tokens_reasoning
+    )
     return [
         f"Deployment {view.root_span.deployment_name or view.root_span.name} / {view.root_span.run_id}",
         (

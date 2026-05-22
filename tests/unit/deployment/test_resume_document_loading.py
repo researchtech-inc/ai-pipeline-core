@@ -149,7 +149,8 @@ class TestBug1ResumeZombieDocuments:
         # CORRECT: flow 2 receives only plan.json (flow 1's output)
         received_names = sorted(d.name for d in _zombie_flow2_received)
         assert received_names == ["plan.json"], (
-            f"Flow 2 should receive only flow 1's output [plan.json], got {received_names}. Zombie progress.md from crashed run should NOT appear in inputs."
+            f"Flow 2 should receive only flow 1's output [plan.json], got {received_names}. "
+            "Zombie progress.md from crashed run should NOT appear in inputs."
         )
 
     @pytest.mark.asyncio
@@ -174,7 +175,9 @@ class TestBug1ResumeZombieDocuments:
 class _Bug2Flow1(PipelineFlow):
     """Flow 1: produces both IntermediateDoc and ReportDoc."""
 
-    async def run(self, input_docs: tuple[_InputDoc, ...], options: FlowOptions) -> tuple[_IntermediateDoc | _ReportDoc, ...]:
+    async def run(
+        self, input_docs: tuple[_InputDoc, ...], options: FlowOptions
+    ) -> tuple[_IntermediateDoc | _ReportDoc, ...]:
         _ = options
         return (
             _IntermediateDoc.derive(derived_from=(input_docs[0],), name="intermediate.txt", content="bridge data"),
@@ -185,9 +188,15 @@ class _Bug2Flow1(PipelineFlow):
 class _Bug2Flow2(PipelineFlow):
     """Flow 2: takes IntermediateDoc, outputs ReportDoc (same output type as flow 1)."""
 
-    async def run(self, intermediate_docs: tuple[_IntermediateDoc, ...], options: FlowOptions) -> tuple[_ReportDoc, ...]:
+    async def run(
+        self, intermediate_docs: tuple[_IntermediateDoc, ...], options: FlowOptions
+    ) -> tuple[_ReportDoc, ...]:
         _ = options
-        return (_ReportDoc.derive(derived_from=(intermediate_docs[0],), name="report_from_flow2.txt", content="flow2 report"),)
+        return (
+            _ReportDoc.derive(
+                derived_from=(intermediate_docs[0],), name="report_from_flow2.txt", content="flow2 report"
+            ),
+        )
 
 
 class _Bug2Deployment(PipelineDeployment[FlowOptions, _SimpleResult]):
@@ -314,5 +323,6 @@ class TestBug3OutputDocumentContamination:
 
         # Flow 2 (last flow) produced exactly 1 ReportDoc
         assert len(output_sha256s) == 1, (
-            f"Last flow produced 1 ReportDoc but output_document_sha256s has {len(output_sha256s)} refs (contaminated with preceding flow's ReportDoc)"
+            f"Last flow produced 1 ReportDoc but output_document_sha256s has "
+            f"{len(output_sha256s)} refs (contaminated with preceding flow's ReportDoc)"
         )

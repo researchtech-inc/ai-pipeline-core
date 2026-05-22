@@ -139,9 +139,10 @@ class TestListStructuredOutputComplex:
         """Large, fully-populated list output stays well-formed."""
         conv = await Conversation(model=test_model_choice, enable_substitutor=False).send_structured(
             "Generate exactly 10 inventory items for a hardware store. "
-            "Use the names Hammer, Screwdriver, Wrench, Pliers, Drill, Saw, Level, Tape Measure, Sandpaper, and Paint Brush. "
-            "Each item must include a realistic SKU, price between 5 and 200 USD, a 1-2 sentence description, "
-            "at least 2 tags, and a realistic in_stock value.",
+            "Use the names Hammer, Screwdriver, Wrench, Pliers, Drill, Saw, Level, "
+            "Tape Measure, Sandpaper, and Paint Brush. "
+            "Each item must include a realistic SKU, price between 5 and 200 USD, "
+            "a 1-2 sentence description, at least 2 tags, and a realistic in_stock value.",
             response_format=list[InventoryItem],
             purpose=f"qualification-list-rich-{test_model_choice.name}",
         )
@@ -184,7 +185,8 @@ class TestListStructuredOutputComplex:
     ) -> None:
         """Duplicate list items are preserved rather than silently deduplicated."""
         conv = await Conversation(model=default_test_model, enable_substitutor=False).send_structured(
-            "Return exactly 4 label items. The first two must both have label='duplicate'. The third has label='unique_a'. The fourth has label='unique_b'.",
+            "Return exactly 4 label items. The first two must both have label='duplicate'. "
+            "The third has label='unique_a'. The fourth has label='unique_b'.",
             response_format=list[LabelItem],
             purpose="qualification-list-duplicates",
         )

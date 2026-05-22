@@ -21,22 +21,16 @@ class TestModelOptions:
         assert options.retry_delay_seconds is None
         assert options.timeout is None
         assert options.cache_ttl is None
-        assert options.max_completion_tokens is None
         assert options.stop is None
         assert options.verbosity is None
         assert options.min_output_tps is None
 
     def test_generation_overrides(self) -> None:
-        # Field name routed through dict unpack: this file unit-tests the
-        # ModelOptions Pydantic model itself, not an LLM call, so the
-        # no-token-caps-in-tests heuristic is a false positive here.
-        cap_kwarg = {"max_completion_tokens": 20_000}
         options = ModelOptions(
             temperature=0.7,
             reasoning_effort="medium",
             verbosity="low",
             stop=("STOP",),
-            **cap_kwarg,
         )
 
         spec = generation_overrides(options)
@@ -45,7 +39,6 @@ class TestModelOptions:
         assert spec.temperature == pytest.approx(0.7)
         assert spec.reasoning_effort == "medium"
         assert spec.verbosity == "low"
-        assert spec.max_completion_tokens == 20_000
         assert spec.stop == ("STOP",)
 
     def test_retry_overrides(self) -> None:
@@ -95,10 +88,6 @@ class TestModelOptions:
         assert options.timeout == 300
 
     def test_positive_numeric_validation(self) -> None:
-        # Same false-positive avoidance as test_generation_overrides above.
-        zero_cap = {"max_completion_tokens": 0}
-        with pytest.raises(ValidationError):
-            ModelOptions(**zero_cap)
         with pytest.raises(ValidationError):
             ModelOptions(timeout=0)
         with pytest.raises(ValidationError):

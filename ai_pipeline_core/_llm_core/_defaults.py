@@ -17,5 +17,8 @@ def cache_ttl_to_wire(minutes: int) -> str | None:
     if minutes == 0:
         return None
     if minutes < MIN_CACHE_TTL_MINUTES or minutes > MAX_CACHE_TTL_MINUTES:
-        raise ValueError(f"cache_ttl must be 0 (off) or between {MIN_CACHE_TTL_MINUTES} and {MAX_CACHE_TTL_MINUTES} minutes; got {minutes!r}.")
+        raise ValueError(
+            f"cache_ttl must be 0 (off) or between {MIN_CACHE_TTL_MINUTES} "
+            f"and {MAX_CACHE_TTL_MINUTES} minutes; got {minutes!r}."
+        )
     return f"{minutes * 60}s"

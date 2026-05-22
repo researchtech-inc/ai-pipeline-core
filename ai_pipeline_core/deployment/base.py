@@ -220,7 +220,8 @@ async def _restore_resume_blackboard(
         return accumulated_docs
     if database is None:
         raise ValueError(
-            f"Cannot resume from start_step={start_step} without a database. Run the earlier steps against a persistent database first, or resume from step 1."
+            f"Cannot resume from start_step={start_step} without a database. "
+            "Run the earlier steps against a persistent database first, or resume from step 1."
         )
 
     restored_docs = list(accumulated_docs)
@@ -255,8 +256,10 @@ async def _restore_resume_blackboard(
         )
         if cached_result is None:
             raise ValueError(
-                f"Cannot resume from start_step={start_step} because step {step} ('{flow_name}') has no cached completed output to restore. "
-                "Run the earlier steps first with the same inputs and database, or resume from an earlier step."
+                f"Cannot resume from start_step={start_step} because step {step} "
+                f"('{flow_name}') has no cached completed output to restore. "
+                "Run the earlier steps first with the same inputs and database, "
+                "or resume from an earlier step."
             )
         _cached_span, _previous_outputs, restored_docs = cached_result
         apply_group_stop_gates(plan, restored_docs, stopped_groups)
@@ -294,7 +297,10 @@ class PipelineDeployment(Generic[TOptions, TResult]):
 
         generic_args = extract_generic_params(cls, PipelineDeployment)
         if len(generic_args) < 2:
-            raise TypeError(f"{cls.__name__} must specify Generic parameters: class {cls.__name__}(PipelineDeployment[MyOptions, MyResult])")
+            raise TypeError(
+                f"{cls.__name__} must specify Generic parameters: "
+                f"class {cls.__name__}(PipelineDeployment[MyOptions, MyResult])"
+            )
         options_type, result_type = generic_args[0], generic_args[1]
 
         cls.options_type = options_type
@@ -320,7 +326,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             )
 
         # Concurrency limits validation
-        cls.concurrency_limits = _validate_concurrency_limits(cls.__name__, getattr(cls, "concurrency_limits", MappingProxyType({})))
+        cls.concurrency_limits = _validate_concurrency_limits(
+            cls.__name__, getattr(cls, "concurrency_limits", MappingProxyType({}))
+        )
         if cls.pubsub_service_type and not cls.service_name:
             warnings.warn(
                 f"PipelineDeployment subclass {cls.__name__} sets pubsub_service_type but not service_name. "
@@ -337,10 +345,15 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         """Build the deployment execution plan for this run."""
         flows = tuple(self.build_flows(options))
         if not flows:
-            raise ValueError(f"{type(self).__name__}.build_flows() returned an empty list. Provide at least one PipelineFlow.")
+            raise ValueError(
+                f"{type(self).__name__}.build_flows() returned an empty list. Provide at least one PipelineFlow."
+            )
         for flow_item in cast(tuple[Any, ...], flows):
             if not isinstance(flow_item, PipelineFlow):
-                raise TypeError(f"{type(self).__name__}.build_flows() must return PipelineFlow instances, got {type(flow_item).__name__}.")
+                raise TypeError(
+                    f"{type(self).__name__}.build_flows() must return PipelineFlow "
+                    f"instances, got {type(flow_item).__name__}."
+                )
         return DeploymentPlan(steps=tuple(FlowStep(flow=flow_instance) for flow_instance in flows))
 
     @staticmethod
@@ -705,7 +718,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 )
             )
 
-            heartbeat_task = asyncio.create_task(_heartbeat_loop(publisher, run_id, root_deployment_id=root_id_str, span_id=deployment_span_id_str))
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_loop(publisher, run_id, root_deployment_id=root_id_str, span_id=deployment_span_id_str)
+            )
             await _ensure_concurrency_limits(self.concurrency_limits)
 
             flow_minutes = tuple(flow_step.flow.estimated_minutes for flow_step in plan.steps)
@@ -738,7 +753,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 expected_tasks = flow_class.expected_tasks()
                 flow_options_payload = options.model_dump(mode="json")
                 blackboard_before_flow = list(accumulated_docs)
-                resolved_flow_kwargs = _resolve_flow_arguments(flow_class, blackboard_before_flow, options, allow_partial=True)
+                resolved_flow_kwargs = _resolve_flow_arguments(
+                    flow_class, blackboard_before_flow, options, allow_partial=True
+                )
 
                 if flow_step.group is not None and flow_step.group in stopped_groups:
                     previous_output_documents = ()
@@ -857,7 +874,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     if current_exec_ctx is not None
                     else None
                 )
-                active_handles_before: set[object] = set(current_exec_ctx.active_task_handles) if current_exec_ctx is not None else set()
+                active_handles_before: set[object] = (
+                    set(current_exec_ctx.active_task_handles) if current_exec_ctx is not None else set()
+                )
                 validated_docs = await _execute_flow_with_context(
                     flow_instance=flow_instance,
                     flow_class=flow_class,
@@ -891,7 +910,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     ]
                     if leaked:
                         logger.warning(
-                            "PipelineFlow '%s' returned with %d un-awaited dispatched task(s). Cancelling to prevent post-flow writes.",
+                            "PipelineFlow '%s' returned with %d un-awaited dispatched task(s). "
+                            "Cancelling to prevent post-flow writes.",
                             flow_class.__name__,
                             len(leaked),
                         )
@@ -908,7 +928,10 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             all_docs = _deduplicate_documents_by_sha256(accumulated_docs)
             is_partial_run = end_step < total_steps
             result = None if is_partial_run else self.build_result(run_id, all_docs, options)
-            deployment_span_ctx.set_output_preview({"run_id": run_id, "result": result.model_dump(mode="json") if result is not None else None})
+            deployment_span_ctx.set_output_preview({
+                "run_id": run_id,
+                "result": result.model_dump(mode="json") if result is not None else None,
+            })
             deployment_span_ctx._set_output_value({
                 "result": result,
                 "output_documents": previous_output_documents,

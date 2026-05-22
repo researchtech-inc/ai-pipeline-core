@@ -41,7 +41,8 @@ async def _resolve_filesystem_deployment_id(reader: FilesystemDatabase, source: 
         if deployment is None:
             msg = (
                 f"Run id {source.run_id!r} was not found in the FilesystemDatabase snapshot. "
-                "Pass a valid run_id from ai-trace list, or omit run_id when the snapshot contains exactly one deployment."
+                "Pass a valid run_id from ai-trace list, or omit run_id when the snapshot "
+                "contains exactly one deployment."
             )
             raise ValueError(msg)
         return deployment.root_deployment_id

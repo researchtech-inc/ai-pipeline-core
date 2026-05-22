@@ -31,13 +31,21 @@ __all__ = [
 _flows: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 _tasks: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 # module_name -> list of (class_name, follows_class_name | None)
-_specs: dict[str, list[tuple[str, str | None]]] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
+_specs: dict[
+    str, list[tuple[str, str | None]]
+] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 # module_name -> class_name for specs that follow a spec from a different module
-_cross_file_follows: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
+_cross_file_follows: dict[
+    str, str
+] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 # module_name -> class_name for PromptContract subclasses (one per file)
-_contracts: dict[str, str] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
+_contracts: dict[
+    str, str
+] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 # qualname -> (class, kind) for stub classes
-_stubs: dict[str, tuple[type, str]] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
+_stubs: dict[
+    str, tuple[type, str]
+] = {}  # nosemgrep: no-mutable-module-globals — import-time registry, reset via reset_registries()
 
 _SNAKE_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 

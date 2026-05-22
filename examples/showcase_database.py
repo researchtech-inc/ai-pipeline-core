@@ -9,7 +9,17 @@ import asyncio
 import json
 from typing import override
 
-from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FlowOptions, FlowOutputs, FlowStep, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import (
+    DeploymentPlan,
+    DeploymentResult,
+    Document,
+    FlowOptions,
+    FlowOutputs,
+    FlowStep,
+    PipelineDeployment,
+    PipelineFlow,
+    PipelineTask,
+)
 from ai_pipeline_core.database import DatabaseReader, SpanKind, SpanRecord
 from ai_pipeline_core.database._memory import _MemoryDatabase
 
@@ -116,7 +126,9 @@ class DatabaseShowcasePipeline(PipelineDeployment[FlowOptions, DatabaseShowcaseR
         outputs = FlowOutputs(documents)
         summary = outputs.latest(SummaryReportDocument)
         if summary is None:
-            raise RuntimeError("DatabaseShowcasePipeline expected a SummaryReportDocument after the full plan completed.")
+            raise RuntimeError(
+                "DatabaseShowcasePipeline expected a SummaryReportDocument after the full plan completed."
+            )
         return DatabaseShowcaseResult(
             success=True,
             summary_document=summary,

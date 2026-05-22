@@ -47,8 +47,9 @@ def _raise_if_missing_records(
     missing_list = ", ".join(missing_shas)
     singular = record_kind[:-1] if record_kind.endswith("s") else record_kind
     msg = (
-        f"download_deployment({deployment_id}) could not produce a complete snapshot because {record_kind} "
-        f"are missing from the source database: {missing_list}. Persist every referenced {singular} before downloading the deployment tree."
+        f"download_deployment({deployment_id}) could not produce a complete snapshot because "
+        f"{record_kind} are missing from the source database: {missing_list}. "
+        f"Persist every referenced {singular} before downloading the deployment tree."
     )
     raise ValueError(msg)
 

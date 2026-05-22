@@ -165,7 +165,11 @@ class _WarmupForkTask(PipelineTask):
             warmup.send("branch-a", purpose="branch-a"),
             warmup.send("branch-b", purpose="branch-b"),
         )
-        return (_RecorderOutputDoc.derive(derived_from=(input_docs[0],), name="fork.txt", content=f"{branch_a.content}|{branch_b.content}"),)
+        return (
+            _RecorderOutputDoc.derive(
+                derived_from=(input_docs[0],), name="fork.txt", content=f"{branch_a.content}|{branch_b.content}"
+            ),
+        )
 
 
 class _ToolTask(PipelineTask):
@@ -258,7 +262,11 @@ def _spans(database: _MemoryDatabase, kind: str) -> list[object]:
 async def test_single_send_records_conversation_and_llm_round_spans(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "ai_pipeline_core.llm._engine.generate",
-        _make_fake_generate([_make_response(content="single", prompt_tokens=11, completion_tokens=7, cached_tokens=5, reasoning_tokens=3, cost=0.25)]),
+        _make_fake_generate([
+            _make_response(
+                content="single", prompt_tokens=11, completion_tokens=7, cached_tokens=5, reasoning_tokens=3, cost=0.25
+            )
+        ]),
     )
     database = _RecordingSpanDatabase()
     with set_execution_context(_make_context_with_db(database)):
@@ -534,7 +542,9 @@ async def test_started_conversation_span_includes_crash_diagnostic_fields(monkey
         await _StartedSpanTask.run((_make_input(),))
 
     started_rows = [
-        span for span in database.inserted_spans if getattr(span, "kind", None) == SpanKind.CONVERSATION and getattr(span, "status", None) == SpanStatus.RUNNING
+        span
+        for span in database.inserted_spans
+        if getattr(span, "kind", None) == SpanKind.CONVERSATION and getattr(span, "status", None) == SpanStatus.RUNNING
     ]
     assert len(started_rows) == 1
     input_payload = json.loads(started_rows[0].input_json)

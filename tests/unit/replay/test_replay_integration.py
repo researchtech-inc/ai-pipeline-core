@@ -63,7 +63,9 @@ class SnapshotTask(PipelineTask):
 
     @classmethod
     async def run(cls, input_docs: tuple[SnapshotInputDocument, ...]) -> tuple[SnapshotOutputDocument, ...]:
-        conv = Conversation(model=DEFAULT_TEST_MODEL, enable_substitutor=False, include_date=False).with_context(input_docs[0])
+        conv = Conversation(model=DEFAULT_TEST_MODEL, enable_substitutor=False, include_date=False).with_context(
+            input_docs[0]
+        )
         conv = await conv.send("Summarize the context document.", purpose="snapshot-task")
         return (
             SnapshotOutputDocument.derive(
@@ -76,7 +78,9 @@ class SnapshotTask(PipelineTask):
 
 
 class SnapshotFlow(PipelineFlow):
-    async def run(self, input_docs: tuple[SnapshotInputDocument, ...], options: FlowOptions) -> tuple[SnapshotOutputDocument, ...]:
+    async def run(
+        self, input_docs: tuple[SnapshotInputDocument, ...], options: FlowOptions
+    ) -> tuple[SnapshotOutputDocument, ...]:
         _ = options
         return await SnapshotTask.run(input_docs=input_docs)
 
@@ -122,7 +126,9 @@ class HistoryTask(PipelineTask):
 
 
 class HistoryFlow(PipelineFlow):
-    async def run(self, input_docs: tuple[HistoryInputDocument, ...], options: FlowOptions) -> tuple[HistoryOutputDocument, ...]:
+    async def run(
+        self, input_docs: tuple[HistoryInputDocument, ...], options: FlowOptions
+    ) -> tuple[HistoryOutputDocument, ...]:
         _ = options
         return await HistoryTask.run(input_docs=input_docs)
 
@@ -231,11 +237,15 @@ async def test_downloaded_snapshot_round_trips_spans_and_replays_task(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original_generate = _GenerateRecorder([_make_response(content="stored summary", prompt_tokens=12, completion_tokens=4, cost=0.18)])
+    original_generate = _GenerateRecorder([
+        _make_response(content="stored summary", prompt_tokens=12, completion_tokens=4, cost=0.18)
+    ])
     monkeypatch.setattr("ai_pipeline_core.llm._engine.generate", original_generate)
 
     database = _MemoryDatabase()
-    input_doc = SnapshotInputDocument.create_root(name="input.txt", content="snapshot source", reason="snapshot integration")
+    input_doc = SnapshotInputDocument.create_root(
+        name="input.txt", content="snapshot source", reason="snapshot integration"
+    )
     await _run_deployment(SnapshotDeployment(), database, run_id="snapshot-run", documents=[input_doc])
 
     deployment_span = next(span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT)
@@ -249,7 +259,9 @@ async def test_downloaded_snapshot_round_trips_spans_and_replays_task(
     assert round_trip_tree == original_tree
 
     task_span = next(span for span in round_trip_tree if span.kind == SpanKind.TASK)
-    replay_generate = _GenerateRecorder([_make_response(content="replayed summary", prompt_tokens=12, completion_tokens=4, cost=0.18)])
+    replay_generate = _GenerateRecorder([
+        _make_response(content="replayed summary", prompt_tokens=12, completion_tokens=4, cost=0.18)
+    ])
     monkeypatch.setattr("ai_pipeline_core.llm._engine.generate", replay_generate)
     replayed = await execute_span(task_span.span_id, source_db=snapshot)
 
@@ -290,7 +302,9 @@ async def test_replay_reconstructs_multiturn_history_with_tool_use(
     monkeypatch.setattr("ai_pipeline_core.llm._engine.generate", original_generate)
 
     database = _MemoryDatabase()
-    input_doc = HistoryInputDocument.create_root(name="input.txt", content="history source", reason="history integration")
+    input_doc = HistoryInputDocument.create_root(
+        name="input.txt", content="history source", reason="history integration"
+    )
     await _run_deployment(HistoryDeployment(), database, run_id="history-run", documents=[input_doc])
 
     deployment_span = next(span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT)
@@ -298,12 +312,18 @@ async def test_replay_reconstructs_multiturn_history_with_tool_use(
     await download_deployment(database, deployment_span.root_deployment_id, bundle_dir)
     snapshot = FilesystemDatabase(bundle_dir)
     conversation_spans = sorted(
-        [span for span in await snapshot.get_deployment_tree(deployment_span.root_deployment_id) if span.kind == SpanKind.CONVERSATION],
+        [
+            span
+            for span in await snapshot.get_deployment_tree(deployment_span.root_deployment_id)
+            if span.kind == SpanKind.CONVERSATION
+        ],
         key=lambda span: (span.started_at, span.sequence_no, str(span.span_id)),
     )
     target_span = conversation_spans[-1]
 
-    replay_generate = _GenerateRecorder([_make_response(content="Replay concise: sunny.", prompt_tokens=18, completion_tokens=4)])
+    replay_generate = _GenerateRecorder([
+        _make_response(content="Replay concise: sunny.", prompt_tokens=18, completion_tokens=4)
+    ])
     monkeypatch.setattr("ai_pipeline_core.llm._engine.generate", replay_generate)
     replayed = await execute_span(target_span.span_id, source_db=snapshot)
 

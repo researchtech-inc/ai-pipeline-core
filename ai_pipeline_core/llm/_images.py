@@ -290,7 +290,18 @@ def process_image(
 
     for idx, (data, w, h, sy, sh) in enumerate(raw_parts):
         total_output += len(data)
-        parts_list.append(ImagePart(data=data, mime_type="image/webp", width=w, height=h, index=idx, total=total, source_y=sy, source_height=sh))
+        parts_list.append(
+            ImagePart(
+                data=data,
+                mime_type="image/webp",
+                width=w,
+                height=h,
+                index=idx,
+                total=total,
+                source_y=sy,
+                source_height=sh,
+            )
+        )
 
     return ProcessedImage(
         parts=tuple(parts_list),
@@ -309,7 +320,12 @@ def process_image(
 
 _LLM_SUPPORTED_IMAGE_FORMATS: frozenset[str | None] = frozenset({"JPEG", "PNG", "GIF", "WEBP"})
 type _ImageMimeType = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
-_FORMAT_TO_MIME: dict[str, _ImageMimeType] = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "WEBP": "image/webp"}
+_FORMAT_TO_MIME: dict[str, _ImageMimeType] = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "GIF": "image/gif",
+    "WEBP": "image/webp",
+}
 
 
 def _image_needs_processing(data: bytes, preset: ImagePreset) -> bool:
@@ -320,7 +336,12 @@ def _image_needs_processing(data: bytes, preset: ImagePreset) -> bool:
         with Image.open(BytesIO(data)) as img:
             w, h = img.size
             fmt = img.format
-            return w > config.max_dimension or h > config.max_dimension or w * h > config.max_pixels or fmt not in _LLM_SUPPORTED_IMAGE_FORMATS
+            return (
+                w > config.max_dimension
+                or h > config.max_dimension
+                or w * h > config.max_pixels
+                or fmt not in _LLM_SUPPORTED_IMAGE_FORMATS
+            )
     except (OSError, ValueError):  # fmt: skip
         return True
 

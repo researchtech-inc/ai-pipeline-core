@@ -95,7 +95,10 @@ def fence_language(name: str) -> str:
 
 def task_token_summary(task: LoadedTask) -> str:
     """Format a single task's token counts as a human-readable summary."""
-    return f"{task.tokens_input} in / {task.tokens_output} out / {task.tokens_cache_read} cache / {task.tokens_reasoning} reasoning"
+    return (
+        f"{task.tokens_input} in / {task.tokens_output} out / "
+        f"{task.tokens_cache_read} cache / {task.tokens_reasoning} reasoning"
+    )
 
 
 def task_row_token_summary(trace: LoadedTrace, task_ids: tuple[UUID, ...]) -> str:
@@ -107,7 +110,10 @@ def task_row_token_summary(trace: LoadedTrace, task_ids: tuple[UUID, ...]) -> st
         totals["tokens_output"] += task.tokens_output
         totals["tokens_cache_read"] += task.tokens_cache_read
         totals["tokens_reasoning"] += task.tokens_reasoning
-    return f"{totals['tokens_input']} in / {totals['tokens_output']} out / {totals['tokens_cache_read']} cache / {totals['tokens_reasoning']} reasoning"
+    return (
+        f"{totals['tokens_input']} in / {totals['tokens_output']} out / "
+        f"{totals['tokens_cache_read']} cache / {totals['tokens_reasoning']} reasoning"
+    )
 
 
 def task_row_label(trace: LoadedTrace, task_ids: tuple[UUID, ...], depth: int) -> str:
@@ -202,7 +208,9 @@ def summarize_totals(trace: LoadedTrace) -> dict[str, float | int]:
     return totals
 
 
-def preview_document_text(document: LoadedDocument, *, config: RenderConfig, head_chars: int, tail_chars: int) -> str | None:
+def preview_document_text(
+    document: LoadedDocument, *, config: RenderConfig, head_chars: int, tail_chars: int
+) -> str | None:
     """Return a text preview for a document, or None for binary content."""
     if document.text_content is None:
         return None
@@ -271,7 +279,10 @@ def render_task_document_block(
     else:
         lines.append(
             binary_notice(
-                name=document.record.name, mime_type=document.record.mime_type, size_bytes=document.record.size_bytes, filename=document.output_filename
+                name=document.record.name,
+                mime_type=document.record.mime_type,
+                size_bytes=document.record.size_bytes,
+                filename=document.output_filename,
             )
         )
     lines.append("")
@@ -306,7 +317,13 @@ def conversation_metadata_line(llm_rounds: tuple[SpanRecord, ...]) -> str:
     if not llm_rounds:
         return "Model: `unknown` | Tokens: 0 in / 0 out | Duration: — | Cost: $0.0000"
     models: list[str] = []
-    conv_totals: dict[str, int | float] = {"tokens_input": 0, "tokens_output": 0, "tokens_cache_read": 0, "cost_usd": 0.0, "time_taken_ms": 0}
+    conv_totals: dict[str, int | float] = {
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "tokens_cache_read": 0,
+        "cost_usd": 0.0,
+        "time_taken_ms": 0,
+    }
     for llm_round in llm_rounds:
         meta = parse_json_object(llm_round.meta_json, context=f"Span {llm_round.span_id}")
         metrics = parse_json_object(llm_round.metrics_json, context=f"Span {llm_round.span_id}")
@@ -321,7 +338,9 @@ def conversation_metadata_line(llm_rounds: tuple[SpanRecord, ...]) -> str:
         if isinstance(cost_value, int | float):
             conv_totals["cost_usd"] += float(cost_value)
     dur = format_duration_seconds(
-        int(conv_totals["time_taken_ms"]) / MILLISECONDS_PER_SECOND if conv_totals["time_taken_ms"] else duration_seconds(llm_rounds[-1])
+        int(conv_totals["time_taken_ms"]) / MILLISECONDS_PER_SECOND
+        if conv_totals["time_taken_ms"]
+        else duration_seconds(llm_rounds[-1])
     )
     model_label = ", ".join(models) or "unknown"
     return (

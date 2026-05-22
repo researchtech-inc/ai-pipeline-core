@@ -70,13 +70,21 @@ class AIPLResponseHeaders:
             limit_wait_ms=_parse_int(lower.get("x-aipl-limit-wait-ms"), "x-aipl-limit-wait-ms"),
             limit_denied=bool(limit_denied_reason),
             limit_denied_reason=limit_denied_reason,
-            response_format_downgraded=_parse_bool_flag(lower.get("x-aipl-response-format-downgraded"), "x-aipl-response-format-downgraded"),
-            cost_optimized_skipped=_parse_bool_flag(lower.get("x-aipl-cost-optimized-skipped"), "x-aipl-cost-optimized-skipped"),
+            response_format_downgraded=_parse_bool_flag(
+                lower.get("x-aipl-response-format-downgraded"), "x-aipl-response-format-downgraded"
+            ),
+            cost_optimized_skipped=_parse_bool_flag(
+                lower.get("x-aipl-cost-optimized-skipped"), "x-aipl-cost-optimized-skipped"
+            ),
             cc_dedup=lower.get("x-aipl-cc-dedup"),
             cc_stale=_parse_bool_flag(lower.get("x-aipl-cc-stale"), "x-aipl-cc-stale"),
             litellm_call_id=lower.get("x-litellm-call-id"),
-            litellm_attempted_retries=_parse_int(lower.get("x-litellm-attempted-retries"), "x-litellm-attempted-retries"),
-            litellm_attempted_fallbacks=_parse_int(lower.get("x-litellm-attempted-fallbacks"), "x-litellm-attempted-fallbacks"),
+            litellm_attempted_retries=_parse_int(
+                lower.get("x-litellm-attempted-retries"), "x-litellm-attempted-retries"
+            ),
+            litellm_attempted_fallbacks=_parse_int(
+                lower.get("x-litellm-attempted-fallbacks"), "x-litellm-attempted-fallbacks"
+            ),
             response_cost=_parse_float(lower.get("x-litellm-response-cost"), "x-litellm-response-cost"),
         )
 

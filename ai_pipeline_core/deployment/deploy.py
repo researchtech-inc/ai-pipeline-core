@@ -66,7 +66,18 @@ def _is_excluded_package(line: str, exclude_names: set[str]) -> bool:
     stripped = line.strip()
     if not stripped or stripped.startswith(("#", "-")):
         return False
-    pkg_name = stripped.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("@")[0].split("[")[0].strip().replace("_", "-").lower()
+    pkg_name = (
+        stripped
+        .split("==")[0]
+        .split(">=")[0]
+        .split("<=")[0]
+        .split("~=")[0]
+        .split("@")[0]
+        .split("[")[0]
+        .strip()
+        .replace("_", "-")
+        .lower()
+    )
     return pkg_name in exclude_names
 
 
@@ -74,10 +85,12 @@ class _Deployer:
     """Deploy Prefect flows with fully bundled dependencies.
 
     Build pipeline:
-        wheel build → dependency lock → download wheels → bundle tarball → GCS upload → Prefect deployment
+        wheel build → dependency lock → download wheels → bundle tarball → GCS upload
+        → Prefect deployment
 
     Worker install (pull step):
-        extract tarball → uv pip install --target /opt/ai-pipeline-deps/<pkg>/<hash>/ → unzip project wheel → bootstrap entrypoint
+        extract tarball → uv pip install --target /opt/ai-pipeline-deps/<pkg>/<hash>/
+        → unzip project wheel → bootstrap entrypoint
     """
 
     def __init__(self) -> None:
@@ -88,7 +101,11 @@ class _Deployer:
     def _load_config(self) -> dict[str, Any]:
         """Load and normalize project configuration from pyproject.toml."""
         if not settings.prefect_gcs_bucket:
-            self._die("PREFECT_GCS_BUCKET not configured in settings.\nConfigure via environment variable or .env file:\n  PREFECT_GCS_BUCKET=your-bucket-name")
+            self._die(
+                "PREFECT_GCS_BUCKET not configured in settings.\n"
+                "Configure via environment variable or .env file:\n"
+                "  PREFECT_GCS_BUCKET=your-bucket-name"
+            )
 
         pyproject_path = Path("pyproject.toml")
         if not pyproject_path.exists():
@@ -195,7 +212,9 @@ class _Deployer:
         on the worker with `uv pip install --no-index --find-links wheels/`.
         """
         if not shutil.which("uv"):
-            self._die("`uv` is required but not found on PATH.\nInstall with: curl -LsSf https://astral.sh/uv/install.sh | sh")
+            self._die(
+                "`uv` is required but not found on PATH.\nInstall with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+            )
 
         self._info(f"Building deployment bundle for {self.config['name']} v{self.config['version']}")
 
@@ -247,7 +266,10 @@ class _Deployer:
             sdists = [f for f in wheels_dir.iterdir() if f.suffix == ".gz" or not f.name.endswith(".whl")]
             if sdists:
                 sdist_names = ", ".join(f.name for f in sdists)
-                self._info(f"WARNING: {len(sdists)} source distributions downloaded (may require build tools on worker): {sdist_names}")
+                self._info(
+                    f"WARNING: {len(sdists)} source distributions downloaded "
+                    f"(may require build tools on worker): {sdist_names}"
+                )
 
             dep_count = len(list(wheels_dir.iterdir()))
             self._success(f"Downloaded {dep_count} dependency packages")
@@ -466,7 +488,10 @@ unzip -q -o "$WHEEL" -d .
                 work_pool = await client.read_work_pool(self.config["work_pool"])
                 self._success(f"Work pool '{self.config['work_pool']}' verified (type: {work_pool.type})")
             except Exception as e:
-                self._die(f"Work pool '{self.config['work_pool']}' not accessible: {e}\nCreate it in the Prefect UI or with: prefect work-pool create")
+                self._die(
+                    f"Work pool '{self.config['work_pool']}' not accessible: {e}\n"
+                    "Create it in the Prefect UI or with: prefect work-pool create"
+                )
 
         self._info("Applying deployment (create or update)...")
         try:

@@ -52,7 +52,9 @@ class Role:
         _require_docstring(cls, kind="Role")
         _require_text(cls, kind="Role")
         if cls.text[-1] in ".!?":
-            raise TypeError(f"Role '{cls.__name__}' text must not end with punctuation (the renderer adds a period automatically)")
+            raise TypeError(
+                f"Role '{cls.__name__}' text must not end with punctuation (the renderer adds a period automatically)"
+            )
 
 
 def _init_text_component(cls: type, kind: str, *, max_lines: int | None = None) -> None:
@@ -115,7 +117,8 @@ def _validate_guide(cls: type) -> None:
     for line_num, line in enumerate(content.splitlines(), 1):
         if line.startswith("# ") and not line.startswith("## "):
             raise TypeError(
-                f"Guide '{cls.__name__}' template line {line_num} uses '# ' header which is reserved for prompt section boundaries — use '## ' or deeper"
+                f"Guide '{cls.__name__}' template line {line_num} uses '# ' header which is "
+                "reserved for prompt section boundaries — use '## ' or deeper"
             )
 
     cls._content = content

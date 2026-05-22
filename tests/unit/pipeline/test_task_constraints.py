@@ -1,5 +1,9 @@
 # pyright: reportPrivateUsage=false
-"""Tests for pipeline constraints: create_root context guards, collect_tasks deadlines/ordering, and PipelineFlow validation."""
+"""Tests for pipeline constraints.
+
+Covers create_root context guards, collect_tasks deadlines/ordering, and
+PipelineFlow validation.
+"""
 
 import asyncio
 

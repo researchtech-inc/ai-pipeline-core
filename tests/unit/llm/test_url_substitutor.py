@@ -301,7 +301,9 @@ class TestURLWithEmbeddedPatterns:
         shortened_hash = mappings[TX_HASH]
 
         # The shortened hash should appear twice in the substituted text
-        assert substituted.count(shortened_hash) == 2, f"Shortened hash '{shortened_hash}' should appear twice in: {substituted}"
+        assert substituted.count(shortened_hash) == 2, (
+            f"Shortened hash '{shortened_hash}' should appear twice in: {substituted}"
+        )
 
     @pytest.mark.asyncio
     async def test_url_with_second_tx_hash_reuses_hash_shortening(self):
@@ -348,7 +350,9 @@ class TestURLWithEmbeddedPatterns:
         shortened_url = mappings[url]
 
         # At least one hash should be shortened within the URL
-        assert "0x8ccd766e" in shortened_url or "0x3a4b5c6d" in shortened_url, f"At least one hash should be shortened in URL: {shortened_url}"
+        assert "0x8ccd766e" in shortened_url or "0x3a4b5c6d" in shortened_url, (
+            f"At least one hash should be shortened in URL: {shortened_url}"
+        )
 
     @pytest.mark.asyncio
     async def test_pattern_in_query_parameter(self):
@@ -442,7 +446,9 @@ class TestURLWithEmbeddedPatterns:
 
         # Both should use consistent hash shortening
         hash_shortened = substitutor.get_mappings()[TX_HASH]
-        assert hash_shortened in url_shortened, f"URL should contain hash shortening: {url_shortened} should contain {hash_shortened}"
+        assert hash_shortened in url_shortened, (
+            f"URL should contain hash shortening: {url_shortened} should contain {hash_shortened}"
+        )
 
     @pytest.mark.asyncio
     async def test_incremental_prepare_standalone_then_url(self):
@@ -459,7 +465,9 @@ class TestURLWithEmbeddedPatterns:
         url_shortened = substitutor.get_mappings()[url]
 
         # URL should reuse the existing hash shortening
-        assert hash_shortened in url_shortened, f"URL should reuse existing hash shortening: {url_shortened} should contain {hash_shortened}"
+        assert hash_shortened in url_shortened, (
+            f"URL should reuse existing hash shortening: {url_shortened} should contain {hash_shortened}"
+        )
 
     @pytest.mark.asyncio
     async def test_already_shortened_not_reshortened(self):

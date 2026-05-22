@@ -114,7 +114,9 @@ async def test_cross_type_casting_blocked_via_model_dump_roundtrip():
     serialized = doc.model_dump(mode="json")
     assert serialized["class_name"] == "DebugSampleDocument"
 
-    with pytest.raises(TypeError, match="Cannot deserialize 'DebugSampleDocument' as 'VeryLongNamedDebugSampleDocument'"):
+    with pytest.raises(
+        TypeError, match="Cannot deserialize 'DebugSampleDocument' as 'VeryLongNamedDebugSampleDocument'"
+    ):
         VeryLongNamedDebugSampleDocument.model_validate(serialized)
 
 

@@ -113,7 +113,9 @@ class TestProcessImageSmall:
 
         random.seed(42)
         img = Image.new("RGB", (1200, 900))
-        img.putdata([(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(1200 * 900)])
+        img.putdata([
+            (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(1200 * 900)
+        ])
         buf = BytesIO()
         img.save(buf, format="PNG")
         raw = buf.getvalue()

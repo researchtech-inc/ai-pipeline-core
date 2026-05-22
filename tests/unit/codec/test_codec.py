@@ -13,7 +13,14 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_pipeline_core._codec import CodecImportError
-from ai_pipeline_core._codec import CodecCycleError, CodecError, EncodeResult, EnumDecodeError, SerializedError, UniversalCodec
+from ai_pipeline_core._codec import (
+    CodecCycleError,
+    CodecError,
+    EncodeResult,
+    EnumDecodeError,
+    SerializedError,
+    UniversalCodec,
+)
 from ai_pipeline_core._llm_core.model_response import ModelResponse
 from ai_pipeline_core._llm_core.types import TokenUsage
 from ai_pipeline_core.database import HydratedDocument
@@ -271,7 +278,10 @@ def test_pydantic_round_trip_recursively_encodes_nested_special_values() -> None
     assert encoded.value["data"]["document"]["$type"] == "document_ref"
     assert encoded.value["data"]["blob"]["$type"] == "blob_ref"
     assert encoded.value["data"]["values"] == {"$type": "tuple", "items": [1, 2]}
-    assert encoded.value["data"]["tool_type"] == {"$type": "type_ref", "path": "tests.unit.codec.test_codec:WeatherTool"}
+    assert encoded.value["data"]["tool_type"] == {
+        "$type": "type_ref",
+        "path": "tests.unit.codec.test_codec:WeatherTool",
+    }
 
 
 @dataclass(frozen=True, slots=True)

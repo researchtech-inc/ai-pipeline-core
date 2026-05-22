@@ -79,7 +79,9 @@ def _detail_int(payload: dict[str, Any], key: str, *, context: str, field_name: 
     try:
         return int(value)
     except (TypeError, ValueError) as exc:  # fmt: skip
-        msg = f"{context} {field_name}[{key!r}] must be an integer value. Persist an integer before rendering summaries."
+        msg = (
+            f"{context} {field_name}[{key!r}] must be an integer value. Persist an integer before rendering summaries."
+        )
         raise ValueError(msg) from exc
 
 
@@ -115,7 +117,9 @@ def _build_children_map(tree: list[SpanRecord]) -> dict[UUID | None, list[UUID]]
 
 
 def _select_root_span(tree: list[SpanRecord], root_deployment_id: UUID) -> SpanRecord | None:
-    deployment_matches = [span for span in tree if span.kind == SpanKind.DEPLOYMENT and span.deployment_id == root_deployment_id]
+    deployment_matches = [
+        span for span in tree if span.kind == SpanKind.DEPLOYMENT and span.deployment_id == root_deployment_id
+    ]
     if deployment_matches:
         return min(deployment_matches, key=lambda span: (span.started_at, span.sequence_no, str(span.span_id)))
 
@@ -165,7 +169,9 @@ def _compute_descendant_costs(
             tc += child_tokens.tokens_cache_read
             tr += child_tokens.tokens_reasoning
         descendant_costs[span_id] = total_cost
-        descendant_tokens[span_id] = _TokenTotals(tokens_input=ti, tokens_output=to, tokens_cache_read=tc, tokens_reasoning=tr)
+        descendant_tokens[span_id] = _TokenTotals(
+            tokens_input=ti, tokens_output=to, tokens_cache_read=tc, tokens_reasoning=tr
+        )
         visiting.remove(span_id)
         return total_cost, descendant_tokens[span_id]
 
@@ -196,8 +202,14 @@ def build_span_tree_view(tree: list[SpanRecord], root_deployment_id: UUID) -> Sp
         return None
 
     spans_by_id = {span.span_id: span for span in tree}
-    meta_by_id = {span.span_id: parse_json_object(span.meta_json, context=f"Span {span.span_id}", field_name="meta_json") for span in tree}
-    metrics_by_id = {span.span_id: parse_json_object(span.metrics_json, context=f"Span {span.span_id}", field_name="metrics_json") for span in tree}
+    meta_by_id = {
+        span.span_id: parse_json_object(span.meta_json, context=f"Span {span.span_id}", field_name="meta_json")
+        for span in tree
+    }
+    metrics_by_id = {
+        span.span_id: parse_json_object(span.metrics_json, context=f"Span {span.span_id}", field_name="metrics_json")
+        for span in tree
+    }
     children_map = _build_children_map(tree)
     descendant_costs, descendant_tokens = _compute_descendant_costs(
         spans_by_id=spans_by_id,

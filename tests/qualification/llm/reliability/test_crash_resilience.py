@@ -1,4 +1,7 @@
-"""Qualification lane: process-crash and orphan-recovery tests need subprocess control, deliberate hangs, and the qualification timeout budget."""
+"""Qualification lane: process-crash and orphan-recovery tests.
+
+Needs subprocess control, deliberate hangs, and the qualification timeout budget.
+"""
 
 import asyncio
 import signal

@@ -52,7 +52,9 @@ def _resolve_connection(args: argparse.Namespace) -> _TraceDatabase:
         return FilesystemDatabase(base_path, read_only=read_only)
 
     if not settings.clickhouse_host:
-        raise SystemExit("ClickHouse is not configured. Set CLICKHOUSE_HOST or use --db-path with a FilesystemDatabase snapshot.")
+        raise SystemExit(
+            "ClickHouse is not configured. Set CLICKHOUSE_HOST or use --db-path with a FilesystemDatabase snapshot."
+        )
     return ClickHouseDatabase(settings=settings)
 
 
@@ -72,7 +74,10 @@ async def _resolve_identifier_async(identifier: str, client: DatabaseReader) -> 
     if deployment is not None:
         return deployment.root_deployment_id, deployment.run_id
 
-    raise SystemExit(f"Could not resolve {identifier!r} to a deployment. Pass a deployment/span UUID or a known run_id from ai-trace list.")
+    raise SystemExit(
+        f"Could not resolve {identifier!r} to a deployment. "
+        "Pass a deployment/span UUID or a known run_id from ai-trace list."
+    )
 
 
 def _resolve_identifier(identifier: str, client: DatabaseReader) -> tuple[UUID, str]:
@@ -284,7 +289,9 @@ def main(argv: list[str] | None = None) -> int:
     """Run the ai-trace CLI."""
     setup_logging()
     db_parent = argparse.ArgumentParser(add_help=False)
-    db_parent.add_argument("--db-path", type=str, default=None, help="Use a FilesystemDatabase snapshot instead of ClickHouse")
+    db_parent.add_argument(
+        "--db-path", type=str, default=None, help="Use a FilesystemDatabase snapshot instead of ClickHouse"
+    )
 
     parser = argparse.ArgumentParser(prog="ai-trace", description="Inspect deployment execution trees")
     subparsers = parser.add_subparsers(dest="command")
@@ -296,9 +303,13 @@ def main(argv: list[str] | None = None) -> int:
     show_parser = subparsers.add_parser("show", parents=[db_parent], help="Show deployment summary and logs")
     show_parser.add_argument("identifier", help="Deployment/span UUID or deployment run_id")
 
-    download_parser = subparsers.add_parser("download", parents=[db_parent], help="Download a deployment as a FilesystemDatabase snapshot")
+    download_parser = subparsers.add_parser(
+        "download", parents=[db_parent], help="Download a deployment as a FilesystemDatabase snapshot"
+    )
     download_parser.add_argument("identifier", help="Deployment/span UUID or deployment run_id")
-    download_parser.add_argument("-o", "--output-dir", type=str, required=True, help="Output directory for the snapshot")
+    download_parser.add_argument(
+        "-o", "--output-dir", type=str, required=True, help="Output directory for the snapshot"
+    )
 
     llm_parser = subparsers.add_parser("llm", parents=[db_parent], help="Show all LLM calls for a deployment")
     llm_parser.add_argument("identifier", help="Deployment/span UUID or deployment run_id")
@@ -309,12 +320,17 @@ def main(argv: list[str] | None = None) -> int:
     doc_parser = subparsers.add_parser("doc", parents=[db_parent], help="Show a single document by SHA256")
     doc_parser.add_argument("sha256", help="Document SHA256 identifier")
 
-    recover_parser = subparsers.add_parser("recover", parents=[db_parent], help="Mark orphaned running deployments as failed")
+    recover_parser = subparsers.add_parser(
+        "recover", parents=[db_parent], help="Mark orphaned running deployments as failed"
+    )
     recover_parser.add_argument(
         "--i-accept-nondeterministic-reconciliation",
         action="store_true",
         default=False,
-        help=("Explicitly bypass Prefect-state reconciliation and force nondeterministic wall-clock reconciliation after operator investigation."),
+        help=(
+            "Explicitly bypass Prefect-state reconciliation and force nondeterministic "
+            "wall-clock reconciliation after operator investigation."
+        ),
     )
 
     args = parser.parse_args(argv)

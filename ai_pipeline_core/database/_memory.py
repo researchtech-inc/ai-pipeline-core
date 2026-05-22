@@ -131,7 +131,9 @@ class _MemoryDatabase:
         matches = [
             span
             for span in self._spans.values()
-            if span.kind == SpanKind.DEPLOYMENT and span.span_id == span.root_deployment_id and span.status == SpanStatus.RUNNING
+            if span.kind == SpanKind.DEPLOYMENT
+            and span.span_id == span.root_deployment_id
+            and span.status == SpanStatus.RUNNING
         ]
         return sorted(matches, key=lambda span: (span.started_at, str(span.span_id)))[:limit]
 
@@ -178,7 +180,9 @@ class _MemoryDatabase:
     ) -> int:
         allowed_kinds = set(kinds) if kinds is not None else None
         return sum(
-            1 for span in self._spans.values() if span.root_deployment_id == root_deployment_id and (allowed_kinds is None or span.kind in allowed_kinds)
+            1
+            for span in self._spans.values()
+            if span.root_deployment_id == root_deployment_id and (allowed_kinds is None or span.kind in allowed_kinds)
         )
 
     async def get_spans_referencing_document(
@@ -238,7 +242,13 @@ class _MemoryDatabase:
         category: str | None = None,
     ) -> list[LogRecord]:
         return sorted(
-            (log for log in self._logs if log.span_id == span_id and (level is None or log.level == level) and (category is None or log.category == category)),
+            (
+                log
+                for log in self._logs
+                if log.span_id == span_id
+                and (level is None or log.level == level)
+                and (category is None or log.category == category)
+            ),
             key=lambda log: (log.sequence_no, log.timestamp, str(log.span_id)),
         )
 
@@ -253,7 +263,9 @@ class _MemoryDatabase:
             (
                 log
                 for log in self._logs
-                if log.deployment_id == deployment_id and (level is None or log.level == level) and (category is None or log.category == category)
+                if log.deployment_id == deployment_id
+                and (level is None or log.level == level)
+                and (category is None or log.category == category)
             ),
             key=log_sort_key,
         )
@@ -270,13 +282,21 @@ class _MemoryDatabase:
             (
                 log
                 for log in self._logs
-                if log.deployment_id in allowed_ids and (level is None or log.level == level) and (category is None or log.category == category)
+                if log.deployment_id in allowed_ids
+                and (level is None or log.level == level)
+                and (category is None or log.category == category)
             ),
             key=log_sort_key,
         )
 
-    async def get_deployment_scoped_spans(self, root_deployment_id: UUID, deployment_id: UUID, *, include_meta: bool = True) -> list[SpanRecord]:
-        matches = [s for s in self._spans.values() if s.root_deployment_id == root_deployment_id and s.deployment_id == deployment_id]
+    async def get_deployment_scoped_spans(
+        self, root_deployment_id: UUID, deployment_id: UUID, *, include_meta: bool = True
+    ) -> list[SpanRecord]:
+        matches = [
+            s
+            for s in self._spans.values()
+            if s.root_deployment_id == root_deployment_id and s.deployment_id == deployment_id
+        ]
         return sorted(matches, key=span_sort_key)
 
     async def list_deployment_summaries(
@@ -313,7 +333,11 @@ class _MemoryDatabase:
         return results
 
     async def list_tree_deployments(self, root_deployment_id: UUID) -> list[DeploymentSummaryRecord]:
-        dep_spans = [s for s in self._spans.values() if s.root_deployment_id == root_deployment_id and s.kind == SpanKind.DEPLOYMENT]
+        dep_spans = [
+            s
+            for s in self._spans.values()
+            if s.root_deployment_id == root_deployment_id and s.kind == SpanKind.DEPLOYMENT
+        ]
         cost_by_dep: dict[UUID, float] = {}
         for s in self._spans.values():
             if s.root_deployment_id == root_deployment_id:

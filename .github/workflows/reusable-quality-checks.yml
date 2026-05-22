@@ -8,11 +8,6 @@ on:
         type: string
         required: false
         default: '["3.14"]'
-      skip_integration_tests:
-        description: 'Deprecated; integration coverage is controlled by dev verify'
-        type: boolean
-        required: false
-        default: false
 
 jobs:
   verify:
@@ -33,11 +28,20 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Sync dependencies from lockfile
-        run: uv sync --frozen --extra dev --all-packages
+      - name: Install dev extras (locked)
+        run: uv sync --frozen --extra dev
 
-      - name: Verify
+      - name: Check
+        run: uv run dev check
+
+      - name: Integration tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-        run: uv run dev verify
+        run: uv run dev test --lane=integration
+
+      - name: Examples smoke
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+        run: uv run dev examples --smoke

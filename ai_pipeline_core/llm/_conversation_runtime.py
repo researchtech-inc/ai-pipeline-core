@@ -22,7 +22,13 @@ from ai_pipeline_core._token_estimates import (
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline._execution_context import get_execution_context, get_task_context
 
-from ._conversation_messages import AnyMessage, AssistantMessage, ToolResultMessage, UserMessage, _document_to_content_parts
+from ._conversation_messages import (
+    AnyMessage,
+    AssistantMessage,
+    ToolResultMessage,
+    UserMessage,
+    _document_to_content_parts,
+)
 from ._engine import ToolRuntime
 from ._substitutor import URLSubstitutor
 from ._tool_schema import generate_tool_schema
@@ -59,7 +65,11 @@ def to_core_messages(items: tuple[AnyMessage, ...], model: AIModel) -> list[Core
                 )
             )
         elif isinstance(item, ToolResultMessage):
-            core_messages.append(CoreMessage(role=Role.TOOL, content=item.content, tool_call_id=item.tool_call_id, name=item.function_name))
+            core_messages.append(
+                CoreMessage(
+                    role=Role.TOOL, content=item.content, tool_call_id=item.tool_call_id, name=item.function_name
+                )
+            )
         elif isinstance(item, AssistantMessage):
             core_messages.append(CoreMessage(role=Role.ASSISTANT, content=item.text))
         elif isinstance(item, UserMessage):
@@ -83,7 +93,11 @@ def prepare_substitutor(
     if not enabled or model.preserve_input_urls or not model.supports_url_substitution:
         return None
     substitutor = URLSubstitutor()
-    items = context + tuple(message for message in messages if isinstance(message, (Document, UserMessage, AssistantMessage, ToolResultMessage)))
+    items = context + tuple(
+        message
+        for message in messages
+        if isinstance(message, (Document, UserMessage, AssistantMessage, ToolResultMessage))
+    )
     substitutor.prepare(collect_text(items))
     return substitutor
 
@@ -109,7 +123,9 @@ async def assemble_api_messages(
     cache boundary still lands on the last context message after the SYSTEM
     message is prepended.
     """
-    context_core, message_core = await asyncio.to_thread(lambda: (to_core_messages(context, model), to_core_messages(messages, model)))
+    context_core, message_core = await asyncio.to_thread(
+        lambda: (to_core_messages(context, model), to_core_messages(messages, model))
+    )
     context_count = len(context_core)
     core_messages = context_core + message_core
     if substitutor is not None:
@@ -206,7 +222,9 @@ def routing_overrides(purpose: str | None, preferred_deployment_id: str | None =
     """
     execution_ctx = get_execution_context()
     return RoutingSpec(
-        workload_id=derive_workload_id(run_id=execution_ctx.run_id if execution_ctx is not None else None, name=purpose or "conversation"),
+        workload_id=derive_workload_id(
+            run_id=execution_ctx.run_id if execution_ctx is not None else None, name=purpose or "conversation"
+        ),
         preferred_deployment_id=preferred_deployment_id,
     )
 
@@ -262,7 +280,10 @@ def apply_substitution(core_messages: list[CoreMessage], substitutor: URLSubstit
             result.append(message.model_copy(update={"content": substitutor.substitute(message.content)}))
             continue
         if isinstance(message.content, tuple):
-            parts = [TextContent(text=substitutor.substitute(part.text)) if isinstance(part, TextContent) else part for part in message.content]
+            parts = [
+                TextContent(text=substitutor.substitute(part.text)) if isinstance(part, TextContent) else part
+                for part in message.content
+            ]
             result.append(message.model_copy(update={"content": tuple(parts)}))
             continue
         result.append(message)
@@ -289,7 +310,8 @@ def restore_response(
                 update["parsed"] = response_format.model_validate_json(restored)
         except (ValueError, TypeError) as exc:  # fmt: skip
             logger.warning(
-                "URL-restored content failed structured re-parse for %s: %s. Returning original parsed object with restored content.",
+                "URL-restored content failed structured re-parse for %s: %s. "
+                "Returning original parsed object with restored content.",
                 response_format,
                 exc,
             )
@@ -303,7 +325,10 @@ def assert_llm_scope(*, source: str) -> None:
     """Reject LLM dispatch from flow scope; ``source`` names the entry point in the error."""
     task_ctx = get_task_context()
     if task_ctx is not None and task_ctx.scope_kind == "flow":
-        raise RuntimeError(f"{source} called from flow scope without a task. LLM calls must happen inside a PipelineTask, not directly in PipelineFlow.run().")
+        raise RuntimeError(
+            f"{source} called from flow scope without a task. "
+            "LLM calls must happen inside a PipelineTask, not directly in PipelineFlow.run()."
+        )
 
 
 def validate_send_scope(*, tools: list[Tool] | None, tool_choice: str | None) -> None:

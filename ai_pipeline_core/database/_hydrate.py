@@ -46,7 +46,8 @@ def _hydrate_attachments(hydrated: HydratedDocument) -> tuple[Attachment, ...]:
         content = hydrated.attachment_contents.get(content_sha256)
         if content is None:
             raise ValueError(
-                f"Document {hydrated.record.document_sha256[:12]}... is missing attachment blob {content_sha256[:12]}... for {name!r}. "
+                f"Document {hydrated.record.document_sha256[:12]}... is missing "
+                f"attachment blob {content_sha256[:12]}... for {name!r}. "
                 "Persist every attachment blob before hydrating this stored document."
             )
         built_attachments.append(

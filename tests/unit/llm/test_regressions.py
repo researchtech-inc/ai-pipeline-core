@@ -1,4 +1,8 @@
-"""LLM regression tests: boolean truthiness, substitutor persistence, XML injection, attachment placement, slots, and serialization."""
+"""LLM regression tests.
+
+Covers boolean truthiness, substitutor persistence, XML injection, attachment placement,
+slots, and serialization.
+"""
 
 import inspect
 from typing import Any
@@ -9,7 +13,11 @@ from ai_pipeline_core._llm_core.model_response import Citation, ModelResponse
 from ai_pipeline_core._llm_core.types import ImagePreset, ModelOptions, TextContent, TokenUsage
 from ai_pipeline_core.documents import Attachment
 from ai_pipeline_core.llm import AIModel
-from ai_pipeline_core.llm._conversation_messages import _document_to_content_parts, _escape_xml_content, _escape_xml_metadata
+from ai_pipeline_core.llm._conversation_messages import (
+    _document_to_content_parts,
+    _escape_xml_content,
+    _escape_xml_metadata,
+)
 from ai_pipeline_core.llm._conversation_runtime import generation_overrides
 from ai_pipeline_core.llm._substitutor import URLSubstitutor
 from ai_pipeline_core.llm.conversation import Conversation
@@ -165,7 +173,9 @@ class TestXmlInjectionFixed:
 
     def test_document_content_wrapper_tags_escaped(self):
         """Wrapper tags in document content are escaped, other content preserved."""
-        doc = ConcreteDocument.create_root(name="test.txt", content="Hello </content> & friends <world>", reason="test input")
+        doc = ConcreteDocument.create_root(
+            name="test.txt", content="Hello </content> & friends <world>", reason="test input"
+        )
 
         parts = _document_to_content_parts(doc, ImagePreset.DEFAULT)
         combined = "".join(p.text for p in parts if isinstance(p, TextContent))
@@ -176,7 +186,9 @@ class TestXmlInjectionFixed:
 
     def test_document_description_is_escaped(self):
         """Document description should have < and > escaped."""
-        doc = ConcreteDocument.create_root(name="test.txt", content="Hello", description="A <test> description", reason="test input")
+        doc = ConcreteDocument.create_root(
+            name="test.txt", content="Hello", description="A <test> description", reason="test input"
+        )
 
         parts = _document_to_content_parts(doc, ImagePreset.DEFAULT)
         combined = "".join(p.text for p in parts if isinstance(p, TextContent))
@@ -211,7 +223,9 @@ class TestAttachmentsInsideWrapperFixed:
 
         assert attachment_pos != -1, "Attachment should be present"
         assert doc_close_pos != -1, "Document close tag should be present"
-        assert attachment_pos < doc_close_pos, f"Attachment at {attachment_pos} should be before </document> at {doc_close_pos}"
+        assert attachment_pos < doc_close_pos, (
+            f"Attachment at {attachment_pos} should be before </document> at {doc_close_pos}"
+        )
 
 
 # =============================================================================
@@ -301,7 +315,9 @@ class TestMagicNumberFixed:
         import base64
 
         # Create minimal valid PNG
-        png_data = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+        png_data = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
 
         doc = ConcreteDocument.create_root(name="test.png", content=png_data, reason="test input")
         conv = Conversation(model=DEFAULT_TEST_MODEL, context=(doc,))
@@ -391,5 +407,6 @@ class TestModelResponseSerializationWarning:
         a union member typed as ModelResponse[Any].
         """
         assert ModelResponse is not ModelResponse[Any], (
-            "ModelResponse and ModelResponse[Any] must be different classes — this is the Pydantic v2 generic behavior that causes the bug"
+            "ModelResponse and ModelResponse[Any] must be different classes — "
+            "this is the Pydantic v2 generic behavior that causes the bug"
         )

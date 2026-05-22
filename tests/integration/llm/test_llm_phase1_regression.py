@@ -130,7 +130,9 @@ class TestReasoningContinuity:
         cost_budget.add(conv)
 
         assert conv.tool_call_records, "expected at least one tool call"
-        assert len(transport_spy.recorded_calls) >= 2, f"expected >= 2 transport calls for the tool round, got {len(transport_spy.recorded_calls)}"
+        assert len(transport_spy.recorded_calls) >= 2, (
+            f"expected >= 2 transport calls for the tool round, got {len(transport_spy.recorded_calls)}"
+        )
 
         second_payload = transport_spy.recorded_calls[1].messages
         assistant_with_tools = next(
@@ -177,7 +179,8 @@ class TestPreferredDeploymentAffinity:
 
         first_deployment_id = last_model_response(conv).transport.aipl.deployment_id
         assert first_deployment_id, (
-            "AIPL proxy is expected to return a deployment_id on the first turn; the preferred-deployment affinity hint cannot be verified without it."
+            "AIPL proxy is expected to return a deployment_id on the first turn; "
+            "the preferred-deployment affinity hint cannot be verified without it."
         )
 
         conv = await conv.send(
@@ -193,7 +196,8 @@ class TestPreferredDeploymentAffinity:
 
         second_metadata = captured_metadata(transport_spy, index=1)
         assert second_metadata.get("aipl_prefer_deployment_id") == first_deployment_id, (
-            f"expected aipl_prefer_deployment_id={first_deployment_id!r} on turn 2, got {second_metadata.get('aipl_prefer_deployment_id')!r}"
+            f"expected aipl_prefer_deployment_id={first_deployment_id!r} on turn 2, "
+            f"got {second_metadata.get('aipl_prefer_deployment_id')!r}"
         )
 
 
@@ -252,15 +256,20 @@ class TestCacheTtlWireShape:
         )
         boundary = first_messages[0]
         dynamic = first_messages[1]
-        assert boundary.get("cache_control") == expected, f"expected boundary message to carry cache_control={expected}; got {boundary.get('cache_control')!r}"
-        assert "cache_control" not in dynamic, f"dynamic user prompt must not carry cache_control; got {dynamic.get('cache_control')!r}"
+        assert boundary.get("cache_control") == expected, (
+            f"expected boundary message to carry cache_control={expected}; got {boundary.get('cache_control')!r}"
+        )
+        assert "cache_control" not in dynamic, (
+            f"dynamic user prompt must not carry cache_control; got {dynamic.get('cache_control')!r}"
+        )
         # The boundary's last content part also carries the marker (defense
         # in depth for providers that look at the part level instead of the
         # message level).
         boundary_content = boundary.get("content")
         if isinstance(boundary_content, list) and boundary_content:
             assert boundary_content[-1].get("cache_control") == expected, (
-                f"expected boundary's last content part to carry cache_control={expected}; got {boundary_content[-1].get('cache_control')!r}"
+                f"expected boundary's last content part to carry cache_control={expected}; "
+                f"got {boundary_content[-1].get('cache_control')!r}"
             )
 
         second = await _send_once()
@@ -269,7 +278,8 @@ class TestCacheTtlWireShape:
         cache_hit = response.transport.aipl.response_cache_hit
         cached_tokens = response.usage.cached_tokens
         assert cache_hit or cached_tokens > 0, (
-            f"expected response_cache_hit or cached_tokens > 0 on re-send; got response_cache_hit={cache_hit}, cached_tokens={cached_tokens}"
+            f"expected response_cache_hit or cached_tokens > 0 on re-send; "
+            f"got response_cache_hit={cache_hit}, cached_tokens={cached_tokens}"
         )
 
 
@@ -284,7 +294,8 @@ class TestInvalidImageDropAndWarn:
         cost_budget: Any,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Invalid image bytes log a 'validation failed' WARNING, are not forwarded, and the response still completes."""
+        """Invalid image bytes log a 'validation failed' WARNING, are not forwarded,
+        and the response still completes."""
         garbage = b"this is not a valid image " + b"\x00\x01\x02\x03" * 64
         doc = ConcreteDocument.create_root(
             name="report.md",
@@ -303,8 +314,17 @@ class TestInvalidImageDropAndWarn:
         cost_budget.add(conv)
         assert conv.content, "expected the conversation to complete after dropping the invalid image"
 
-        validation_warnings = [record for record in caplog.records if record.levelno == logging.WARNING and "validation failed" in record.getMessage()]
-        assert validation_warnings, f"expected at least one WARNING containing 'validation failed', got: {[record.getMessage() for record in caplog.records]}"
+        validation_warnings = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING and "validation failed" in record.getMessage()
+        ]
+        assert validation_warnings, (
+            "expected at least one WARNING containing 'validation failed', "
+            f"got: {[record.getMessage() for record in caplog.records]}"
+        )
 
         first_payload = transport_spy.recorded_calls[0].messages
-        assert api_part_counts(first_payload).get("image_url", 0) == 0, "expected no image_url parts to be forwarded for the invalid image attachment"
+        assert api_part_counts(first_payload).get("image_url", 0) == 0, (
+            "expected no image_url parts to be forwarded for the invalid image attachment"
+        )

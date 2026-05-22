@@ -19,7 +19,9 @@ class TestSubstitutorUrlPreservingModels:
 
     def test_explicit_enable_overrides_auto_disable(self, default_test_model: AIModel):
         """Explicitly enabling substitutor on a URL-preserving model should be respected."""
-        conv = Conversation(model=default_test_model.model_copy(update={"preserve_input_urls": True}), enable_substitutor=True)
+        conv = Conversation(
+            model=default_test_model.model_copy(update={"preserve_input_urls": True}), enable_substitutor=True
+        )
         assert conv.enable_substitutor is True
 
     def test_explicit_disable_on_default_model(self):

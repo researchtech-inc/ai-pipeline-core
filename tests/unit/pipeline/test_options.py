@@ -78,7 +78,9 @@ class TestFlowOptionsInheritance:
             url_preserving_models: list[AIModel] = Field(default_factory=lambda: [DEFAULT_TEST_MODEL])
             tags: list[str] = Field(default_factory=list)
 
-        options = ExtendedFlowOptions(supporting_models=[DEFAULT_TEST_MODEL, ALTERNATE_TEST_MODEL], tags=["tag1", "tag2"])
+        options = ExtendedFlowOptions(
+            supporting_models=[DEFAULT_TEST_MODEL, ALTERNATE_TEST_MODEL], tags=["tag1", "tag2"]
+        )
         assert options.supporting_models == [DEFAULT_TEST_MODEL, ALTERNATE_TEST_MODEL]
         assert options.url_preserving_models == [DEFAULT_TEST_MODEL]
         assert options.tags == ["tag1", "tag2"]

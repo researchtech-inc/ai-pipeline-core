@@ -165,7 +165,9 @@ class TestSendSuppression:
         )
         await conv.send("Hello")
 
-        assert captured == ["You are a pirate."], "user-supplied system_prompt must reach the request unchanged; framework auto-injections stay suppressed"
+        assert captured == ["You are a pirate."], (
+            "user-supplied system_prompt must reach the request unchanged; framework auto-injections stay suppressed"
+        )
 
     @pytest.mark.asyncio
     async def test_date_injected_when_cache_disabled_by_ttl(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,4 +208,6 @@ class TestSendSuppression:
         )
         await conv.send("Hello")
 
-        assert captured == ["Current date: 2025-03-15"], "without context the cache marker cannot apply; date injection stays on"
+        assert captured == ["Current date: 2025-03-15"], (
+            "without context the cache marker cannot apply; date injection stays on"
+        )

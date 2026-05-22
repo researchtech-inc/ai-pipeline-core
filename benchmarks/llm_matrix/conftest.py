@@ -62,15 +62,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     metafunc.parametrize("benchmark_case", cases, ids=tuple(case.case_id for case in cases))
 
 
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Merge benchmark shards and render reports after live xdist workers exit."""
-    _ = exitstatus
-    if _is_worker_config(session.config) or os.environ.get("RUN_BENCHMARK") != "1":
+def pytest_terminal_summary(
+    terminalreporter: pytest.TerminalReporter,
+    exitstatus: int,
+    config: pytest.Config,
+) -> None:
+    """Merge benchmark shards and render reports on the controller after workers exit."""
+    _ = (terminalreporter, exitstatus)
+    if _is_worker_config(config) or os.environ.get("RUN_BENCHMARK") != "1":
         return
     inventory = load_litellm_inventory()
-    nonce = _config_value(session.config, _NONCE_ATTR)
+    nonce = _config_value(config, _NONCE_ATTR)
     cases = _selected_benchmark_cases(inventory, nonce=nonce)
-    run = merge_benchmark_shards(run_id=_config_value(session.config, _RUN_ID_ATTR), inventory=inventory, cases=cases)
+    run = merge_benchmark_shards(run_id=_config_value(config, _RUN_ID_ATTR), inventory=inventory, cases=cases)
     if run is not None:
         render_files(BENCHMARK_OUTPUT_DIR / "latest.json")
 

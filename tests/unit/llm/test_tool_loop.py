@@ -116,7 +116,11 @@ def _make_context(database: _MemoryDatabase) -> ExecutionContext:
 
 
 def _finished_spans(database: _RecordingSpanDatabase, kind: str) -> list[object]:
-    return [span for span in database.inserted_spans if getattr(span, "kind", None) == kind and getattr(span, "output_json", "")]
+    return [
+        span
+        for span in database.inserted_spans
+        if getattr(span, "kind", None) == kind and getattr(span, "output_json", "")
+    ]
 
 
 def _request(*, max_rounds: int = 5) -> InteractionRequest:
@@ -220,7 +224,9 @@ async def test_tool_loop_records_rounds_and_tool_calls(monkeypatch) -> None:
     monkeypatch.setattr(_engine, "_single_call", fake_single_call)
     database = _RecordingSpanDatabase()
     with set_execution_context(_make_context(database)):
-        response, records, accumulated, llm_round_count = await _tool_loop(_request(), [CoreMessage(role=Role.USER, content="search for test")])
+        response, records, accumulated, llm_round_count = await _tool_loop(
+            _request(), [CoreMessage(role=Role.USER, content="search for test")]
+        )
 
     assert response.content == "Found results"
     assert len(records) == 1
@@ -236,10 +242,16 @@ async def test_tool_loop_unknown_tool_has_no_record(monkeypatch) -> None:
         nonlocal call_count
         _ = (request, messages, round_index, runtime)
         call_count += 1
-        return make_response(content="", tool_calls=(make_tool_call("c1", "missing_tool", "{}"),)) if call_count == 1 else make_response(content="done")
+        return (
+            make_response(content="", tool_calls=(make_tool_call("c1", "missing_tool", "{}"),))
+            if call_count == 1
+            else make_response(content="done")
+        )
 
     monkeypatch.setattr(_engine, "_single_call", fake_single_call)
-    response, records, accumulated, _round_count = await _tool_loop(_request(), [CoreMessage(role=Role.USER, content="hi")])
+    response, records, accumulated, _round_count = await _tool_loop(
+        _request(), [CoreMessage(role=Role.USER, content="hi")]
+    )
 
     assert response.content == "done"
     assert records == []

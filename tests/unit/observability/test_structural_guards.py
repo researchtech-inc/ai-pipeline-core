@@ -44,7 +44,12 @@ def _calls_to(module: ast.Module, dotted_name: str) -> list[ast.Call]:
             continue
         func = node.func
         if tail:
-            if isinstance(func, ast.Attribute) and func.attr == tail and isinstance(func.value, ast.Name) and func.value.id == head:
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == tail
+                and isinstance(func.value, ast.Name)
+                and func.value.id == head
+            ):
                 results.append(node)
         elif isinstance(func, ast.Name) and func.id == head:
             results.append(node)
@@ -77,17 +82,23 @@ def test_recovery_module_does_not_redefine_crash_error_type() -> None:
     """Item 12: `_CRASH_ERROR_TYPE` lives in `deployment/_types.py` only."""
     module = _parse(_RECOVERY_MODULE_PATH)
     assert "_CRASH_ERROR_TYPE" not in _assigned_names(module), (
-        "`_CRASH_ERROR_TYPE` must only be defined in `ai_pipeline_core/deployment/_types.py`. `observability/_recovery.py` must import it, not redefine it."
+        "`_CRASH_ERROR_TYPE` must only be defined in "
+        "`ai_pipeline_core/deployment/_types.py`. "
+        "`observability/_recovery.py` must import it, not redefine it."
     )
     types_module = _parse(_DEPLOYMENT_TYPES_PATH)
-    assert "_CRASH_ERROR_TYPE" in _assigned_names(types_module), "`_CRASH_ERROR_TYPE` must be defined in `ai_pipeline_core/deployment/_types.py`."
+    assert "_CRASH_ERROR_TYPE" in _assigned_names(types_module), (
+        "`_CRASH_ERROR_TYPE` must be defined in `ai_pipeline_core/deployment/_types.py`."
+    )
 
 
 def test_recovery_has_module_level_prefect_import() -> None:
     """Item 13: dynamic `importlib.import_module` for Prefect is banned."""
     module = _parse(_RECOVERY_MODULE_PATH)
     has_direct_import = any(
-        isinstance(node, ast.ImportFrom) and node.module == "prefect.exceptions" and any(alias.name == "ObjectNotFound" for alias in node.names)
+        isinstance(node, ast.ImportFrom)
+        and node.module == "prefect.exceptions"
+        and any(alias.name == "ObjectNotFound" for alias in node.names)
         for node in module.body
     )
     assert has_direct_import, (
@@ -130,7 +141,8 @@ def test_recovery_has_no_sentinel_skip_root() -> None:
     """Item 9 follow-up: the `_SKIP_ROOT = object()` sentinel must stay removed."""
     module = _parse(_RECOVERY_MODULE_PATH)
     assert "_SKIP_ROOT" not in _assigned_names(module), (
-        "`observability/_recovery.py` must not define a `_SKIP_ROOT` object sentinel. Use direct exception handling in the reconcile loop instead."
+        "`observability/_recovery.py` must not define a `_SKIP_ROOT` object sentinel. "
+        "Use direct exception handling in the reconcile loop instead."
     )
 
 

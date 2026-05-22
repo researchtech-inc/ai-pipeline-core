@@ -34,7 +34,9 @@ async def write_full_bundle(trace: LoadedTrace, provenance: dict[str, Provenance
     selected_document_shas = _selected_document_shas(trace, selected_task_ids)
 
     await prepare_output_dir(selection.output_dir)
-    await _write_documents(selection.output_dir / "docs", trace, provenance, selected_document_shas, selection.render_config)
+    await _write_documents(
+        selection.output_dir / "docs", trace, provenance, selected_document_shas, selection.render_config
+    )
     await ensure_directory(selection.output_dir / "flows")
     for flow_span in trace.flow_spans:
         if flow_span.span_id not in selected_flow_ids:
@@ -79,16 +81,23 @@ def _resolve_selection(
                     f"Pass a valid --flow-name or omit to render all flows."
                 )
                 raise ValueError(msg)
-            selected_task_ids = {task_id for flow_id in selected_flow_ids for task_id in trace.tasks_by_flow.get(flow_id, ())}
+            selected_task_ids = {
+                task_id for flow_id in selected_flow_ids for task_id in trace.tasks_by_flow.get(flow_id, ())
+            }
         if selection.failed_only:
-            selected_task_ids = {task_id for task_id in selected_task_ids if trace.tasks[task_id].span.status == "failed"}
+            selected_task_ids = {
+                task_id for task_id in selected_task_ids if trace.tasks[task_id].span.status == "failed"
+            }
             selected_flow_ids = {trace.tasks[task_id].parent_flow_span.span_id for task_id in selected_task_ids}
         return selected_flow_ids, selected_task_ids
 
     if selection.mode == "flow":
         if selection.flow_span_id is not None:
             if selection.flow_span_id not in trace.spans_by_id:
-                msg = f"Flow span {selection.flow_span_id} was not found in the deployment tree. Pass a valid flow span id from ai-trace show output."
+                msg = (
+                    f"Flow span {selection.flow_span_id} was not found in the deployment "
+                    "tree. Pass a valid flow span id from ai-trace show output."
+                )
                 raise ValueError(msg)
             selected_flow_ids = {selection.flow_span_id}
         elif selection.flow_name is not None:
@@ -104,7 +113,9 @@ def _resolve_selection(
         else:
             msg = "Flow inspection requires flow_name or flow_span_id. Pass --flow-name or --flow-span-id."
             raise ValueError(msg)
-        selected_task_ids = {task_id for flow_id in selected_flow_ids for task_id in trace.tasks_by_flow.get(flow_id, ())}
+        selected_task_ids = {
+            task_id for flow_id in selected_flow_ids for task_id in trace.tasks_by_flow.get(flow_id, ())
+        }
         return selected_flow_ids, selected_task_ids
 
     if selection.task_span_id is None:
@@ -112,12 +123,17 @@ def _resolve_selection(
         raise ValueError(msg)
     task = trace.tasks.get(selection.task_span_id)
     if task is None:
-        msg = f"Task span {selection.task_span_id} was not found in the deployment tree. Pass a valid task span id from ai-trace show output."
+        msg = (
+            f"Task span {selection.task_span_id} was not found in the deployment tree. "
+            "Pass a valid task span id from ai-trace show output."
+        )
         raise ValueError(msg)
     selected_task_ids = _collect_all_descendant_task_ids(task, trace)
     selected_task_ids.update(_related_producer_task_ids(task, provenance))
     selected_task_ids.update(_related_consumer_task_ids(task, provenance))
-    selected_flow_ids = {trace.tasks[task_id].parent_flow_span.span_id for task_id in selected_task_ids if task_id in trace.tasks}
+    selected_flow_ids = {
+        trace.tasks[task_id].parent_flow_span.span_id for task_id in selected_task_ids if task_id in trace.tasks
+    }
     return selected_flow_ids, selected_task_ids
 
 
@@ -255,7 +271,9 @@ async def _write_flow_bundle(
 ) -> None:
     flow_markdown_path = output_dir / flow_file_map[flow_id]
     await ensure_directory(flow_markdown_path.parent / "tasks")
-    flow_markdown = render_flow_markdown(trace, flow_id, task_file_map, selected_task_ids, selection.render_config.batch_threshold)
+    flow_markdown = render_flow_markdown(
+        trace, flow_id, task_file_map, selected_task_ids, selection.render_config.batch_threshold
+    )
     await write_text(flow_markdown_path, flow_markdown)
     await _write_task_tree(
         output_dir=output_dir,

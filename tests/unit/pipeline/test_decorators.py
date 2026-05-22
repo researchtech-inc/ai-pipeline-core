@@ -153,7 +153,9 @@ class TestFlowAnnotationExtraction:
 
     def test_extracts_union_input_types(self):
         class UnionFlow(PipelineFlow):
-            async def run(self, input_docs: tuple[InputDoc | AltInputDoc, ...], options: FlowOptions) -> tuple[OutputDoc, ...]:
+            async def run(
+                self, input_docs: tuple[InputDoc | AltInputDoc, ...], options: FlowOptions
+            ) -> tuple[OutputDoc, ...]:
                 _ = (input_docs, options)
                 return ()
 

@@ -113,7 +113,9 @@ def find_document[T](documents: Sequence[Any], doc_type: type[T]) -> T:
         if isinstance(doc, doc_type):
             return doc
     available = sorted({type(d).__name__ for d in documents})
-    raise DocumentValidationError(f"No document of type '{doc_type.__name__}' found. Available types: {', '.join(available) or 'none'}")
+    raise DocumentValidationError(
+        f"No document of type '{doc_type.__name__}' found. Available types: {', '.join(available) or 'none'}"
+    )
 
 
 def load_document_from_file[D](doc_type: type[D], file_path: Path, *, reason: str = "loaded from file") -> D:

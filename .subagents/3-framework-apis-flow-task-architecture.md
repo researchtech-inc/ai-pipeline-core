@@ -308,7 +308,9 @@ class GroupSynthesisTask(PipelineTask):
     @classmethod
     async def run(
         cls,
-        documents: tuple[FindingGroupsDocument | MicroReportDocument | TaskGroupCardDocument | ResearchPlanDocument, ...],
+        documents: tuple[
+            FindingGroupsDocument | MicroReportDocument | TaskGroupCardDocument | ResearchPlanDocument, ...
+        ],
         group_id: str,
         round_number: int,
         model: str,

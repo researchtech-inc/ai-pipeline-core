@@ -72,7 +72,9 @@ class TestConversationInFlowGuard:
     @pytest.mark.asyncio
     async def test_conversation_send_from_flow_scope_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         @asynccontextmanager
-        async def _unexpected_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[Any]:
+        async def _unexpected_open_stream(
+            req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+        ) -> AsyncIterator[Any]:
             _ = messages, api_kwargs
             if req is not None:
                 raise AssertionError("Conversation-in-flow guard should fire before transport opens.")
@@ -81,7 +83,10 @@ class TestConversationInFlowGuard:
         monkeypatch.setattr(_transport, "open_stream", _unexpected_open_stream)
         with pipeline_test_context() as ctx:
             flow_ctx = ctx.with_flow(_make_flow_frame())
-            with set_execution_context(flow_ctx), set_task_context(TaskContext(scope_kind="flow", task_class_name="_GuardFlow")):
+            with (
+                set_execution_context(flow_ctx),
+                set_task_context(TaskContext(scope_kind="flow", task_class_name="_GuardFlow")),
+            ):
                 with pytest.raises(RuntimeError, match="LLM calls must happen inside a PipelineTask"):
                     conv = Conversation(model=DEFAULT_TEST_MODEL, enable_substitutor=False)
                     await conv.send("hello")

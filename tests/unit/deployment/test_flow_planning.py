@@ -4,7 +4,15 @@
 import pytest
 from pydantic import BaseModel
 
-from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FieldGate, FlowOptions, FlowStep, PipelineDeployment
+from ai_pipeline_core import (
+    DeploymentPlan,
+    DeploymentResult,
+    Document,
+    FieldGate,
+    FlowOptions,
+    FlowStep,
+    PipelineDeployment,
+)
 from ai_pipeline_core.deployment._resolve import _DocumentInput, resolve_document_inputs
 from ai_pipeline_core.deployment._types import FlowSkippedEvent, _MemoryPublisher
 from ai_pipeline_core.pipeline import PipelineFlow, PipelineTask
@@ -49,7 +57,9 @@ class ToOutputTask(PipelineTask):
 class _FalseDecisionProducerFlow(PipelineFlow):
     name = "false-decision-producer"
 
-    async def run(self, input_docs: tuple[PlanInputDoc, ...], options: FlowOptions) -> tuple[PlanMiddleDoc | PlanDecisionDoc, ...]:
+    async def run(
+        self, input_docs: tuple[PlanInputDoc, ...], options: FlowOptions
+    ) -> tuple[PlanMiddleDoc | PlanDecisionDoc, ...]:
         _ = options
         middle = await ToMiddleTask.run(input_docs=input_docs)
         decision = PlanDecisionDoc.derive(
@@ -63,7 +73,9 @@ class _FalseDecisionProducerFlow(PipelineFlow):
 class _TrueDecisionProducerFlow(PipelineFlow):
     name = "true-decision-producer"
 
-    async def run(self, input_docs: tuple[PlanInputDoc, ...], options: FlowOptions) -> tuple[PlanMiddleDoc | PlanDecisionDoc, ...]:
+    async def run(
+        self, input_docs: tuple[PlanInputDoc, ...], options: FlowOptions
+    ) -> tuple[PlanMiddleDoc | PlanDecisionDoc, ...]:
         _ = options
         middle = await ToMiddleTask.run(input_docs=input_docs)
         decision = PlanDecisionDoc.derive(
@@ -92,7 +104,9 @@ class _SkipWhenGateFalseDeployment(PipelineDeployment[FlowOptions, PlanResult]):
         return DeploymentPlan(
             steps=(
                 FlowStep(_FalseDecisionProducerFlow()),
-                FlowStep(ConsumerFlow(), run_if=FieldGate(PlanDecisionDoc, "should_run", op="truthy", on_missing="skip")),
+                FlowStep(
+                    ConsumerFlow(), run_if=FieldGate(PlanDecisionDoc, "should_run", op="truthy", on_missing="skip")
+                ),
             )
         )
 
@@ -110,7 +124,9 @@ class _RunWhenGateTrueDeployment(PipelineDeployment[FlowOptions, PlanResult]):
         return DeploymentPlan(
             steps=(
                 FlowStep(_TrueDecisionProducerFlow()),
-                FlowStep(ConsumerFlow(), run_if=FieldGate(PlanDecisionDoc, "should_run", op="truthy", on_missing="skip")),
+                FlowStep(
+                    ConsumerFlow(), run_if=FieldGate(PlanDecisionDoc, "should_run", op="truthy", on_missing="skip")
+                ),
             )
         )
 
@@ -169,7 +185,9 @@ async def test_resolve_preserves_derived_from_on_input() -> None:
 async def test_resolve_preserves_triggered_by_on_input() -> None:
     """DocumentInput with triggered_by preserves provenance through resolution."""
     trigger = ResolveInputDoc.create_root(name="trigger.txt", content="trigger", reason="test")
-    inputs = [_DocumentInput(content="hello", name="x.txt", class_name="ResolveInputDoc", triggered_by=(trigger.sha256,))]
+    inputs = [
+        _DocumentInput(content="hello", name="x.txt", class_name="ResolveInputDoc", triggered_by=(trigger.sha256,))
+    ]
     result = await resolve_document_inputs(inputs, [ResolveInputDoc])
     assert len(result) == 1
     assert result[0].triggered_by == (trigger.sha256,)

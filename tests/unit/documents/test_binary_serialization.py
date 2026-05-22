@@ -10,7 +10,9 @@ from tests.support.helpers import ConcreteDocument
 
 
 # Minimal valid PNG (1x1 transparent pixel)
-MINIMAL_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+MINIMAL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 # Minimal valid JPEG
 MINIMAL_JPEG = base64.b64decode(

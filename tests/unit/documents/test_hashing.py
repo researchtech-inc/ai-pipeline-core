@@ -81,8 +81,12 @@ class TestComputeDocumentSha256:
 
     def test_triggered_by_affects_hash(self):
         """triggered_by is included in document_sha256."""
-        origin_a = compute_document_sha256(HashDoc.create_root(name="origin_a.txt", content="origin a", reason="test input"))
-        origin_b = compute_document_sha256(HashDoc.create_root(name="origin_b.txt", content="origin b", reason="test input"))
+        origin_a = compute_document_sha256(
+            HashDoc.create_root(name="origin_a.txt", content="origin a", reason="test input")
+        )
+        origin_b = compute_document_sha256(
+            HashDoc.create_root(name="origin_b.txt", content="origin b", reason="test input")
+        )
         doc1 = HashDoc(name="a.txt", content=b"hello", triggered_by=(origin_a,))
         doc2 = HashDoc(name="a.txt", content=b"hello", triggered_by=(origin_b,))
         assert compute_document_sha256(doc1) != compute_document_sha256(doc2)
@@ -95,8 +99,12 @@ class TestComputeDocumentSha256:
 
     def test_triggered_by_order_does_not_matter(self):
         """triggered_by entries are sorted before hashing for order-independence."""
-        origin_a = compute_document_sha256(HashDoc.create_root(name="origin_a.txt", content="origin a", reason="test input"))
-        origin_b = compute_document_sha256(HashDoc.create_root(name="origin_b.txt", content="origin b", reason="test input"))
+        origin_a = compute_document_sha256(
+            HashDoc.create_root(name="origin_a.txt", content="origin a", reason="test input")
+        )
+        origin_b = compute_document_sha256(
+            HashDoc.create_root(name="origin_b.txt", content="origin b", reason="test input")
+        )
         doc1 = HashDoc(name="a.txt", content=b"hello", triggered_by=(origin_a, origin_b))
         doc2 = HashDoc(name="a.txt", content=b"hello", triggered_by=(origin_b, origin_a))
         assert compute_document_sha256(doc1) == compute_document_sha256(doc2)

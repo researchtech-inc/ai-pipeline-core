@@ -80,7 +80,11 @@ def test_h1_inside_code_fence_is_allowed(monkeypatch: pytest.MonkeyPatch, tmp_pa
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
     md_file = tmp_path / "my_analysis.md"
-    md_file.write_text("## Section\n\nExample python:\n\n```python\n# this is a python comment, not an H1 header\nvalue = 1\n```\n\nMore prose.\n")
+    md_file.write_text(
+        "## Section\n\nExample python:\n\n```python\n"
+        "# this is a python comment, not an H1 header\n"
+        "value = 1\n```\n\nMore prose.\n"
+    )
     cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
     body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
     assert "# this is a python comment" in body.source

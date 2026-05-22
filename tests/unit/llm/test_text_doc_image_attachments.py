@@ -58,7 +58,9 @@ class TestTextDocWithImageAttachment:
         parts = _document_to_content_parts(doc, ImagePreset.DEFAULT)
 
         image_parts = [p for p in parts if isinstance(p, ImageContent)]
-        assert len(image_parts) >= 1, f"Expected ImageContent for screenshot attachment, got part types: {[type(p).__name__ for p in parts]}"
+        assert len(image_parts) >= 1, (
+            f"Expected ImageContent for screenshot attachment, got part types: {[type(p).__name__ for p in parts]}"
+        )
 
     def test_text_content_preserved_alongside_image(self):
         """Document text must still appear when image attachment is present."""
@@ -152,7 +154,9 @@ class TestTextDocWithImageAttachment:
         doc = ConcreteDocument.create_root(
             name="page.md",
             content="Website content",
-            attachments=(Attachment(name="screenshot.jpg", content=_make_image_bytes(), description="Homepage screenshot"),),
+            attachments=(
+                Attachment(name="screenshot.jpg", content=_make_image_bytes(), description="Homepage screenshot"),
+            ),
             reason="test input",
         )
 
@@ -197,7 +201,9 @@ class TestTextDocWithPdfAttachment:
         parts = _document_to_content_parts(doc, ImagePreset.DEFAULT)
 
         pdf_parts = [p for p in parts if isinstance(p, PDFContent)]
-        assert len(pdf_parts) >= 1, f"Expected PDFContent for PDF attachment, got part types: {[type(p).__name__ for p in parts]}"
+        assert len(pdf_parts) >= 1, (
+            f"Expected PDFContent for PDF attachment, got part types: {[type(p).__name__ for p in parts]}"
+        )
 
     def test_pdf_attachment_data_preserved(self):
         """PDF attachment data must match original bytes."""
@@ -277,7 +283,9 @@ class TestImageDocumentContentParts:
         parts = _document_to_content_parts(doc, ImagePreset.DEFAULT)
 
         image_parts = [p for p in parts if isinstance(p, ImageContent)]
-        assert len(image_parts) == 1, f"Expected 1 ImageContent, got {len(image_parts)}. Types: {[type(p).__name__ for p in parts]}"
+        assert len(image_parts) == 1, (
+            f"Expected 1 ImageContent, got {len(image_parts)}. Types: {[type(p).__name__ for p in parts]}"
+        )
 
     def test_small_image_data_roundtrips(self):
         """ImageContent.data must decode back to a valid image."""
@@ -292,7 +300,9 @@ class TestImageDocumentContentParts:
 
     def test_small_png_document(self):
         """PNG image must produce ImageContent with correct mime_type."""
-        doc = ConcreteDocument.create_root(name="icon.png", content=_make_image_bytes(100, 100, fmt="PNG"), reason="test input")
+        doc = ConcreteDocument.create_root(
+            name="icon.png", content=_make_image_bytes(100, 100, fmt="PNG"), reason="test input"
+        )
 
         parts = _document_to_content_parts(doc, ImagePreset.DEFAULT)
 

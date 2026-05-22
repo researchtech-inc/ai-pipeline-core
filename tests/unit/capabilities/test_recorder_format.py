@@ -35,7 +35,16 @@ def test_empty_matrix_serializes(tmp_path: Path) -> None:
 
 def test_matrix_serializes_results(tmp_path: Path) -> None:
     matrix = CapabilityMatrix()
-    matrix.record(_make_result(capability="structured_output", declared=True, probed_supported=False, match=False, status="FAIL", detail="bad parse"))
+    matrix.record(
+        _make_result(
+            capability="structured_output",
+            declared=True,
+            probed_supported=False,
+            match=False,
+            status="FAIL",
+            detail="bad parse",
+        )
+    )
     matrix.record(_make_result(capability="tools", declared=True, probed_supported=True, match=True, status="PASS"))
     matrix.write_json(tmp_path / "matrix.json")
     data = json.loads((tmp_path / "matrix.json").read_text())
@@ -64,9 +73,19 @@ def test_matrix_creates_parent_dir(tmp_path: Path) -> None:
 
 def test_per_model_summary_counts_divergence() -> None:
     matrix = CapabilityMatrix()
-    matrix.record(_make_result(model="alpha", capability="text", declared=None, probed_supported=True, match=True, status="PASS"))
-    matrix.record(_make_result(model="alpha", capability="tools", declared=False, probed_supported=True, match=False, status="PASS"))
-    matrix.record(_make_result(model="alpha", capability="images", declared=True, probed_supported=False, match=False, status="FAIL"))
+    matrix.record(
+        _make_result(model="alpha", capability="text", declared=None, probed_supported=True, match=True, status="PASS")
+    )
+    matrix.record(
+        _make_result(
+            model="alpha", capability="tools", declared=False, probed_supported=True, match=False, status="PASS"
+        )
+    )
+    matrix.record(
+        _make_result(
+            model="alpha", capability="images", declared=True, probed_supported=False, match=False, status="FAIL"
+        )
+    )
     summary = matrix.per_model_summary()
     assert summary["alpha"]["pass"] == 2
     assert summary["alpha"]["total"] == 3

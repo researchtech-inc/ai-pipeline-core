@@ -25,7 +25,9 @@ def validate_deployment_result_annotation(
 
     origin = get_origin(annotation)
     if origin is dict:
-        _validate_dict_annotation(cls_name=cls_name, field_path=field_path, annotation=annotation, seen_models=seen_models)
+        _validate_dict_annotation(
+            cls_name=cls_name, field_path=field_path, annotation=annotation, seen_models=seen_models
+        )
         return False
     if origin is not None or isinstance(annotation, UnionType):
         return _validate_union_annotation(
@@ -51,7 +53,8 @@ def validate_deployment_result_annotation(
 def _raise_bare_document_error(*, cls_name: str, field_path: str) -> None:
     raise TypeError(
         f"DeploymentResult '{cls_name}' field '{field_path}' uses bare 'Document'. "
-        "Use a concrete Document subclass such as FinalReportDocument so the result contract stays explicit and serializable."
+        "Use a concrete Document subclass such as FinalReportDocument so the result "
+        "contract stays explicit and serializable."
     )
 
 
@@ -83,9 +86,10 @@ def _validate_union_annotation(
         non_none_members = tuple(member for member in members if _unwrap_annotated(member) is not type(None))
         if any(_contains_document_type(member, seen_models=seen_models.copy()) for member in non_none_members):
             raise TypeError(
-                f"DeploymentResult '{cls_name}' field '{field_path}' is optional but contains a Document type. "
-                "Deployment results are terminal-only: Document-bearing fields must be required and non-nullable. "
-                "Remove '| None' / Optional[...] and inspect incomplete runs with ai-trace instead of returning a partial result."
+                f"DeploymentResult '{cls_name}' field '{field_path}' is optional but contains "
+                "a Document type. Deployment results are terminal-only: Document-bearing fields "
+                "must be required and non-nullable. Remove '| None' / Optional[...] and "
+                "inspect incomplete runs with ai-trace instead of returning a partial result."
             )
     has_document = False
     for member in members:
@@ -107,9 +111,10 @@ def _validate_union_annotation(
 def _validate_document_annotation(*, cls_name: str, field_path: str, required: bool) -> bool:
     if not required:
         raise TypeError(
-            f"DeploymentResult '{cls_name}' field '{field_path}' contains a Document type but is not required. "
-            "Deployment results are only produced after the full plan completes, so Document-bearing fields must be required. "
-            "Remove the default value and return no result for incomplete runs."
+            f"DeploymentResult '{cls_name}' field '{field_path}' contains a Document type "
+            "but is not required. Deployment results are only produced after the full plan "
+            "completes, so Document-bearing fields must be required. Remove the default value "
+            "and return no result for incomplete runs."
         )
     return True
 
@@ -158,11 +163,22 @@ def _contains_document_type(annotation: Any, *, seen_models: set[type[BaseModel]
         else:
             origin = get_origin(annotation)
             if origin is not None:
-                contains_document = any(arg is not Ellipsis and _contains_document_type(arg, seen_models=seen_models) for arg in get_args(annotation))
-            elif isinstance(annotation, type) and issubclass(annotation, BaseModel) and annotation not in seen_models and not issubclass(annotation, Document):
+                contains_document = any(
+                    arg is not Ellipsis and _contains_document_type(arg, seen_models=seen_models)
+                    for arg in get_args(annotation)
+                )
+            elif (
+                isinstance(annotation, type)
+                and issubclass(annotation, BaseModel)
+                and annotation not in seen_models
+                and not issubclass(annotation, Document)
+            ):
                 seen_models.add(annotation)
                 try:
-                    contains_document = any(_contains_document_type(field.annotation, seen_models=seen_models) for field in annotation.model_fields.values())
+                    contains_document = any(
+                        _contains_document_type(field.annotation, seen_models=seen_models)
+                        for field in annotation.model_fields.values()
+                    )
                 finally:
                     seen_models.remove(annotation)
     return contains_document

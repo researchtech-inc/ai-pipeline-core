@@ -6,7 +6,17 @@ from typing import Any, Literal, NoReturn
 
 from pydantic import BaseModel, Field
 
-from ai_pipeline_core._llm_core import CacheSpec, CoreMessage, GenerationSpec, LLMRequest, ListOf, ResponseSpec, RetrySpec, Role, RoutingSpec
+from ai_pipeline_core._llm_core import (
+    CacheSpec,
+    CoreMessage,
+    GenerationSpec,
+    LLMRequest,
+    ListOf,
+    ResponseSpec,
+    RetrySpec,
+    Role,
+    RoutingSpec,
+)
 from ai_pipeline_core._llm_core._defaults import DEFAULT_CACHE_TTL
 from ai_pipeline_core._llm_core.client import generate
 from ai_pipeline_core._llm_core.model_response import ModelResponse
@@ -138,7 +148,9 @@ async def probe_aipl_metadata(case: BenchmarkCase) -> ProbeResult:
     _require_partial(bool(aipl.call_id), case, response, "AIPL call_id is absent.")
     _require_partial(bool(aipl.deployment_id), case, response, "AIPL deployment_id is absent.")
     _require_partial(bool(aipl.provider), case, response, "AIPL provider is absent.")
-    _require_partial(aipl.group_status in {"ok", "degraded", "exhausted"}, case, response, "AIPL group_status is absent or invalid.")
+    _require_partial(
+        aipl.group_status in {"ok", "degraded", "exhausted"}, case, response, "AIPL group_status is absent or invalid."
+    )
     if case.deployment_id is not None:
         assert aipl.deployment_id == case.deployment_id
     return _pass(case, response)
@@ -160,8 +172,18 @@ async def probe_cost_sync(case: BenchmarkCase) -> ProbeResult:
 async def probe_routing_telemetry(case: BenchmarkCase) -> ProbeResult:
     """Probe routing telemetry on a forced deployment request."""
     response = await _generate(case, f"Reply with routing-ok. Nonce {case.nonce}.")
-    _require_partial(response.transport.model_chain.requested == case.model.name, case, response, "requested model telemetry does not match the case model.")
-    _require_partial(response.transport.model_chain.active == case.model.name, case, response, "active model telemetry does not match the case model.")
+    _require_partial(
+        response.transport.model_chain.requested == case.model.name,
+        case,
+        response,
+        "requested model telemetry does not match the case model.",
+    )
+    _require_partial(
+        response.transport.model_chain.active == case.model.name,
+        case,
+        response,
+        "active model telemetry does not match the case model.",
+    )
     if case.deployment_id is not None:
         assert response.transport.aipl.deployment_id == case.deployment_id
     return _pass(case, response)
@@ -171,7 +193,8 @@ async def probe_structured_basemodel(case: BenchmarkCase) -> ProbeResult:
     """Probe BaseModel structured output."""
     response = await _generate(
         case,
-        "Return a JSON object matching the schema: subject='benchmark', category='alpha', is_valid=true, and two children with counts 1 and 2.",
+        "Return a JSON object matching the schema: subject='benchmark', category='alpha', "
+        "is_valid=true, and two children with counts 1 and 2.",
         response_format=BenchStructuredPayload,
     )
     parsed = response.parsed
@@ -181,7 +204,11 @@ async def probe_structured_basemodel(case: BenchmarkCase) -> ProbeResult:
     assert parsed.is_valid is True
     assert len(parsed.children) == 2
     if case.expected == "partial":
-        _raise_partial(case, response, "Deployment disables strict JSON schema; parsed output is accepted without strict provider enforcement.")
+        _raise_partial(
+            case,
+            response,
+            "Deployment disables strict JSON schema; parsed output is accepted without strict provider enforcement.",
+        )
     return _pass(case, response)
 
 
@@ -198,7 +225,12 @@ async def probe_structured_listof(case: BenchmarkCase) -> ProbeResult:
     assert all(isinstance(item, BenchListItem) for item in parsed)
     assert response.content.strip().startswith("[")
     if case.expected == "partial":
-        _raise_partial(case, response, "At least one deployment for this model disables strict JSON schema; list output parsed without strict guarantee.")
+        _raise_partial(
+            case,
+            response,
+            "At least one deployment for this model disables strict JSON schema; "
+            "list output parsed without strict guarantee.",
+        )
     return _pass(case, response)
 
 
@@ -221,7 +253,8 @@ async def probe_tool_multi_with_exception(case: BenchmarkCase) -> ProbeResult:
     """Probe multiple tools including a deterministic execution exception."""
     result = await _interact(
         case,
-        f"Call bench_capital_tool for Japan and bench_failing_tool with reason '{case.nonce}'. Summarize both outcomes.",
+        f"Call bench_capital_tool for Japan and bench_failing_tool with reason "
+        f"'{case.nonce}'. Summarize both outcomes.",
         tools=[BenchCapitalTool(), BenchFailingTool()],
         tool_choice="required",
         max_tool_rounds=3,
@@ -250,7 +283,11 @@ async def probe_tool_plus_structured(case: BenchmarkCase) -> ProbeResult:
     assert parsed.city.lower() == "berlin"
     assert parsed.country.lower() == "germany"
     if case.expected == "partial":
-        _raise_partial(case, result.response, "Model has at least one non-strict JSON deployment; tool+structured parsed without strict guarantee.")
+        _raise_partial(
+            case,
+            result.response,
+            "Model has at least one non-strict JSON deployment; tool+structured parsed without strict guarantee.",
+        )
     return _pass(case, result.response, notes=(f"tool_calls={len(result.tool_call_records)}",))
 
 
@@ -276,7 +313,9 @@ async def probe_image_attach_and_split(case: BenchmarkCase) -> ProbeResult:
 async def probe_pdf_attach(case: BenchmarkCase) -> ProbeResult:
     """Probe PDF attachment handling."""
     marker = f"PDFMARK{case.nonce[:6].upper()}"
-    pdf_doc = ConcreteDocument.create_root(name=f"bench-{case.nonce}.pdf", content=pdf_with_marker(marker), reason="benchmark pdf probe")
+    pdf_doc = ConcreteDocument.create_root(
+        name=f"bench-{case.nonce}.pdf", content=pdf_with_marker(marker), reason="benchmark pdf probe"
+    )
     response = await _generate(
         case,
         f"What marker string appears in the PDF? Reply with {marker}.",

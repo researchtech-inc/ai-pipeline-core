@@ -166,9 +166,14 @@ class TestPrefectFlowConfig:
         from ai_pipeline_core.pipeline.options import FlowOptions
 
         class _ConfigProbeFlow(PipelineFlow):
-            async def run(self, input_docs: tuple[_PrefectInputDoc, ...], options: FlowOptions) -> tuple[_PrefectOutputDoc, ...]:
+            async def run(
+                self, input_docs: tuple[_PrefectInputDoc, ...], options: FlowOptions
+            ) -> tuple[_PrefectOutputDoc, ...]:
                 _ = options
-                return tuple(_PrefectOutputDoc.derive(derived_from=(document,), name=f"out-{document.name}", content="ok") for document in input_docs)
+                return tuple(
+                    _PrefectOutputDoc.derive(derived_from=(document,), name=f"out-{document.name}", content="ok")
+                    for document in input_docs
+                )
 
         assert _ConfigProbeFlow._prefect_flow_fn is not None
         assert _ConfigProbeFlow._prefect_flow_fn.name == "_ConfigProbeFlow"

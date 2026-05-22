@@ -6,7 +6,13 @@ from uuid import uuid7
 
 import pytest
 
-from ai_pipeline_core.deployment._types import TaskCompletedEvent, TaskFailedEvent, TaskStartedEvent, _MemoryPublisher, _NoopPublisher
+from ai_pipeline_core.deployment._types import (
+    TaskCompletedEvent,
+    TaskFailedEvent,
+    TaskStartedEvent,
+    _MemoryPublisher,
+    _NoopPublisher,
+)
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline import PipelineTask, pipeline_test_context
 from ai_pipeline_core.pipeline._execution_context import FlowFrame, set_execution_context

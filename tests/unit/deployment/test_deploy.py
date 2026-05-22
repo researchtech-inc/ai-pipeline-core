@@ -36,7 +36,10 @@ class TestDeployer:
 
         with patch("ai_pipeline_core.deployment.deploy.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
-            with patch("builtins.open", create=True), patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml:
+            with (
+                patch("builtins.open", create=True),
+                patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml,
+            ):
                 mock_toml.return_value = {"project": {"name": "test-project", "version": "1.0.0"}}
 
                 with pytest.raises(SystemExit) as exc_info:
@@ -68,7 +71,10 @@ class TestDeployer:
 
         with patch("ai_pipeline_core.deployment.deploy.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
-            with patch("builtins.open", create=True), patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml:
+            with (
+                patch("builtins.open", create=True),
+                patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml,
+            ):
                 mock_toml.return_value = {"project": {"name": "test-project", "version": "1.0.0"}}
 
                 deployer = Deployer()
@@ -88,7 +94,10 @@ class TestDeployer:
 
         with patch("ai_pipeline_core.deployment.deploy.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
-            with patch("builtins.open", create=True), patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml:
+            with (
+                patch("builtins.open", create=True),
+                patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml,
+            ):
                 mock_toml.return_value = {"project": {"name": "test-project", "version": "1.0.0"}}
 
                 with patch.dict("os.environ", {}, clear=True) as mock_environ:
@@ -108,7 +117,10 @@ class TestDeployer:
 
         with patch("ai_pipeline_core.deployment.deploy.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
-            with patch("builtins.open", create=True), patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml:
+            with (
+                patch("builtins.open", create=True),
+                patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml,
+            ):
                 mock_toml.return_value = {"project": {"name": "test-project", "version": "1.0.0"}}
 
                 deployer = Deployer()
@@ -126,7 +138,10 @@ class TestDeployer:
 
         with patch("ai_pipeline_core.deployment.deploy.Path") as mock_path:
             mock_path.return_value.exists.return_value = True
-            with patch("builtins.open", create=True), patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml:
+            with (
+                patch("builtins.open", create=True),
+                patch("ai_pipeline_core.deployment.deploy.tomllib.load") as mock_toml,
+            ):
                 mock_toml.return_value = {"project": {"name": "my-test-project", "version": "1.0.0"}}
 
                 deployer = Deployer()
@@ -163,7 +178,9 @@ class _DeployTestResult(DeploymentResult):
 class _DeployTestFlow(PipelineFlow):
     """Class-based flow for deploy schema tests."""
 
-    async def run(self, input_docs: tuple[_DeployInputDoc, ...], options: _DeployTestOptions) -> tuple[_DeployOutputDoc, ...]:
+    async def run(
+        self, input_docs: tuple[_DeployInputDoc, ...], options: _DeployTestOptions
+    ) -> tuple[_DeployOutputDoc, ...]:
         _ = (input_docs, options)
         return (_DeployOutputDoc.create_root(name="out.txt", content="ok", reason="test"),)
 
@@ -265,7 +282,9 @@ class TestDeployParameterSchemaPopulation:
         """_InputDocumentTypes must be a dict wrapping the document type list."""
         deployment = await _capture_deployed_runner()
         schema = deployment._parameter_openapi_schema
-        assert "_InputDocumentTypes" in schema.definitions, f"_InputDocumentTypes missing: {list(schema.definitions.keys())}"
+        assert "_InputDocumentTypes" in schema.definitions, (
+            f"_InputDocumentTypes missing: {list(schema.definitions.keys())}"
+        )
         wrapper = schema.definitions["_InputDocumentTypes"]
         assert isinstance(wrapper, dict), f"_InputDocumentTypes must be a dict, got {type(wrapper).__name__}"
         items = wrapper["document_types"]
@@ -319,7 +338,16 @@ class TestDocumentInputFieldDescriptions:
 
         schema = _DocumentInput.model_json_schema()
         props = schema["properties"]
-        for field_name in ("content", "url", "name", "description", "class_name", "derived_from", "triggered_by", "attachments"):
+        for field_name in (
+            "content",
+            "url",
+            "name",
+            "description",
+            "class_name",
+            "derived_from",
+            "triggered_by",
+            "attachments",
+        ):
             assert "description" in props[field_name], f"_DocumentInput.{field_name} missing description"
 
     def test_attachment_input_fields_have_descriptions(self):

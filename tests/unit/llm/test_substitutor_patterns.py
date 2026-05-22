@@ -78,7 +78,10 @@ class TestHexPrefixedExtraction:
         assert len(matches) == 1
 
     def test_multiple_tx_hashes(self):
-        text = "From 0x8ccd766e39a2fba8c43eb4329bac734165a4237df34884059739ed8a874111e1 to 0x3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b"
+        text = (
+            "From 0x8ccd766e39a2fba8c43eb4329bac734165a4237df34884059739ed8a874111e1 "
+            "to 0x3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b"
+        )
         matches = list(_HEX_PREFIXED_PATTERN.finditer(text))
         assert len(matches) == 2
 

@@ -25,8 +25,12 @@ def test_merge_provider_fields_deep_merges_nested_dicts() -> None:
 def test_merge_provider_fields_extends_lists() -> None:
     accumulator = StreamAccumulator()
 
-    accumulator._merge_provider_fields({"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://one.test"}}]}})
-    accumulator._merge_provider_fields({"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://two.test"}}]}})
+    accumulator._merge_provider_fields({
+        "groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://one.test"}}]}
+    })
+    accumulator._merge_provider_fields({
+        "groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://two.test"}}]}
+    })
 
     assert accumulator.provider_specific_fields["groundingMetadata"]["groundingChunks"] == [
         {"web": {"uri": "https://one.test"}},
@@ -46,11 +50,15 @@ def test_add_chunk_collects_delta_and_message_annotations() -> None:
 
 def test_add_chunk_merges_final_message_provider_fields_without_delta() -> None:
     accumulator = StreamAccumulator()
-    message = SimpleNamespace(provider_specific_fields={"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://final.test"}}]}})
+    message = SimpleNamespace(
+        provider_specific_fields={"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://final.test"}}]}}
+    )
 
     accumulator.add_chunk(_chunk(delta=None, message=message))
 
-    assert accumulator.provider_specific_fields == {"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://final.test"}}]}}
+    assert accumulator.provider_specific_fields == {
+        "groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://final.test"}}]}
+    }
 
 
 def test_streamed_and_final_provider_fields_converge() -> None:
@@ -60,7 +68,9 @@ def test_streamed_and_final_provider_fields_converge() -> None:
         content="",
         provider_specific_fields={"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://delta.test"}}]}},
     )
-    message = SimpleNamespace(provider_specific_fields={"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://message.test"}}]}})
+    message = SimpleNamespace(
+        provider_specific_fields={"groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://message.test"}}]}}
+    )
 
     accumulator.add_chunk(_chunk(delta=delta, message=message))
 

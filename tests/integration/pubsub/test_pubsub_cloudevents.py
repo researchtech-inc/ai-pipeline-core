@@ -63,11 +63,15 @@ class TestCloudEventsFormat:
 
         events = pull_events(pubsub_test_resources, expected_count=TWO_FLOW_SUCCESS_EVENT_COUNT)
         for event in events:
-            assert event.service_type == "test-service", f"service_type attribute should be 'test-service', got '{event.service_type}'"
+            assert event.service_type == "test-service", (
+                f"service_type attribute should be 'test-service', got '{event.service_type}'"
+            )
             assert event.event_type == event.envelope["type"], (
                 f"event_type attribute '{event.event_type}' should match envelope type '{event.envelope['type']}'"
             )
-            assert event.run_id == event.envelope["subject"], f"run_id attribute '{event.run_id}' should match envelope subject '{event.envelope['subject']}'"
+            assert event.run_id == event.envelope["subject"], (
+                f"run_id attribute '{event.run_id}' should match envelope subject '{event.envelope['subject']}'"
+            )
 
     async def test_event_ids_are_unique_uuids(
         self,
@@ -88,7 +92,9 @@ class TestCloudEventsFormat:
             assert parsed.version == 7
             ids.add(event_id)
 
-        assert len(ids) == TWO_FLOW_SUCCESS_EVENT_COUNT, f"Expected {TWO_FLOW_SUCCESS_EVENT_COUNT} unique event IDs, got {len(ids)}"
+        assert len(ids) == TWO_FLOW_SUCCESS_EVENT_COUNT, (
+            f"Expected {TWO_FLOW_SUCCESS_EVENT_COUNT} unique event IDs, got {len(ids)}"
+        )
 
     async def test_timestamps_are_monotonically_increasing(
         self,
@@ -102,7 +108,9 @@ class TestCloudEventsFormat:
         events = pull_events(pubsub_test_resources, expected_count=TWO_FLOW_SUCCESS_EVENT_COUNT)
         timestamps = [datetime.fromisoformat(e.envelope["time"]) for e in events]
         for i in range(1, len(timestamps)):
-            assert timestamps[i] >= timestamps[i - 1], f"Timestamps not monotonic at index {i}: {timestamps[i].isoformat()} < {timestamps[i - 1].isoformat()}"
+            assert timestamps[i] >= timestamps[i - 1], (
+                f"Timestamps not monotonic at index {i}: {timestamps[i].isoformat()} < {timestamps[i - 1].isoformat()}"
+            )
 
     async def test_timestamps_are_parseable_iso8601(
         self,
@@ -155,7 +163,9 @@ class _SerializationFlow(PipelineFlow):
         documents: tuple[PubsubInputDoc, ...],
         options: FlowOptions,
     ) -> tuple[PubsubOutputDoc, ...]:
-        return (PubsubOutputDoc.derive(derived_from=(documents[0],), name="ser_out.json", content={"serialized": True}),)
+        return (
+            PubsubOutputDoc.derive(derived_from=(documents[0],), name="ser_out.json", content={"serialized": True}),
+        )
 
 
 class _SerializationDeployment(PipelineDeployment[FlowOptions, _SerializationResult]):
@@ -202,7 +212,9 @@ class TestNonPrimitiveTypeSerialization:
 
         task_uuid_str = str(result["task_uuid"])
         UUID(task_uuid_str)  # Must be parseable as UUID
-        assert task_uuid_str == "12345678-1234-5678-1234-567812345678", f"UUID should roundtrip exactly, got: {task_uuid_str}"
+        assert task_uuid_str == "12345678-1234-5678-1234-567812345678", (
+            f"UUID should roundtrip exactly, got: {task_uuid_str}"
+        )
 
         priority_str = str(result["priority"])
         assert priority_str == "high", f"StrEnum should serialize to its value, got: {priority_str}"

@@ -62,7 +62,9 @@ async def safe_gather[T](
 
     if not successes and raise_if_all_fail and failures:
         first_error = failures[0][1]
-        raise RuntimeError(f"All {len(failures)} tasks failed{f' in {label!r}' if label else ''}. First error: {first_error}") from first_error
+        raise RuntimeError(
+            f"All {len(failures)} tasks failed{f' in {label!r}' if label else ''}. First error: {first_error}"
+        ) from first_error
 
     return successes
 
@@ -91,6 +93,8 @@ async def safe_gather_indexed[T](
 
     if len(failures) == len(results) and raise_if_all_fail:
         first_error = failures[0][1]
-        raise RuntimeError(f"All {len(failures)} tasks failed{f' in {label!r}' if label else ''}. First error: {first_error}") from first_error
+        raise RuntimeError(
+            f"All {len(failures)} tasks failed{f' in {label!r}' if label else ''}. First error: {first_error}"
+        ) from first_error
 
     return output

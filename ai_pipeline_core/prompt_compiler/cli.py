@@ -13,7 +13,16 @@ from typing import Any, cast, get_args, get_origin
 from .render import render_preview
 from .spec import PromptSpec
 
-_SKIP_DIRS: frozenset[str] = frozenset({".git", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache", "node_modules", ".tmp"})
+_SKIP_DIRS: frozenset[str] = frozenset({
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    "node_modules",
+    ".tmp",
+})
 
 _APPROX_CHARS_PER_TOKEN = 4
 
@@ -216,7 +225,9 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     if fields:
         for field_name, field_info in fields.items():
             annotation = field_info.annotation
-            type_name = annotation.__name__ if annotation is not None and hasattr(annotation, "__name__") else str(annotation)
+            type_name = (
+                annotation.__name__ if annotation is not None and hasattr(annotation, "__name__") else str(annotation)
+            )
             print(f"    - {field_name} ({type_name}): {field_info.description}")
     else:
         print("    (none)")

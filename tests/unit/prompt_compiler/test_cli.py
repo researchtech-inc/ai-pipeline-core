@@ -480,7 +480,9 @@ def test_discover_all_specs_reports_import_errors(tmp_path: Path) -> None:
     pkg = tmp_path / "broken_pkg"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("", encoding="utf-8")
-    (pkg / "spec.py").write_text("from ai_pipeline_core.prompt_compiler import PromptSpec\nraise RuntimeError('boom')\n", encoding="utf-8")
+    (pkg / "spec.py").write_text(
+        "from ai_pipeline_core.prompt_compiler import PromptSpec\nraise RuntimeError('boom')\n", encoding="utf-8"
+    )
 
     root_str = str(tmp_path)
     sys.path.insert(0, root_str)

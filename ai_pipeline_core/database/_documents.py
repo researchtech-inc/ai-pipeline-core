@@ -86,7 +86,8 @@ def _reconstruct_document(
     doc_cls = _find_document_class(record.document_type)
     if doc_cls is None:
         logger.warning(
-            "Cannot reconstruct document '%s': Document subclass '%s' not found. Import the module that defines this Document subclass.",
+            "Cannot reconstruct document '%s': Document subclass '%s' not found. "
+            "Import the module that defines this Document subclass.",
             record.name,
             record.document_type,
         )
@@ -131,7 +132,8 @@ def _attachment_contents_for_record(
     if missing:
         missing_list = ", ".join(sorted(missing))
         raise ValueError(
-            f"Document '{record.name}' ({record.document_sha256}) references missing attachment blob(s): {missing_list}. "
+            f"Document '{record.name}' ({record.document_sha256}) references missing "
+            f"attachment blob(s): {missing_list}. "
             "These blobs are missing from storage. "
             "Persist every attachment blob before reading the document."
         )

@@ -84,7 +84,9 @@ class TransportSpy:
         original_open_stream = _transport.open_stream
 
         @asynccontextmanager
-        async def _recording_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[Any]:
+        async def _recording_open_stream(
+            req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+        ) -> AsyncIterator[Any]:
             self.recorded_calls.append(
                 RecordedTransportCall(
                     model_name=req.model.name,
@@ -192,7 +194,8 @@ def pdf_with_marker(marker: str) -> bytes:
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         f"<< /Length {len(f'BT /F1 24 Tf 72 700 Td ({escaped_marker}) Tj ET'.encode())} >>\nstream\n"
         f"BT /F1 24 Tf 72 700 Td ({escaped_marker}) Tj ET\nendstream".encode(),
@@ -209,7 +212,9 @@ def pdf_with_marker(marker: str) -> bytes:
     payload.extend(b"0000000000 65535 f \n")
     for offset in offsets[1:]:
         payload.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    payload.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii"))
+    payload.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    )
     return bytes(payload)
 
 

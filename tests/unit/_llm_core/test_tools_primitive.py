@@ -118,7 +118,11 @@ def test_apply_substitution_preserves_tool_fields() -> None:
 
     messages = [
         CoreMessage(role=Role.TOOL, content="result from tool", tool_call_id="call_42", name="my_tool"),
-        CoreMessage(role=Role.ASSISTANT, content="thinking", tool_calls=(RawToolCall(id="call_1", function_name="search", arguments="{}"),)),
+        CoreMessage(
+            role=Role.ASSISTANT,
+            content="thinking",
+            tool_calls=(RawToolCall(id="call_1", function_name="search", arguments="{}"),),
+        ),
     ]
     sub = URLSubstitutor()
     sub.prepare(["result from tool"])

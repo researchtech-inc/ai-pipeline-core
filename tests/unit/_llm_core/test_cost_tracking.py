@@ -17,8 +17,17 @@ def _attempt() -> AttemptRequest:
 
 
 def _completion(*, usage: dict[str, Any], header_cost: float | None) -> StreamCompletion:
-    message = SimpleNamespace(content="ok", reasoning_content=None, annotations=[], tool_calls=[], provider_specific_fields=None, thinking_blocks=None)
-    response = SimpleNamespace(id="resp-1", choices=(SimpleNamespace(message=message, finish_reason="stop"),), usage=None)
+    message = SimpleNamespace(
+        content="ok",
+        reasoning_content=None,
+        annotations=[],
+        tool_calls=[],
+        provider_specific_fields=None,
+        thinking_blocks=None,
+    )
+    response = SimpleNamespace(
+        id="resp-1", choices=(SimpleNamespace(message=message, finish_reason="stop"),), usage=None
+    )
     return StreamCompletion(
         response=response,
         usage=usage,
@@ -31,7 +40,9 @@ def _completion(*, usage: dict[str, Any], header_cost: float | None) -> StreamCo
 
 def test_usage_cost_populates_response_and_transport_when_header_missing() -> None:
     response = _build_model_response(
-        _completion(usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "cost": 0.123}, header_cost=None),
+        _completion(
+            usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "cost": 0.123}, header_cost=None
+        ),
         _attempt(),
         prompt_cache_key=None,
     )
@@ -53,7 +64,9 @@ def test_header_cost_is_fallback_when_usage_cost_missing() -> None:
 
 def test_usage_cost_wins_over_header_cost() -> None:
     response = _build_model_response(
-        _completion(usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "cost": 0.222}, header_cost=0.111),
+        _completion(
+            usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3, "cost": 0.222}, header_cost=0.111
+        ),
         _attempt(),
         prompt_cache_key=None,
     )

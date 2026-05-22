@@ -157,7 +157,9 @@ class _UnrelatedInputDoc(Document):
 
 
 class _DbFallbackFlow(PipelineFlow):
-    async def run(self, input_docs: tuple[_DbFallbackInputDoc, ...], options: FlowOptions) -> tuple[_DbFallbackOutputDoc, ...]:
+    async def run(
+        self, input_docs: tuple[_DbFallbackInputDoc, ...], options: FlowOptions
+    ) -> tuple[_DbFallbackOutputDoc, ...]:
         _ = (input_docs, options)
         return ()
 
@@ -169,7 +171,9 @@ class _Flow1(PipelineFlow):
 
 
 class _Flow2(PipelineFlow):
-    async def run(self, upstream_outputs: tuple[FlowOutputDoc, ...], options: FlowOptions) -> tuple[FlowOutputDoc2, ...]:
+    async def run(
+        self, upstream_outputs: tuple[FlowOutputDoc, ...], options: FlowOptions
+    ) -> tuple[FlowOutputDoc2, ...]:
         _ = (upstream_outputs, options)
         return ()
 
@@ -244,7 +248,9 @@ class TestHeartbeatLoop:
         publisher = MagicMock()
         publisher.publish_heartbeat = AsyncMock()
         with patch("ai_pipeline_core.deployment._helpers._HEARTBEAT_INTERVAL_SECONDS", 0.01):
-            task = asyncio.create_task(_heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1"))
+            task = asyncio.create_task(
+                _heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1")
+            )
             await asyncio.sleep(0.05)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -262,7 +268,9 @@ class TestHeartbeatLoop:
         publisher.publish_heartbeat = _failing_heartbeat
 
         with patch("ai_pipeline_core.deployment._helpers._HEARTBEAT_INTERVAL_SECONDS", 0.01):
-            task = asyncio.create_task(_heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1"))
+            task = asyncio.create_task(
+                _heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1")
+            )
             await asyncio.sleep(0.05)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -280,13 +288,17 @@ class TestHeartbeatLoop:
 
         with patch("ai_pipeline_core.deployment._helpers._HEARTBEAT_INTERVAL_SECONDS", 0.01):
             with caplog.at_level(logging.INFO):
-                task = asyncio.create_task(_heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1"))
+                task = asyncio.create_task(
+                    _heartbeat_loop(publisher, "run-1", root_deployment_id="root-1", span_id="span-1")
+                )
                 await asyncio.sleep(0.05)
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await task
 
-        heartbeat_records = [record for record in caplog.records if getattr(record, "event_type", "") == "run.heartbeat"]
+        heartbeat_records = [
+            record for record in caplog.records if getattr(record, "event_type", "") == "run.heartbeat"
+        ]
         assert heartbeat_records
         assert all(getattr(record, "category", "") == "lifecycle" for record in heartbeat_records)
 

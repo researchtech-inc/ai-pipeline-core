@@ -81,7 +81,9 @@ def _deployment_cases(deployment: BenchmarkDeployment, *, nonce: str) -> tuple[B
     )
 
 
-def _model_cases(model_name: str, deployments: tuple[BenchmarkDeployment, ...], *, nonce: str) -> tuple[BenchmarkCase, ...]:
+def _model_cases(
+    model_name: str, deployments: tuple[BenchmarkDeployment, ...], *, nonce: str
+) -> tuple[BenchmarkCase, ...]:
     return tuple(
         BenchmarkCase(
             case_id=f"model:{model_name}:{probe_key}",
@@ -112,7 +114,9 @@ def _deployment_expected(deployment: BenchmarkDeployment, probe_key: ProbeKey) -
 
 
 def _model_expected(model_name: str, deployments: tuple[BenchmarkDeployment, ...], probe_key: ProbeKey) -> ProbeStatus:
-    schema_partial = model_name in STRUCTURED_PARTIAL_MODELS or any(not deployment.supports_json_schema for deployment in deployments)
+    schema_partial = model_name in STRUCTURED_PARTIAL_MODELS or any(
+        not deployment.supports_json_schema for deployment in deployments
+    )
     if probe_key == "structured_listof":
         listof_partial = schema_partial or model_name in SEARCH_MODELS or model_name in STRUCTURED_LISTOF_PARTIAL_MODELS
         return "partial" if listof_partial else "pass"

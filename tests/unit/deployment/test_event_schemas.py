@@ -192,7 +192,9 @@ async def test_invalid_flow_returns_emit_failed_event_and_fail_flow_node(
     database = _MemoryDatabase()
 
     with pytest.raises(TypeError, match=error_pattern):
-        await deployment.run("invalid-flow-return", [_make_input_doc()], FlowOptions(), publisher=publisher, database=database)
+        await deployment.run(
+            "invalid-flow-return", [_make_input_doc()], FlowOptions(), publisher=publisher, database=database
+        )
 
     flow_failed_events = [event for event in publisher.events if isinstance(event, FlowFailedEvent)]
     assert len(flow_failed_events) == 1

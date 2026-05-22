@@ -97,7 +97,9 @@ class TestGetDeploymentScopedSpans:
         root_id = uuid4()
         dep_id = uuid4()
         s1 = _make_span(deployment_id=dep_id, root_deployment_id=root_id, name="S1", started_at=_BASE_TIME)
-        s2 = _make_span(deployment_id=dep_id, root_deployment_id=root_id, name="S2", started_at=_BASE_TIME + timedelta(seconds=1))
+        s2 = _make_span(
+            deployment_id=dep_id, root_deployment_id=root_id, name="S2", started_at=_BASE_TIME + timedelta(seconds=1)
+        )
         await db.insert_span(s1)
         await db.insert_span(s2)
 

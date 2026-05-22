@@ -19,5 +19,7 @@ class ValidationFailure(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    field: str | None = Field(default=None, description="Output field path triggering the failure, or None for a whole-response issue.")
+    field: str | None = Field(
+        default=None, description="Output field path triggering the failure, or None for a whole-response issue."
+    )
     message: str = Field(description="Caller-facing description of what went wrong and how to repair it.")

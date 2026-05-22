@@ -121,7 +121,12 @@ def _sort_key(event: _ReconstructedEvent) -> tuple[datetime, int, int, str]:
 
     if event_type in {EventType.RUN_STARTED, EventType.RUN_COMPLETED, EventType.RUN_FAILED}:
         kind_priority = _KIND_PRIORITY[SpanKind.DEPLOYMENT]
-    elif event_type in {EventType.FLOW_STARTED, EventType.FLOW_COMPLETED, EventType.FLOW_FAILED, EventType.FLOW_SKIPPED}:
+    elif event_type in {
+        EventType.FLOW_STARTED,
+        EventType.FLOW_COMPLETED,
+        EventType.FLOW_FAILED,
+        EventType.FLOW_SKIPPED,
+    }:
         kind_priority = _KIND_PRIORITY[SpanKind.FLOW]
     elif event_type in {EventType.TASK_STARTED, EventType.TASK_COMPLETED, EventType.TASK_FAILED}:
         kind_priority = _KIND_PRIORITY[SpanKind.TASK]
@@ -157,7 +162,9 @@ def _parse_cursor(after_cursor: str) -> tuple[datetime, int, int, str]:
             span_id,
         )
     except (TypeError, ValueError) as exc:  # fmt: skip
-        raise InvalidLifecycleCursorError("Invalid cursor. Clients should restart from the full history by omitting `after_cursor`.") from exc
+        raise InvalidLifecycleCursorError(
+            "Invalid cursor. Clients should restart from the full history by omitting `after_cursor`."
+        ) from exc
 
 
 def _filter_after_cursor(events: list[_ReconstructedEvent], after_cursor: str | None) -> list[_ReconstructedEvent]:
@@ -520,14 +527,18 @@ async def _reconstruct_lifecycle_events(
     all_span_by_id: dict[UUID, SpanRecord] = {s.span_id: s for s in all_spans}
     meta_by_id: dict[UUID, dict[str, Any]] = {s.span_id: _parse_meta(s) for s in lifecycle_spans}
 
-    deployment_by_id: dict[UUID, SpanRecord] = {span.span_id: span for span in lifecycle_spans if span.kind == SpanKind.DEPLOYMENT}
+    deployment_by_id: dict[UUID, SpanRecord] = {
+        span.span_id: span for span in lifecycle_spans if span.kind == SpanKind.DEPLOYMENT
+    }
 
     events: list[_ReconstructedEvent] = []
 
     for span in lifecycle_spans:
         meta = meta_by_id[span.span_id]
         deployment_span = deployment_by_id.get(span.deployment_id)
-        parent_task_id_str = str(deployment_span.parent_span_id) if deployment_span and deployment_span.parent_span_id else None
+        parent_task_id_str = (
+            str(deployment_span.parent_span_id) if deployment_span and deployment_span.parent_span_id else None
+        )
         deployment_span_id_str = str(deployment_span.span_id) if deployment_span is not None else ""
 
         if span.kind == SpanKind.DEPLOYMENT:
@@ -543,7 +554,11 @@ async def _reconstruct_lifecycle_events(
                 parent = all_span_by_id.get(parent.parent_span_id) if parent.parent_span_id else None
             flow_span = parent if (parent is not None and parent.kind == SpanKind.FLOW) else None
             flow_meta = meta_by_id.get(flow_span.span_id, {}) if flow_span else {}
-            events.extend(_reconstruct_task_events(span, meta, parent_task_id_str, flow_span=flow_span, flow_meta=flow_meta, doc_map=doc_map))
+            events.extend(
+                _reconstruct_task_events(
+                    span, meta, parent_task_id_str, flow_span=flow_span, flow_meta=flow_meta, doc_map=doc_map
+                )
+            )
 
     events.sort(key=_sort_key)
     return [

@@ -45,7 +45,9 @@ def build_integration_meta(deployment: Any) -> dict[str, Any]:
     all_types = deployment._all_document_types(flows)
 
     return {
-        "input_document_types": [{"class_name": t.__name__, "description": (t.__doc__ or "").strip()} for t in input_types],
+        "input_document_types": [
+            {"class_name": t.__name__, "description": (t.__doc__ or "").strip()} for t in input_types
+        ],
         "all_document_types": [{"class_name": t.__name__, "description": (t.__doc__ or "").strip()} for t in all_types],
         "flow_chain": [
             {

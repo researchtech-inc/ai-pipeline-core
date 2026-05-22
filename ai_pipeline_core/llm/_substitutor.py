@@ -535,7 +535,9 @@ class URLSubstitutor:
                 replacements.append(candidates[0])
             elif len(candidates) > 1:
                 ctx = text[max(0, dot_start - 20) : min(len(text), dot_end + 20)]
-                logger.warning("Ambiguous fuzzy restore: %d candidates at position %d: '%s'", len(candidates), dot_start, ctx)
+                logger.warning(
+                    "Ambiguous fuzzy restore: %d candidates at position %d: '%s'", len(candidates), dot_start, ctx
+                )
 
         return self._apply_replacements(text, replacements)
 

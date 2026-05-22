@@ -138,7 +138,10 @@ class TestDeploymentResult:
         class NestedPayload(BaseModel):
             report: OutputDoc | None = None
 
-        with pytest.raises(TypeError, match=r"contains nested Document fields but is not required|optional but contains a Document type"):
+        with pytest.raises(
+            TypeError,
+            match=r"contains nested Document fields but is not required|optional but contains a Document type",
+        ):
 
             class _NestedOptionalDocumentResult(DeploymentResult):
                 payload: NestedPayload
@@ -279,8 +282,10 @@ class TestPipelineDeploymentValidation:
         with pytest.warns(
             FutureWarning,
             match=(
-                "PipelineDeployment subclass WarnsWithoutServiceName sets pubsub_service_type but not service_name. "
-                'service_name will be required in 0.23.0 — set `service_name: ClassVar\\[str\\] = "..."` on the class\\.'
+                "PipelineDeployment subclass WarnsWithoutServiceName sets pubsub_service_type "
+                "but not service_name. "
+                "service_name will be required in 0.23.0 — set "
+                '`service_name: ClassVar\\[str\\] = "..."` on the class\\.'
             ),
         ):
 
@@ -412,7 +417,9 @@ class ResumeFlowThree(PipelineFlow):
 class ResumeFlowFour(PipelineFlow):
     """Resume test flow 4."""
 
-    async def run(self, step_three_docs: tuple[ResumeStepThree, ...], options: FlowOptions) -> tuple[ResumeStepFour, ...]:
+    async def run(
+        self, step_three_docs: tuple[ResumeStepThree, ...], options: FlowOptions
+    ) -> tuple[ResumeStepFour, ...]:
         _ = options
         return (ResumeStepFour.derive(derived_from=(step_three_docs[0],), name="step4.txt", content="step-4"),)
 
@@ -681,7 +688,9 @@ class TestPartialResultRemoval:
                     _ = (run_id, documents, options)
                     return ValidResult(success=True)
 
-                def build_partial_result(self, run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
+                def build_partial_result(
+                    self, run_id: str, documents: tuple[Document, ...], options: FlowOptions
+                ) -> ValidResult:
                     _ = (run_id, documents, options)
                     return ValidResult(success=True)
 
@@ -709,7 +718,9 @@ class TestPartialRunExecution:
     async def test_end_step_less_than_start_raises(self, deployment):
         docs = [InputDoc.create_root(name="input.txt", content="input", reason="test")]
         with pytest.raises(ValueError, match="end_step must be"):
-            await deployment.run("resume-run", docs, FlowOptions(), start_step=4, end_step=3, database=_MemoryDatabase())
+            await deployment.run(
+                "resume-run", docs, FlowOptions(), start_step=4, end_step=3, database=_MemoryDatabase()
+            )
 
     @pytest.mark.asyncio
     async def test_partial_run_returns_none(self, deployment):
@@ -796,7 +807,9 @@ class TestRunContextIncludesExecutionId:
             def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> ValidResult:
                 return ValidResult(success=True)
 
-        await CtxDeployment().run("proj", [InputDoc.create_root(name="in.txt", content="x", reason="test")], FlowOptions())
+        await CtxDeployment().run(
+            "proj", [InputDoc.create_root(name="in.txt", content="x", reason="test")], FlowOptions()
+        )
         assert len(captured_ctx) == 1
         ctx = captured_ctx[0]
         assert ctx is not None
@@ -848,7 +861,9 @@ class TestAsPrefectFlowParentParams:
         with (
             patch("ai_pipeline_core.deployment._prefect._create_span_database_from_settings", return_value=database),
             patch("ai_pipeline_core.deployment._prefect._create_publisher", return_value=publisher),
-            patch("ai_pipeline_core.deployment._prefect.resolve_document_inputs", new=AsyncMock(return_value=[])) as mock_resolve,
+            patch(
+                "ai_pipeline_core.deployment._prefect.resolve_document_inputs", new=AsyncMock(return_value=[])
+            ) as mock_resolve,
             patch.object(deployment, "run", new=AsyncMock(return_value=ValidResult(success=True))),
         ):
             await prefect_flow.fn(run_id="prefect-run", document_inputs=[], options=FlowOptions())
@@ -917,7 +932,9 @@ async def test_skipped_flow_persists_lifecycle_log_and_summary(input_documents) 
             return DeploymentPlan(
                 steps=(
                     FlowStep(StageOne()),
-                    FlowStep(StageTwo(), run_if=FieldGate(_SkipDecisionDoc, "should_run", op="truthy", on_missing="skip")),
+                    FlowStep(
+                        StageTwo(), run_if=FieldGate(_SkipDecisionDoc, "should_run", op="truthy", on_missing="skip")
+                    ),
                 )
             )
 
@@ -928,7 +945,9 @@ async def test_skipped_flow_persists_lifecycle_log_and_summary(input_documents) 
         (span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT),
         key=lambda span: span.started_at,
     )
-    skipped_spans = [span for span in database._spans.values() if span.kind == SpanKind.FLOW and span.status == SpanStatus.SKIPPED]
+    skipped_spans = [
+        span for span in database._spans.values() if span.kind == SpanKind.FLOW and span.status == SpanStatus.SKIPPED
+    ]
 
     lifecycle_logs = await database.get_deployment_logs(deployment_span.deployment_id, category="lifecycle")
     assert "flow.skipped" in {log.event_type for log in lifecycle_logs}
@@ -949,7 +968,9 @@ async def test_cached_flow_persists_lifecycle_log_and_summary(input_documents) -
         (span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT),
         key=lambda span: span.started_at,
     )
-    cached_spans = [span for span in database._spans.values() if span.kind == SpanKind.FLOW and span.status == SpanStatus.CACHED]
+    cached_spans = [
+        span for span in database._spans.values() if span.kind == SpanKind.FLOW and span.status == SpanStatus.CACHED
+    ]
 
     lifecycle_logs = await database.get_deployment_logs(deployment_span.deployment_id, category="lifecycle")
     assert "flow.cached" in {log.event_type for log in lifecycle_logs}
@@ -1039,7 +1060,9 @@ def test_run_local_forces_memory_database(monkeypatch: pytest.MonkeyPatch, input
         called = True
         return _MemoryDatabase()
 
-    monkeypatch.setattr("ai_pipeline_core.deployment.base._create_span_database_from_settings", _unexpected_database_creation)
+    monkeypatch.setattr(
+        "ai_pipeline_core.deployment.base._create_span_database_from_settings", _unexpected_database_creation
+    )
 
     result = deployment.run_local("run-local-memory", input_documents, _TestOptions())
 

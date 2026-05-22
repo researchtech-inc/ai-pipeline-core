@@ -270,7 +270,11 @@ class TestIsPrivateIpAsync:
 
 class TestResolveUrlDocumentNameDerivation:
     @patch("ai_pipeline_core.deployment._resolve._validate_url", new_callable=AsyncMock)
-    @patch("ai_pipeline_core.deployment._resolve._fetch_url", new_callable=AsyncMock, return_value=(b"data", 'attachment; filename="derived.pdf"'))
+    @patch(
+        "ai_pipeline_core.deployment._resolve._fetch_url",
+        new_callable=AsyncMock,
+        return_value=(b"data", 'attachment; filename="derived.pdf"'),
+    )
     async def test_derives_name_from_disposition(self, mock_fetch, mock_validate):
         inputs = [_DocumentInput(url="https://example.com/path", class_name="ResolveDoc")]
         result = await resolve_document_inputs(inputs, [ResolveDoc])

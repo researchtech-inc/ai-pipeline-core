@@ -82,7 +82,14 @@ async def _seed_successful_run(db: _MemoryDatabase) -> tuple[UUID, UUID]:
         ended_at=t0 + timedelta(seconds=10),
         meta_json=json.dumps({
             "input_fingerprint": "abc123",
-            "flow_plan": [{"name": "Flow1", "flow_class": "TestFlow", "step": 1, "expected_tasks": [{"name": "TestTask", "estimated_minutes": 1.0}]}],
+            "flow_plan": [
+                {
+                    "name": "Flow1",
+                    "flow_class": "TestFlow",
+                    "step": 1,
+                    "expected_tasks": [{"name": "TestTask", "estimated_minutes": 1.0}],
+                }
+            ],
             "deployment_class": "TestPipeline",
         }),
         output_json=json.dumps({"result": {"ok": True}}),
@@ -242,9 +249,15 @@ async def test_child_deployment_events_use_child_parent_links() -> None:
 
     events = await _reconstruct_lifecycle_events(db, root_id)
 
-    child_run_started = next(e for e in events if e.event_type == EventType.RUN_STARTED and e.data["run_id"] == "child-run")
-    child_flow_started = next(e for e in events if e.event_type == EventType.FLOW_STARTED and e.data["run_id"] == "child-run")
-    child_task_started = next(e for e in events if e.event_type == EventType.TASK_STARTED and e.data["run_id"] == "child-run")
+    child_run_started = next(
+        e for e in events if e.event_type == EventType.RUN_STARTED and e.data["run_id"] == "child-run"
+    )
+    child_flow_started = next(
+        e for e in events if e.event_type == EventType.FLOW_STARTED and e.data["run_id"] == "child-run"
+    )
+    child_task_started = next(
+        e for e in events if e.event_type == EventType.TASK_STARTED and e.data["run_id"] == "child-run"
+    )
 
     assert child_run_started.data["parent_deployment_task_id"] == str(root_task_id)
     assert child_flow_started.data["parent_deployment_task_id"] == str(root_task_id)
@@ -292,7 +305,12 @@ async def test_failed_run_with_error_code() -> None:
         started_at=t0,
         ended_at=t0 + timedelta(seconds=5),
         error_message="boom",
-        meta_json=json.dumps({"input_fingerprint": "fp", "deployment_class": "P", "flow_plan": [], "error_code": "provider_error"}),
+        meta_json=json.dumps({
+            "input_fingerprint": "fp",
+            "deployment_class": "P",
+            "flow_plan": [],
+            "error_code": "provider_error",
+        }),
     )
     await db.insert_span(deploy)
 
@@ -718,9 +736,19 @@ async def test_reconstructed_events_include_stable_cursor_and_filter_from_cursor
 def test_filter_after_cursor_guarantees_at_least_once_under_clock_skew() -> None:
     now = datetime(2026, 3, 14, 12, 0, tzinfo=UTC)
     raw_events = [
-        _ReconstructedEvent(event_type=EventType.RUN_STARTED, span_id="old", timestamp=now - timedelta(seconds=10), data={}, cursor=""),
-        _ReconstructedEvent(event_type=EventType.FLOW_STARTED, span_id="near", timestamp=now - timedelta(seconds=3), data={}, cursor=""),
-        _ReconstructedEvent(event_type=EventType.TASK_STARTED, span_id="future", timestamp=now + timedelta(seconds=1), data={}, cursor=""),
+        _ReconstructedEvent(
+            event_type=EventType.RUN_STARTED, span_id="old", timestamp=now - timedelta(seconds=10), data={}, cursor=""
+        ),
+        _ReconstructedEvent(
+            event_type=EventType.FLOW_STARTED, span_id="near", timestamp=now - timedelta(seconds=3), data={}, cursor=""
+        ),
+        _ReconstructedEvent(
+            event_type=EventType.TASK_STARTED,
+            span_id="future",
+            timestamp=now + timedelta(seconds=1),
+            data={},
+            cursor="",
+        ),
     ]
     events = [
         _ReconstructedEvent(
@@ -782,7 +810,12 @@ async def test_reconstruction_maps_process_crash_to_crashed_error_code() -> None
         ended_at=t0 + timedelta(seconds=5),
         error_type="ProcessCrashed",
         error_message="process crashed",
-        meta_json=json.dumps({"input_fingerprint": "fp", "deployment_class": "CrashPipeline", "flow_plan": [], "error_code": ErrorCode.CRASHED}),
+        meta_json=json.dumps({
+            "input_fingerprint": "fp",
+            "deployment_class": "CrashPipeline",
+            "flow_plan": [],
+            "error_code": ErrorCode.CRASHED,
+        }),
     )
     await db.insert_span(deploy)
 

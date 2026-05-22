@@ -239,8 +239,8 @@ def _input_list_annotation_error(annotation: Any) -> str | None:
         return "must annotate list inputs as list[T] with exactly one element type."
     if _contains_document_subclass(args[0]):
         return (
-            "must not use list[Document] for task inputs — lists are mutable and bypass pipeline immutability guarantees. "
-            "Use tuple[DocumentSubclass, ...] instead."
+            "must not use list[Document] for task inputs — lists are mutable and bypass "
+            "pipeline immutability guarantees. Use tuple[DocumentSubclass, ...] instead."
         )
     return _task_input_annotation_error(args[0])
 
@@ -271,11 +271,15 @@ def _input_dict_annotation_error(annotation: Any) -> str | None:
 
 def _unsupported_input_annotation_error(annotation: Any) -> str:
     if annotation is list:
-        return "uses bare 'list' without a type parameter. Use list[str], list[int], or tuple[DocumentSubclass, ...] instead."
+        return (
+            "uses bare 'list' without a type parameter. "
+            "Use list[str], list[int], or tuple[DocumentSubclass, ...] instead."
+        )
     if annotation is dict:
         return "uses bare 'dict' without a type parameter. Use dict[str, ValueType] instead."
     return (
-        f"uses unsupported input annotation {annotation!r}. Use scalars, Enums, Conversation, specific Document subclasses, "
+        f"uses unsupported input annotation {annotation!r}. "
+        "Use scalars, Enums, Conversation, specific Document subclasses, "
         "frozen BaseModel subclasses, or list/tuple/dict[str, ...] containers of those types."
     )
 
@@ -317,9 +321,15 @@ def validate_flow_input_param(
     """Validate a single ``PipelineFlow.run()`` input parameter annotation."""
     unwrapped = _unwrap_annotated(annotation)
     if contains_bare_document(unwrapped):
-        raise TypeError(f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses bare 'Document'. Use a specific Document subclass.")
+        raise TypeError(
+            f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses bare 'Document'. "
+            "Use a specific Document subclass."
+        )
     if unwrapped is Any:
-        raise TypeError(f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses 'Any'. Use a specific Document subclass or FlowOptions subclass.")
+        raise TypeError(
+            f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses 'Any'. "
+            "Use a specific Document subclass or FlowOptions subclass."
+        )
     optional_member = unwrap_optional(unwrapped)
     if optional_member is not unwrapped:
         if _is_document_subclass(optional_member):
@@ -343,7 +353,8 @@ def validate_flow_input_param(
         member_annotation = _unwrap_annotated(args[0])
         if contains_bare_document(member_annotation):
             raise TypeError(
-                f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses bare 'Document' in a tuple collection. Use specific Document subclasses."
+                f"PipelineFlow '{flow_name}'.run parameter '{parameter_name}' uses bare 'Document' "
+                "in a tuple collection. Use specific Document subclasses."
             )
         member_types = collect_document_types(member_annotation)
         if not member_types or any(not _is_document_subclass(branch) for branch in flatten_union(member_annotation)):
@@ -369,7 +380,10 @@ def _document_collection_error(annotation: Any) -> str | None:
         return "must not use bare 'Document'. Return specific Document subclasses."
     for branch in flatten_union(unwrapped):
         if not _is_document_subclass(branch):
-            return f"uses unsupported output member annotation {branch!r}. Collections must contain only specific Document subclasses."
+            return (
+                f"uses unsupported output member annotation {branch!r}. "
+                "Collections must contain only specific Document subclasses."
+            )
     return None
 
 
@@ -409,7 +423,10 @@ def _task_return_annotation_error(annotation: Any) -> str | None:
     handler = {list: _return_list_annotation_error, tuple: _return_tuple_annotation_error}.get(origin)
     if handler is not None:
         return handler(unwrapped)
-    return "must return a specific Document subclass, None, list[DocumentSubclass], tuple[DocumentSubclass, ...], or unions of those shapes."
+    return (
+        "must return a specific Document subclass, None, list[DocumentSubclass], "
+        "tuple[DocumentSubclass, ...], or unions of those shapes."
+    )
 
 
 def validate_task_return_annotation(annotation: Any, *, task_name: str) -> list[type[Document]]:
@@ -552,7 +569,14 @@ def _runtime_value_error(value: Any, annotation: Any, *, path: str) -> str | Non
     """Return an error string if a runtime value does not match an annotation."""
     unwrapped = _unwrap_annotated(annotation)
 
-    for validator in (_runtime_none_error, _runtime_leaf_error, _runtime_union_error, _runtime_list_error, _runtime_tuple_error, _runtime_dict_error):
+    for validator in (
+        _runtime_none_error,
+        _runtime_leaf_error,
+        _runtime_union_error,
+        _runtime_list_error,
+        _runtime_tuple_error,
+        _runtime_dict_error,
+    ):
         error = validator(value, unwrapped, path=path)
         if error is not _UNHANDLED:
             return cast(str | None, error)
@@ -563,7 +587,10 @@ def _runtime_value_error(value: Any, annotation: Any, *, path: str) -> str | Non
 def validate_task_argument_value(*, task_name: str, parameter_name: str, value: Any, annotation: Any) -> None:
     """Validate a runtime task argument against its declared annotation."""
     if error := _runtime_value_error(value, annotation, path=parameter_name):
-        raise TypeError(f"PipelineTask '{task_name}.run' received invalid value for '{parameter_name}'. {error}. Expected annotation: {annotation!r}.")
+        raise TypeError(
+            f"PipelineTask '{task_name}.run' received invalid value for "
+            f"'{parameter_name}'. {error}. Expected annotation: {annotation!r}."
+        )
 
 
 def resolve_type_hints(fn: Callable[..., Any]) -> dict[str, Any]:

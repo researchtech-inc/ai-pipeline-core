@@ -265,7 +265,9 @@ def test_guide_missing_docstring() -> None:
 @pytest.mark.parametrize("template_value", [None, "", "   ", 123])
 def test_guide_requires_non_empty_string_template(template_value: object) -> None:
     with pytest.raises(TypeError, match="must define 'template' as a ClassVar"):
-        type("BadTemplateGuide", (Guide,), {"__module__": __name__, "__doc__": "Guide doc.", "template": template_value})
+        type(
+            "BadTemplateGuide", (Guide,), {"__module__": __name__, "__doc__": "Guide doc.", "template": template_value}
+        )
 
 
 def test_guide_rejects_absolute_path(tmp_path: Path) -> None:

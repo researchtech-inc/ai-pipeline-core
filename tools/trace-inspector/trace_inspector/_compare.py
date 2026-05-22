@@ -17,11 +17,18 @@ async def compare_runs(selection: ComparisonSelection) -> None:
     try:
         right_connection = await open_reader_from_source(selection.right_source)
         try:
-            left_trace = await load_trace(left_connection.reader, left_connection.deployment_id, reader_label=left_connection.reader_label)
-            right_trace = await load_trace(right_connection.reader, right_connection.deployment_id, reader_label=right_connection.reader_label)
+            left_trace = await load_trace(
+                left_connection.reader, left_connection.deployment_id, reader_label=left_connection.reader_label
+            )
+            right_trace = await load_trace(
+                right_connection.reader, right_connection.deployment_id, reader_label=right_connection.reader_label
+            )
             left_task = left_trace.tasks.get(selection.left_task_span_id)
             if left_task is None:
-                msg = f"Task span {selection.left_task_span_id} was not found in the left trace. Pass a valid task span id from ai-trace show output."
+                msg = (
+                    f"Task span {selection.left_task_span_id} was not found in the left "
+                    "trace. Pass a valid task span id from ai-trace show output."
+                )
                 raise ValueError(msg)
             right_task = None
             if selection.right_task_span_id is not None:
@@ -30,8 +37,10 @@ async def compare_runs(selection: ComparisonSelection) -> None:
                 matching_tasks = [task for task in right_trace.tasks.values() if task.span.name == left_task.span.name]
                 if len(matching_tasks) > 1:
                     msg = (
-                        f"Right trace contains {len(matching_tasks)} tasks named {left_task.span.name!r}. "
-                        "Pass --right-task-span-id to choose the exact replay task instead of relying on ambiguous name matching."
+                        f"Right trace contains {len(matching_tasks)} tasks named "
+                        f"{left_task.span.name!r}. "
+                        "Pass --right-task-span-id to choose the exact replay task "
+                        "instead of relying on ambiguous name matching."
                     )
                     raise ValueError(msg)
                 right_task = matching_tasks[0] if matching_tasks else None
@@ -46,7 +55,9 @@ async def compare_runs(selection: ComparisonSelection) -> None:
             compare_dir = selection.output_dir / "compare"
             compare_dir.mkdir(parents=True, exist_ok=True)
             safe_name = snake_case_segment(left_task.span.name)
-            markdown = render_comparison_markdown(left_task, right_task, left_trace, right_trace, selection.render_config)
+            markdown = render_comparison_markdown(
+                left_task, right_task, left_trace, right_trace, selection.render_config
+            )
             await write_text(compare_dir / f"{safe_name}.md", markdown)
             await write_text(
                 compare_dir / "index.md",

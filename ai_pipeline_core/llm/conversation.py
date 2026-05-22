@@ -16,7 +16,12 @@ from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline._execution_context import get_execution_context, get_sinks
 from ai_pipeline_core.pipeline._track_span import track_span
-from ai_pipeline_core.prompt_compiler.render import _RESULT_CLOSE, _extract_result, _render_multi_line_messages, render_text
+from ai_pipeline_core.prompt_compiler.render import (
+    _RESULT_CLOSE,
+    _extract_result,
+    _render_multi_line_messages,
+    render_text,
+)
 from ai_pipeline_core.prompt_compiler.spec import PromptSpec
 
 from ._conversation_codec import deserialize_message, serialize_message
@@ -113,7 +118,8 @@ class Conversation(BaseModel, Generic[T]):
         state["messages"] = tuple(serialize_message(message) for message in self.messages)
         state["_conversation_id"] = self._conversation_id
         state["_tool_call_records"] = tuple(
-            {"tool": record.tool, "input": record.input, "output": record.output, "round": record.round} for record in self._tool_call_records
+            {"tool": record.tool, "input": record.input, "output": record.output, "round": record.round}
+            for record in self._tool_call_records
         )
         return state
 
@@ -161,7 +167,9 @@ class Conversation(BaseModel, Generic[T]):
     def usage(self) -> TokenUsage:
         """Token usage from the last send call."""
         response = self._last_response
-        return response.usage if response is not None else TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        return (
+            response.usage if response is not None else TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        )
 
     @property
     def cost(self) -> float | None:
@@ -287,7 +295,9 @@ class Conversation(BaseModel, Generic[T]):
         if spec.output_structure is not None:
             options = conv.model_options or ModelOptions()
             if _RESULT_CLOSE not in (options.stop or ()):
-                conv = conv.with_model_options(options.model_copy(update={"stop": (*(options.stop or ()), _RESULT_CLOSE)}))
+                conv = conv.with_model_options(
+                    options.model_copy(update={"stop": (*(options.stop or ()), _RESULT_CLOSE)})
+                )
         if ml_messages := _render_multi_line_messages(spec):
             combined = "\n".join(xml_block for _, xml_block in ml_messages)
             conv = conv.model_copy(update={"messages": conv.messages + (UserMessage(combined),)})
@@ -357,7 +367,9 @@ class Conversation(BaseModel, Generic[T]):
 
         docs = _normalize_content(content)
         new_messages = self.messages + docs
-        substitutor = prepare_substitutor(context=self.context, messages=new_messages, enabled=self.enable_substitutor, model=self.model)
+        substitutor = prepare_substitutor(
+            context=self.context, messages=new_messages, enabled=self.enable_substitutor, model=self.model
+        )
         cache_active = self._cache_active_for_turn()
         effective_options = build_effective_options(
             model_options=self.model_options,
@@ -390,15 +402,18 @@ class Conversation(BaseModel, Generic[T]):
             cache_overrides=cache_overrides(effective_options),
             routing_overrides=routing_overrides(
                 purpose,
-                preferred_deployment_id=self._last_response.transport.aipl.deployment_id if self._last_response is not None else None,
+                preferred_deployment_id=self._last_response.transport.aipl.deployment_id
+                if self._last_response is not None
+                else None,
             ),
         )
 
         execution_ctx = get_execution_context()
+        method_name = "send_structured" if response_format else "send"
         async with track_span(
             SpanKind.CONVERSATION,
-            purpose or f"{self.model.name}:{'send_structured' if response_format else 'send'}",
-            f"decoded_method:{type(self).__module__}:{type(self).__qualname__}.{'send_structured' if response_format else 'send'}",
+            purpose or f"{self.model.name}:{method_name}",
+            f"decoded_method:{type(self).__module__}:{type(self).__qualname__}.{method_name}",
             sinks=get_sinks(),
             encode_receiver={"mode": "decoded_state", "value": self},
             encode_input=span_input,
@@ -429,7 +444,11 @@ class Conversation(BaseModel, Generic[T]):
             span_ctx.set_metrics(
                 first_token_ms=int((response.transport.timing.first_token_s or 0) * 1000),
             )
-            span_ctx.set_output_preview({"model": response.model, "tool_call_count": len(result.tool_call_records), "content": response.content[:1000]})
+            span_ctx.set_output_preview({
+                "model": response.model,
+                "tool_call_count": len(result.tool_call_records),
+                "content": response.content[:1000],
+            })
             span_ctx._set_output_value(updated)
             return updated
 
@@ -467,8 +486,16 @@ class Conversation(BaseModel, Generic[T]):
     ) -> dict[str, Any]:
         runtime = request.tools if isinstance(request.tools, ToolRuntime) else None
         round_responses = tuple(item for item in accumulated_messages if isinstance(item, ModelResponse))
-        tried_deployments = _unique(deployment_id for round_response in round_responses for deployment_id in round_response.transport.aipl.tried_deployments)
-        failed_deployments = _unique(deployment_id for round_response in round_responses for deployment_id in round_response.transport.aipl.failed_deployments)
+        tried_deployments = _unique(
+            deployment_id
+            for round_response in round_responses
+            for deployment_id in round_response.transport.aipl.tried_deployments
+        )
+        failed_deployments = _unique(
+            deployment_id
+            for round_response in round_responses
+            for deployment_id in round_response.transport.aipl.failed_deployments
+        )
         return {
             "purpose": request.purpose,
             "model": response.model,
@@ -478,7 +505,9 @@ class Conversation(BaseModel, Generic[T]):
             "response_format_path": _response_format_path(request.response_format),
             "effective_system_prompt": effective_options.system_prompt if effective_options is not None else None,
             "model_options": self.model_options.model_dump(mode="json") if self.model_options is not None else None,
-            "effective_model_options": effective_options.model_dump(mode="json") if effective_options is not None else None,
+            "effective_model_options": effective_options.model_dump(mode="json")
+            if effective_options is not None
+            else None,
             "citations": tuple(citation.model_dump(mode="json") for citation in response.citations),
             "enable_substitutor": self.enable_substitutor,
             "extract_result_tags": self.extract_result_tags,

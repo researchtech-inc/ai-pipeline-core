@@ -74,9 +74,8 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# claude, codex, and cursor (track hooks and settings, ignore the rest)
+# claude, codex, and cursor (track settings, ignore the rest)
 .claude/*
-!.claude/hooks/
 !.claude/settings.json
 .codex/*
 !.codex/config.toml

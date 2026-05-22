@@ -141,7 +141,9 @@ async def test_execute_repair_succeeds_on_second_round(monkeypatch: pytest.Monke
     assert result.response.answer == "good"
     assert len(captured) == 2
     # Second call's messages must include the repair USER message after the failing assistant message.
-    second_call_text = "\n".join(message.content if isinstance(message.content, str) else "" for message in captured[1].messages)
+    second_call_text = "\n".join(
+        message.content if isinstance(message.content, str) else "" for message in captured[1].messages
+    )
     assert "did not satisfy the contract validation" in second_call_text
     assert "answer must not be 'bad'" in second_call_text
 
@@ -426,7 +428,11 @@ async def test_execute_methodologies_render_into_user_reference_section(monkeypa
     # No SYSTEM message — contracts no longer emit a system block.
     assert all(message.role.value != "system" for message in captured[0].messages)
 
-    user_payload = "\n".join(message.content if isinstance(message.content, str) else "" for message in captured[0].messages if message.role.value == "user")
+    user_payload = "\n".join(
+        message.content if isinstance(message.content, str) else ""
+        for message in captured[0].messages
+        if message.role.value == "user"
+    )
     assert "# Reference: Step By Step" in user_payload
     assert "step by step" in user_payload.lower()
 
@@ -571,7 +577,9 @@ def test_validation_spec_is_constructed_with_default_max() -> None:
     from ai_pipeline_core._llm_core.request import ValidationSpec
     from ai_pipeline_core.settings import settings as core_settings
 
-    spec = ValidationSpec(validate=TrivialPassContract().validate, max_attempts=core_settings.prompt_contract_max_repair)
+    spec = ValidationSpec(
+        validate=TrivialPassContract().validate, max_attempts=core_settings.prompt_contract_max_repair
+    )
     assert spec.max_attempts == core_settings.prompt_contract_max_repair
 
 
@@ -742,7 +750,9 @@ async def test_engine_result_carries_repair_attempt_count(monkeypatch: pytest.Mo
 
     # No validation → repair_attempt_count must be 0.
     _patch_generate(monkeypatch, [_make_structured_response(ContractAnswer(answer="ok"))])
-    req = InteractionRequest(messages=(CoreMessage(role=Role.USER, content="hi"),), model=DEFAULT_TEST_MODEL, response_format=ContractAnswer)
+    req = InteractionRequest(
+        messages=(CoreMessage(role=Role.USER, content="hi"),), model=DEFAULT_TEST_MODEL, response_format=ContractAnswer
+    )
     result = await execute_interaction(req)
     assert result.repair_attempt_count == 0
 
@@ -860,7 +870,11 @@ async def test_user_message_omits_substitutor_instruction_when_no_patterns(monke
     captured = _patch_generate(monkeypatch, [_make_structured_response(ContractAnswer(answer="ok"))])
     await TrivialPassContract().execute(DEFAULT_TEST_MODEL)
 
-    user_text = "\n".join(message.content if isinstance(message.content, str) else "" for message in captured[0].messages if message.role.value == "user")
+    user_text = "\n".join(
+        message.content if isinstance(message.content, str) else ""
+        for message in captured[0].messages
+        if message.role.value == "user"
+    )
     assert _SUBSTITUTOR_INSTRUCTION not in user_text
 
 
@@ -873,7 +887,11 @@ async def test_user_message_includes_substitutor_instruction_when_active(monkeyp
     long_url = "https://example.com/etherscan/tx/0x8ccd766e39a2fba8c43eb4329bac734165a4237df34884059739ed8a874111e1?source=research-2026"
     await _SubstitutorTestContract(long_url=long_url).execute(DEFAULT_TEST_MODEL)
 
-    user_text = "\n".join(message.content if isinstance(message.content, str) else "" for message in captured[0].messages if message.role.value == "user")
+    user_text = "\n".join(
+        message.content if isinstance(message.content, str) else ""
+        for message in captured[0].messages
+        if message.role.value == "user"
+    )
     assert "# Notation" in user_text
     assert _SUBSTITUTOR_INSTRUCTION in user_text
 

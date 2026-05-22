@@ -208,6 +208,10 @@ def test_database_reader_method_signatures() -> None:
 
 def test_database_writer_method_signatures() -> None:
     _assert_signature(DatabaseWriter, "insert_span", parameter_types={"span": SpanRecord}, return_type=type(None))
-    _assert_signature(DatabaseWriter, "save_document", parameter_types={"record": DocumentRecord}, return_type=type(None))
+    _assert_signature(
+        DatabaseWriter, "save_document", parameter_types={"record": DocumentRecord}, return_type=type(None)
+    )
     _assert_signature(DatabaseWriter, "save_blob", parameter_types={"blob": _BlobRecord}, return_type=type(None))
-    _assert_signature(DatabaseWriter, "save_logs_batch", parameter_types={"logs": list[LogRecord]}, return_type=type(None))
+    _assert_signature(
+        DatabaseWriter, "save_logs_batch", parameter_types={"logs": list[LogRecord]}, return_type=type(None)
+    )

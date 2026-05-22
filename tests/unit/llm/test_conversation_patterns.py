@@ -49,7 +49,9 @@ async def test_warmup_then_parallel_forks(monkeypatch):
     assert len(fork_calls) == 2
     for call in fork_calls:
         assistant_msgs = [m for m in call if m.role == Role.ASSISTANT]
-        assert any("Answer: Acknowledge the context." in m.content for m in assistant_msgs if isinstance(m.content, str))
+        assert any(
+            "Answer: Acknowledge the context." in m.content for m in assistant_msgs if isinstance(m.content, str)
+        )
 
 
 @pytest.mark.ai_docs
@@ -115,7 +117,11 @@ class GetWeather(Tool):
 @pytest.mark.ai_docs
 @pytest.mark.asyncio
 async def test_send_with_tools_auto_loop(monkeypatch):
-    """Tools enable the LLM to call functions. Conversation.send() auto-loops: call LLM → execute tools → re-send results until LLM produces a final answer."""
+    """Tools enable the LLM to call functions.
+
+    Conversation.send() auto-loops: call LLM → execute tools → re-send results until LLM
+    produces a final answer.
+    """
 
     # Mock LLM: first call requests tool use, second returns final answer
     call_count = 0

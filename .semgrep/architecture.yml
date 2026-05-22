@@ -72,16 +72,6 @@ rules:
     paths:
       include: ["ai_pipeline_core/"]
 
-  - id: no-deprecation-warnings
-    pattern-either:
-      - pattern: warnings.warn(..., DeprecationWarning, ...)
-      - pattern: warnings.warn(..., PendingDeprecationWarning, ...)
-    message: "Deprecation warnings are forbidden — remove the deprecated code path entirely"
-    severity: ERROR
-    languages: [python]
-    paths:
-      include: ["ai_pipeline_core/"]
-
   - id: no-function-local-replayable-models
     patterns:
       - pattern-inside: |

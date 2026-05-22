@@ -50,11 +50,8 @@ check:
 	@dev check
 
 # ---------------------------------------------------------------------------
-# Targets that remain Make-native (not test/lint commands)
+# Maintenance helpers (not quality gates)
 # ---------------------------------------------------------------------------
-
-check-claude-md:
-	python scripts/check_claude_md_symbols.py
 
 # File size limits: 500 lines warning, 1000 lines error (excluding blanks and comments)
 .PHONY: filesize
@@ -72,11 +69,6 @@ filesize:
 	done; \
 	exit $$error
 
-.PHONY: duplicates
-duplicates:
-	@echo "Checking for duplicate code..."
-	@pylint --disable=all --enable=duplicate-code ai_pipeline_core/ || true
-
 # Export discipline: public modules with public symbols should define __all__
 .PHONY: exports
 exports:
@@ -86,11 +78,6 @@ exports:
 			echo "Advisory: Missing __all__: $$f"; \
 		fi; \
 	done
-
-# Run all code hygiene checks
-.PHONY: hygiene
-hygiene: filesize duplicates exports
-	@echo "Code hygiene checks completed"
 
 .PHONY: clean
 clean:

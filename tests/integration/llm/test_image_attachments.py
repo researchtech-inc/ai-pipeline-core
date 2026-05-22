@@ -143,7 +143,9 @@ class TestImageSplittingIntegration:
         cost_budget.add(conv)
         words_upper = [w.upper() for w in conv.parsed.words]
         # Must read at least most of the words across split tiles
-        found = sum(1 for w in ["GOLF", "HOTEL", "INDIA", "JULIET", "KILO", "LIMA", "MIKE", "NOVEMBER"] if w in words_upper)
+        found = sum(
+            1 for w in ["GOLF", "HOTEL", "INDIA", "JULIET", "KILO", "LIMA", "MIKE", "NOVEMBER"] if w in words_upper
+        )
         assert found >= 6, f"Expected at least 6 of 8 words readable, got {found}: {words_upper}"
         assert api_part_counts(transport_spy.recorded_calls[0].messages).get("image_url", 0) >= 2
 
@@ -166,5 +168,7 @@ class TestImageSplittingIntegration:
         )
 
         words_upper = [w.upper() for w in conv.parsed.words]
-        found = sum(1 for w in ["OSCAR", "PAPA", "QUEBEC", "ROMEO", "SIERRA", "TANGO", "UNIFORM", "VICTOR"] if w in words_upper)
+        found = sum(
+            1 for w in ["OSCAR", "PAPA", "QUEBEC", "ROMEO", "SIERRA", "TANGO", "UNIFORM", "VICTOR"] if w in words_upper
+        )
         assert found >= 6, f"Expected at least 6 of 8 words readable, got {found}: {words_upper}"

@@ -73,7 +73,9 @@ def assert_output_types(documents: tuple[Document, ...] | Sequence[Document], *e
     """Assert the document collection contains at least one of each expected type."""
     for doc_type in expected_types:
         matches = [d for d in documents if isinstance(d, doc_type)]
-        assert matches, f"Expected at least one {doc_type.__name__} in output, got: {[type(d).__name__ for d in documents]}"
+        assert matches, (
+            f"Expected at least one {doc_type.__name__} in output, got: {[type(d).__name__ for d in documents]}"
+        )
 
 
 def assert_valid_parsed(conversation: Any, expected_type: type[BaseModel] | None = None) -> None:
@@ -102,6 +104,7 @@ def assert_cost_under(conversation: Any, ceiling_usd: float) -> None:
     if cost is None:
         cost = getattr(conversation, "cost_usd", None)
     assert cost is not None, (
-        f"No cost information found on {type(conversation).__name__}. Pass a Conversation object that has completed at least one send() call."
+        f"No cost information found on {type(conversation).__name__}. "
+        "Pass a Conversation object that has completed at least one send() call."
     )
     assert cost <= ceiling_usd, f"Cost ${cost:.4f} exceeds ceiling ${ceiling_usd:.4f}"

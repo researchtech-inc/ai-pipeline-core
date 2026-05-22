@@ -110,9 +110,11 @@ async def _probe_prefect_for_root(
         return PrefectProbeResult(
             kind=PrefectProbeKind.MISSING_LINK,
             message=(
-                f"Reconciler found root span `{root.span_id}` with no `prefect_flow_run_id` in `meta_json`. "
-                "Leaving the span untouched because there is no orchestrator record to verify. "
-                "Re-run with `ai-trace recover --i-accept-nondeterministic-reconciliation` only after operator investigation."
+                f"Reconciler found root span `{root.span_id}` with no `prefect_flow_run_id` "
+                "in `meta_json`. Leaving the span untouched because there is no orchestrator "
+                "record to verify. Re-run with "
+                "`ai-trace recover --i-accept-nondeterministic-reconciliation` only after "
+                "operator investigation."
             ),
             updated_at=None,
             raw_flow_run=None,
@@ -124,10 +126,11 @@ async def _probe_prefect_for_root(
         return PrefectProbeResult(
             kind=PrefectProbeKind.NOT_FOUND,
             message=(
-                f"Reconciler found root span `{root.span_id}` whose Prefect flow run `{flow_run_id}` returned ObjectNotFound. "
-                "This may be a genuinely deleted run or a transient Prefect API failure. "
-                "Leaving the span untouched. Run `ai-trace recover --i-accept-nondeterministic-reconciliation` "
-                "to force wall-clock reconciliation."
+                f"Reconciler found root span `{root.span_id}` whose Prefect flow run "
+                f"`{flow_run_id}` returned ObjectNotFound. This may be a genuinely deleted "
+                "run or a transient Prefect API failure. Leaving the span untouched. "
+                "Run `ai-trace recover --i-accept-nondeterministic-reconciliation` to force "
+                "wall-clock reconciliation."
             ),
             updated_at=None,
             raw_flow_run=None,
@@ -137,7 +140,8 @@ async def _probe_prefect_for_root(
             kind=PrefectProbeKind.TRANSIENT_ERROR,
             message=(
                 f"Orphan reaper: Prefect lookup failed for root span `{root.span_id}`: {exc}. "
-                "Leaving the span untouched to avoid false positives. Fix Prefect connectivity or auth and retry reconciliation."
+                "Leaving the span untouched to avoid false positives. "
+                "Fix Prefect connectivity or auth and retry reconciliation."
             ),
             updated_at=None,
             raw_flow_run=None,
@@ -183,7 +187,11 @@ def _decide_reconcile_action(
 
 
 def _updated_meta_json(span: SpanRecord, *, reason: str, error_code: ErrorCode | None) -> str:
-    meta = parse_json_object(span.meta_json, context=f"Span {span.span_id}", field_name="meta_json") if span.meta_json else {}
+    meta = (
+        parse_json_object(span.meta_json, context=f"Span {span.span_id}", field_name="meta_json")
+        if span.meta_json
+        else {}
+    )
     meta["reconcile_reason"] = reason
     if error_code is not None:
         meta["error_code"] = error_code
@@ -258,7 +266,9 @@ async def recover_orphaned_spans(
             "the env var must also be set explicitly by the operator)."
         )
 
-    manual_fallback_hours = fallback_max_hours if fallback_max_hours is not None else _MANUAL_RECONCILIATION_FALLBACK_MAX_HOURS
+    manual_fallback_hours = (
+        fallback_max_hours if fallback_max_hours is not None else _MANUAL_RECONCILIATION_FALLBACK_MAX_HOURS
+    )
     running_roots = await database.list_running_deployment_roots(limit=_RUNNING_ROOT_SCAN_LIMIT)
     now = datetime.now(UTC)
     reconciled_roots: list[UUID] = []

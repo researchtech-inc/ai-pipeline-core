@@ -130,7 +130,8 @@ def _document_to_content_parts(doc: Document, preset: ImagePreset) -> list[Conte
         return parts
 
     logger.warning(
-        "Skipping unsupported document '%s' with MIME type '%s'. Use a text, image, or PDF Document subclass for LLM context.",
+        "Skipping unsupported document '%s' with MIME type '%s'. "
+        "Use a text, image, or PDF Document subclass for LLM context.",
         doc.name,
         doc.mime_type,
     )
@@ -151,7 +152,9 @@ def _build_attachment_content(attachment: Any) -> str | None:
         return None
 
     escaped_name = _escape_xml_metadata(attachment.name)
-    description_attr = f' description="{_escape_xml_metadata(attachment.description)}"' if attachment.description else ""
+    description_attr = (
+        f' description="{_escape_xml_metadata(attachment.description)}"' if attachment.description else ""
+    )
     attachment_text = _escape_xml_content(attachment.content.decode("utf-8"))
     return f'<attachment name="{escaped_name}"{description_attr}>\n{attachment_text}\n</attachment>\n'
 
@@ -160,7 +163,9 @@ def _build_attachment_parts(attachment: Any, preset: ImagePreset) -> list[Conten
     """Build content parts for one attachment."""
     parts: list[ContentPart] = []
     escaped_name = _escape_xml_metadata(attachment.name)
-    description_attr = f' description="{_escape_xml_metadata(attachment.description)}"' if attachment.description else ""
+    description_attr = (
+        f' description="{_escape_xml_metadata(attachment.description)}"' if attachment.description else ""
+    )
     attachment_open = f'<attachment name="{escaped_name}"{description_attr}>\n'
 
     if attachment.is_text:
@@ -177,7 +182,9 @@ def _build_attachment_parts(attachment: Any, preset: ImagePreset) -> list[Conten
         return parts
 
     if attachment.is_image or attachment.is_pdf:
-        binary_parts = validated_binary_parts(attachment.content, attachment.name, is_image=attachment.is_image, preset=preset)
+        binary_parts = validated_binary_parts(
+            attachment.content, attachment.name, is_image=attachment.is_image, preset=preset
+        )
         if binary_parts is None:
             return []
         parts.append(TextContent(text=attachment_open))
@@ -186,7 +193,8 @@ def _build_attachment_parts(attachment: Any, preset: ImagePreset) -> list[Conten
         return parts
 
     logger.warning(
-        "Skipping unsupported attachment '%s' with MIME type '%s'. Use a text, image, or PDF attachment for LLM context.",
+        "Skipping unsupported attachment '%s' with MIME type '%s'. "
+        "Use a text, image, or PDF attachment for LLM context.",
         attachment.name,
         attachment.mime_type,
     )

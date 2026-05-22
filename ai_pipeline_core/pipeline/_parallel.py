@@ -112,7 +112,9 @@ async def collect_tasks(
 
     completed: list[tuple[Document[Any], ...]] = []
     incomplete: list[TaskHandle[tuple[Document[Any], ...]]] = []
-    by_task: dict[asyncio.Task[tuple[Document[Any], ...]], TaskHandle[tuple[Document[Any], ...]]] = {handle._task: handle for handle in ordered_handles}
+    by_task: dict[asyncio.Task[tuple[Document[Any], ...]], TaskHandle[tuple[Document[Any], ...]]] = {
+        handle._task: handle for handle in ordered_handles
+    }
     pending: set[asyncio.Task[tuple[Document[Any], ...]]] = set(by_task.keys())
     deadline_at = (time.monotonic() + deadline_seconds) if deadline_seconds is not None else None
 
@@ -143,7 +145,9 @@ async def as_task_completed(*handles: TaskAwaitableGroup) -> AsyncIterator[TaskH
     if not ordered_handles:
         return
 
-    by_task: dict[asyncio.Task[tuple[Document[Any], ...]], TaskHandle[tuple[Document[Any], ...]]] = {handle._task: handle for handle in ordered_handles}
+    by_task: dict[asyncio.Task[tuple[Document[Any], ...]], TaskHandle[tuple[Document[Any], ...]]] = {
+        handle._task: handle for handle in ordered_handles
+    }
     pending: set[asyncio.Task[tuple[Document[Any], ...]]] = set(by_task.keys())
     while pending:
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)

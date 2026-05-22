@@ -40,7 +40,9 @@ class TestResolveFlowRetries:
 
             retries = 5
 
-            async def run(self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
+            async def run(
+                self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions
+            ) -> tuple[_SettingsOutputDoc, ...]:
                 _ = options
                 return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
@@ -66,7 +68,9 @@ class TestResolveFlowRetries:
 
             retries = 0
 
-            async def run(self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
+            async def run(
+                self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions
+            ) -> tuple[_SettingsOutputDoc, ...]:
                 _ = options
                 return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 
@@ -82,7 +86,9 @@ class TestResolveFlowRetryDelay:
 
             retry_delay_seconds = 10
 
-            async def run(self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions) -> tuple[_SettingsOutputDoc, ...]:
+            async def run(
+                self, input_docs: tuple[_SettingsInputDoc, ...], options: FlowOptions
+            ) -> tuple[_SettingsOutputDoc, ...]:
                 _ = options
                 return (_SettingsOutputDoc.derive(derived_from=input_docs, name="out.txt", content="ok"),)
 

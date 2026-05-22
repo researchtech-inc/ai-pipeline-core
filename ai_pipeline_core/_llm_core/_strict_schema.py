@@ -106,7 +106,11 @@ def _apply_object_strictness(schema: JsonSchema) -> None:
 
 
 def _reject_dynamic_key_objects(node: JsonSchema, context: str, path: str) -> None:
-    if node.get("type") == "object" and isinstance(node.get("additionalProperties"), dict) and not node.get("properties"):
+    if (
+        node.get("type") == "object"
+        and isinstance(node.get("additionalProperties"), dict)
+        and not node.get("properties")
+    ):
         raise TypeError(
             f"{context} has a dict type at '{path}' which is incompatible with OpenAI strict mode. "
             "dict[str, V] produces dynamic-key objects that cannot be represented in strict-mode JSON schemas. "

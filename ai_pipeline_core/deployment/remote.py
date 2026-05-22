@@ -216,7 +216,8 @@ async def _submit_remote_flow_run(
 
             delay_seconds = _submission_retry_delay_seconds(attempt_number)
             logger.warning(
-                "Remote deployment '%s' submission attempt %d/%d failed%s. Retrying in %.1fs with idempotency key '%s'.",
+                "Remote deployment '%s' submission attempt %d/%d failed%s. "
+                "Retrying in %.1fs with idempotency key '%s'.",
                 deployment_name,
                 attempt_number,
                 _MAX_SUBMISSION_ATTEMPTS,
@@ -226,7 +227,9 @@ async def _submit_remote_flow_run(
             )
             await asyncio.sleep(delay_seconds)
 
-    raise RemoteDeploymentSubmissionError(f"Remote deployment '{deployment_name}' submission exhausted all retry attempts unexpectedly.") from last_error
+    raise RemoteDeploymentSubmissionError(
+        f"Remote deployment '{deployment_name}' submission exhausted all retry attempts unexpectedly."
+    ) from last_error
 
 
 async def _submit_and_poll_remote_flow_run(
@@ -297,7 +300,9 @@ async def _publish_remote_task_terminal(
 ) -> None:
     if publisher is None or flow_frame is None:
         return
-    publish_method = publisher.publish_task_completed if isinstance(event, TaskCompletedEvent) else publisher.publish_task_failed
+    publish_method = (
+        publisher.publish_task_completed if isinstance(event, TaskCompletedEvent) else publisher.publish_task_failed
+    )
     try:
         await publish_method(event)
     except (OSError, RuntimeError, ValueError, TypeError) as exc:  # fmt: skip
@@ -331,14 +336,19 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         # Extract Generic params: (TOptions, TResult)
         generic_args = extract_generic_params(cls, RemoteDeployment)
         if len(generic_args) < 2:
-            raise TypeError(f"{cls.__name__} must specify 2 Generic parameters: class {cls.__name__}(RemoteDeployment[OptionsType, ResultType])")
+            raise TypeError(
+                f"{cls.__name__} must specify 2 Generic parameters: "
+                f"class {cls.__name__}(RemoteDeployment[OptionsType, ResultType])"
+            )
 
         options_type, result_type = generic_args[0], generic_args[1]
 
         if not isinstance(options_type, type) or not issubclass(options_type, FlowOptions):
             raise TypeError(f"{cls.__name__}: first Generic param must be a FlowOptions subclass, got {options_type}")
         if not isinstance(result_type, type) or not issubclass(result_type, DeploymentResult):
-            raise TypeError(f"{cls.__name__}: second Generic param must be a DeploymentResult subclass, got {result_type}")
+            raise TypeError(
+                f"{cls.__name__}: second Generic param must be a DeploymentResult subclass, got {result_type}"
+            )
 
         cls.options_type = options_type
         cls.result_type = result_type
@@ -358,7 +368,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         """Import the actual PipelineDeployment class for inline execution."""
         if not self.deployment_class:
             raise ValueError(
-                f"{type(self).__name__}.deployment_class is not set. Set deployment_class = 'module.path:ClassName' to enable inline/test execution."
+                f"{type(self).__name__}.deployment_class is not set. "
+                "Set deployment_class = 'module.path:ClassName' to enable inline/test execution."
             )
         module_path, class_name = self.deployment_class.rsplit(":", 1)
         module = _import_module_by_name(module_path)
@@ -388,7 +399,9 @@ class RemoteDeployment(Generic[TOptions, TResult]):
 
         subtask_span_id = uuid7()
         parent_span_id = (exec_ctx.current_span_id or deployment_id) if exec_ctx is not None else deployment_id
-        sequence_no = exec_ctx.next_child_sequence(parent_span_id) if exec_ctx is not None and parent_span_id is not None else 0
+        sequence_no = (
+            exec_ctx.next_child_sequence(parent_span_id) if exec_ctx is not None and parent_span_id is not None else 0
+        )
         deployment_name = exec_ctx.deployment_name if exec_ctx is not None else ""
 
         # Determine backend mode

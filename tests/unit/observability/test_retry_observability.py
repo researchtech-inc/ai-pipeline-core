@@ -1,5 +1,9 @@
 # pyright: reportPrivateUsage=false
-"""Tests for retry observability: ATTEMPT spans, retry error recording, tree rendering, event reconstruction, and replay exclusion."""
+"""Tests for retry observability.
+
+Covers ATTEMPT spans, retry error recording, tree rendering, event reconstruction,
+and replay exclusion.
+"""
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -200,7 +204,10 @@ class _FailOnceFlow(PipelineFlow):
         _FailOnceFlow._attempt_count += 1
         if _FailOnceFlow._attempt_count == 1:
             raise RuntimeError("flow transient failure")
-        return tuple(_RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok") for i, doc in enumerate(input_docs))
+        return tuple(
+            _RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok")
+            for i, doc in enumerate(input_docs)
+        )
 
 
 class _AlwaysFailFlow(PipelineFlow):
@@ -221,7 +228,10 @@ class _NoRetryFailTask(PipelineTask):
 class _NoRetryFlow(PipelineFlow):
     async def run(self, input_docs: tuple[_RetryInputDoc, ...], options: FlowOptions) -> tuple[_RetryOutputDoc, ...]:
         _ = options
-        return tuple(_RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok") for i, doc in enumerate(input_docs))
+        return tuple(
+            _RetryOutputDoc.derive(derived_from=(doc,), name=f"out-{i}.txt", content="ok")
+            for i, doc in enumerate(input_docs)
+        )
 
 
 class _NoRetryConvTask(PipelineTask):
@@ -474,7 +484,9 @@ class TestTaskRetryAttemptSpans:
             with pytest.raises(RuntimeError):
                 await _AlwaysFailTask.run((_make_input(),))
 
-        failed_attempts = [s for s in database._spans.values() if s.kind == SpanKind.ATTEMPT and s.status == SpanStatus.FAILED]
+        failed_attempts = [
+            s for s in database._spans.values() if s.kind == SpanKind.ATTEMPT and s.status == SpanStatus.FAILED
+        ]
         assert len(failed_attempts) == 3
         for span in failed_attempts:
             assert span.error_json, f"ATTEMPT span {span.span_id} has empty error_json"
@@ -752,7 +764,14 @@ class TestEventReconstruction:
             ended_at=t0 + timedelta(seconds=20),
             meta_json=json.dumps({
                 "deployment_class": "TestPipeline",
-                "flow_plan": [{"name": "Flow1", "flow_class": "TestFlow", "step": 1, "expected_tasks": [{"name": "Task1", "estimated_minutes": 1.0}]}],
+                "flow_plan": [
+                    {
+                        "name": "Flow1",
+                        "flow_class": "TestFlow",
+                        "step": 1,
+                        "expected_tasks": [{"name": "Task1", "estimated_minutes": 1.0}],
+                    }
+                ],
             }),
         )
         flow = _make_span_record(
@@ -765,7 +784,11 @@ class TestEventReconstruction:
             started_at=t0 + timedelta(seconds=1),
             ended_at=t0 + timedelta(seconds=15),
             target="classmethod:mod:TestFlow.run",
-            meta_json=json.dumps({"step": 1, "total_steps": 1, "expected_tasks": [{"name": "Task1", "estimated_minutes": 1.0}]}),
+            meta_json=json.dumps({
+                "step": 1,
+                "total_steps": 1,
+                "expected_tasks": [{"name": "Task1", "estimated_minutes": 1.0}],
+            }),
         )
         attempt = _make_span_record(
             span_id=uuid4(),
@@ -1078,7 +1101,9 @@ class TestFlowRetryAttemptSpans:
                     parent_span_ctx=parent_ctx,
                 )
 
-        failed_attempts = [s for s in database._spans.values() if s.kind == SpanKind.ATTEMPT and s.status == SpanStatus.FAILED]
+        failed_attempts = [
+            s for s in database._spans.values() if s.kind == SpanKind.ATTEMPT and s.status == SpanStatus.FAILED
+        ]
         assert len(failed_attempts) == 2
         for span in failed_attempts:
             assert span.error_json, f"ATTEMPT span {span.span_id} has empty error_json"

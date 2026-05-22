@@ -78,15 +78,6 @@ rules:
       exclude:
         - "**/tests/**"
 
-  # Rule: No __import__() calls — use importlib.import_module() instead
-  - id: no-dunder-import
-    pattern: __import__(...)
-    message: "Do not use __import__(). Use importlib.import_module() instead."
-    severity: ERROR
-    languages: [python]
-    paths:
-      include: ["ai_pipeline_core/"]
-
   # Note: Silent exception handling is enforced by ruff BLE001/S110/E722
   # Semgrep pattern for except blocks doesn't parse correctly, so we rely on ruff
 

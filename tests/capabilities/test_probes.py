@@ -165,7 +165,9 @@ def _eval_images(response: ModelResponse[Any]) -> tuple[bool, str]:
 def _pdfs_request(model: AIModel) -> LLMRequest:
     pdf_bytes = pdf_with_marker(_PDF_MARKER)
     pdf = PDFContent(data=base64.b64encode(pdf_bytes), filename="probe.pdf")
-    text = TextContent(text="Read the attached PDF and reply with only the marker token (the marker starts with 'CAPMARK-').")
+    text = TextContent(
+        text="Read the attached PDF and reply with only the marker token (the marker starts with 'CAPMARK-')."
+    )
     return _build_request(
         model,
         (CoreMessage(role=Role.USER, content=(text, pdf)),),

@@ -58,7 +58,9 @@ def _utcnow() -> datetime:
 
 def _validate_string_tuple(field_name: str, values: object) -> None:
     if not isinstance(values, tuple):
-        msg = f"{field_name} must be a tuple[str, ...]. Pass a tuple like ('sha1', 'sha2'), not {type(values).__name__}."
+        msg = (
+            f"{field_name} must be a tuple[str, ...]. Pass a tuple like ('sha1', 'sha2'), not {type(values).__name__}."
+        )
         raise TypeError(msg)
     if not all(isinstance(value, str) for value in values):
         msg = f"{field_name} must contain only strings. Convert all values to str before constructing the record."
@@ -221,7 +223,10 @@ class _BlobRecord:
 
 @dataclass(frozen=True, slots=True)
 class CostTotals:
-    """Aggregated cost and token totals for a deployment. Cost includes all span kinds, token counts include llm_round spans only."""
+    """Aggregated cost and token totals for a deployment.
+
+    Cost includes all span kinds; token counts include llm_round spans only.
+    """
 
     cost_usd: float = 0.0
     tokens_input: int = 0

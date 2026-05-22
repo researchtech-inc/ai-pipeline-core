@@ -167,8 +167,12 @@ class TestEmptySystemBlock:
         context = (doc,)
         messages = (UserMessage("q"),)
 
-        msgs_none, count_none = await assemble_api_messages(system_block=None, context=context, messages=messages, model=DEFAULT_TEST_MODEL, substitutor=None)
-        msgs_empty, count_empty = await assemble_api_messages(system_block="", context=context, messages=messages, model=DEFAULT_TEST_MODEL, substitutor=None)
+        msgs_none, count_none = await assemble_api_messages(
+            system_block=None, context=context, messages=messages, model=DEFAULT_TEST_MODEL, substitutor=None
+        )
+        msgs_empty, count_empty = await assemble_api_messages(
+            system_block="", context=context, messages=messages, model=DEFAULT_TEST_MODEL, substitutor=None
+        )
 
         assert msgs_none == msgs_empty
         assert count_none == count_empty == 1

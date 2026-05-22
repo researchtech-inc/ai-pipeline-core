@@ -59,7 +59,8 @@ class LimitKind(StrEnum):
 class PipelineLimit:
     """Concurrency/rate limit configuration.
 
-    Must use names matching ``[a-zA-Z0-9_-]+`` in PipelineDeployment.concurrency_limits (validated at class definition time).
+    Must use names matching ``[a-zA-Z0-9_-]+`` in PipelineDeployment.concurrency_limits
+    (validated at class definition time).
     """
 
     limit: int
@@ -133,7 +134,10 @@ async def pipeline_concurrency(
     cfg = state.limits.get(name)
     if cfg is None:
         available = ", ".join(sorted(state.limits)) or "(none)"
-        raise KeyError(f"pipeline_concurrency({name!r}) not registered. Available limits: {available}. Declare it on PipelineDeployment.concurrency_limits.")
+        raise KeyError(
+            f"pipeline_concurrency({name!r}) not registered. Available limits: {available}. "
+            "Declare it on PipelineDeployment.concurrency_limits."
+        )
 
     # Prefect unavailable — proceed unthrottled
     if not state.status.prefect_available:
@@ -231,9 +235,14 @@ def _validate_concurrency_limits(
         if not _VALID_LIMIT_NAME.match(name):
             raise TypeError(f"{deployment_name}.concurrency_limits: invalid name '{name}'. Must match [a-zA-Z0-9_-]+")
         if not isinstance(config, PipelineLimit):  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise TypeError(f"{deployment_name}.concurrency_limits['{name}'] must be PipelineLimit, got {type(config).__name__}")
+            raise TypeError(
+                f"{deployment_name}.concurrency_limits['{name}'] must be PipelineLimit, got {type(config).__name__}"
+            )
         if not isinstance(config.kind, LimitKind):  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise TypeError(f"{deployment_name}.concurrency_limits['{name}'].kind must be LimitKind, got {type(config.kind).__name__}")
+            raise TypeError(
+                f"{deployment_name}.concurrency_limits['{name}'].kind must be LimitKind, "
+                f"got {type(config.kind).__name__}"
+            )
     return MappingProxyType(dict(raw))
 
 

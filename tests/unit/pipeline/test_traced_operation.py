@@ -163,8 +163,12 @@ async def test_nested_traced_operations_form_parent_child_hierarchy() -> None:
             assert get_execution_context() is not None
             assert get_sinks() == outer_sinks
 
-    outer_span = next(span for span in database._spans.values() if span.kind == SpanKind.OPERATION and span.name == "outer")
-    inner_span = next(span for span in database._spans.values() if span.kind == SpanKind.OPERATION and span.name == "inner")
+    outer_span = next(
+        span for span in database._spans.values() if span.kind == SpanKind.OPERATION and span.name == "outer"
+    )
+    inner_span = next(
+        span for span in database._spans.values() if span.kind == SpanKind.OPERATION and span.name == "inner"
+    )
     assert outer_span.parent_span_id == ctx.flow_span_id
     assert inner_span.parent_span_id == outer_span.span_id
 

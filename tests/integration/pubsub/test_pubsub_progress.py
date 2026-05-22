@@ -34,7 +34,9 @@ class TestNoopPublisherHeartbeat:
         """_NoopPublisher accepts arbitrary run_id values when routing fields are present."""
         publisher = _NoopPublisher()
         await publisher.publish_heartbeat("", root_deployment_id="root-empty", span_id="span-empty")
-        await publisher.publish_heartbeat("run-with-special-chars-!@#$", root_deployment_id="root-special", span_id="span-special")
+        await publisher.publish_heartbeat(
+            "run-with-special-chars-!@#$", root_deployment_id="root-special", span_id="span-special"
+        )
 
 
 class TestMemoryPublisherHeartbeat:
@@ -126,7 +128,9 @@ class TestHeartbeatCloudEventsEnvelope:
         """publish_heartbeat() builds envelope with RUN_HEARTBEAT type and publishes it."""
         publisher._publish = AsyncMock()  # type: ignore[assignment]  # test mock attribute injection
 
-        await publisher.publish_heartbeat("run-full-test", root_deployment_id="root-full-test", span_id="span-full-test")
+        await publisher.publish_heartbeat(
+            "run-full-test", root_deployment_id="root-full-test", span_id="span-full-test"
+        )
 
         publisher._publish.assert_called_once()  # type: ignore[union-attr]  # narrowed by prior assertion
         call_args = publisher._publish.call_args  # type: ignore[union-attr]  # narrowed by prior assertion

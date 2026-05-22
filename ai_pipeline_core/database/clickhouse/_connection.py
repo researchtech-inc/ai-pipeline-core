@@ -73,7 +73,8 @@ async def _ensure_schema(client: AsyncClient, database: str) -> None:
             for ddl in DDL_STATEMENTS:
                 await client.command(ddl)
             await client.command(
-                f"INSERT INTO {SCHEMA_META_TABLE} (version, applied_at, framework_version) VALUES ({{version:UInt32}}, now64(3), {{fw:String}})",
+                f"INSERT INTO {SCHEMA_META_TABLE} (version, applied_at, framework_version) "
+                "VALUES ({version:UInt32}, now64(3), {fw:String})",
                 parameters={"version": SCHEMA_VERSION, "fw": fw_version},
             )
             _schema_state.verified = True
@@ -90,7 +91,8 @@ async def _ensure_schema(client: AsyncClient, database: str) -> None:
             for ddl in DDL_STATEMENTS:
                 await client.command(ddl)
             await client.command(
-                f"INSERT INTO {SCHEMA_META_TABLE} (version, applied_at, framework_version) VALUES ({{version:UInt32}}, now64(3), {{fw:String}})",
+                f"INSERT INTO {SCHEMA_META_TABLE} (version, applied_at, framework_version) "
+                "VALUES ({version:UInt32}, now64(3), {fw:String})",
                 parameters={"version": SCHEMA_VERSION, "fw": fw_version},
             )
             _schema_state.verified = True
@@ -157,7 +159,8 @@ async def _create_client(active_settings: Settings) -> AsyncClient:
                 raise
             delay = backoff_sec * attempt
             logger.warning(
-                "ClickHouse client creation failed (attempt %d/%d), retrying in %ds. This is expected during ClickHouse Cloud cold starts (30-60s wake-up).",
+                "ClickHouse client creation failed (attempt %d/%d), retrying in %ds. "
+                "This is expected during ClickHouse Cloud cold starts (30-60s wake-up).",
                 attempt,
                 max_attempts,
                 delay,

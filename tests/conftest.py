@@ -7,7 +7,6 @@ import subprocess
 import warnings
 from collections.abc import Generator
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,24 +17,7 @@ from ai_pipeline_core.pipeline._execution_context import set_run_context
 from prefect.logging import disable_run_logger
 from prefect.testing.utilities import prefect_test_harness
 
-from dev_cli._lane import LANE_TIMEOUTS, lane_from_path
-
 pytest_plugins = ("tests.support.helpers", "tests.support.model_catalog")
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Apply lane default timeouts unless a test has an explicit timeout marker."""
-    repo_root = Path.cwd().resolve()
-    for item in items:
-        if item.get_closest_marker("timeout") is not None:
-            continue
-        try:
-            relpath = Path(str(item.fspath)).resolve().relative_to(repo_root).as_posix()
-        except ValueError:
-            relpath = Path(str(item.fspath)).as_posix()
-        lane = lane_from_path(relpath)
-        if lane in LANE_TIMEOUTS:
-            item.add_marker(pytest.mark.timeout(LANE_TIMEOUTS[lane]))
 
 
 class _SQLAlchemyConnectionFilter(logging.Filter):
@@ -173,7 +155,9 @@ class _CostBudget:
             response_costs = [message.cost for message in value.messages if isinstance(message, ModelResponse)]
             if response_costs:
                 if any(cost is None for cost in response_costs):
-                    raise AssertionError("Tracked successful integration LLM conversation did not report every round cost.")
+                    raise AssertionError(
+                        "Tracked successful integration LLM conversation did not report every round cost."
+                    )
                 total_cost = sum(float(cost) for cost in response_costs if cost is not None)
                 if total_cost < 0:
                     raise AssertionError(f"Tracked integration cost must be non-negative, got {total_cost}.")

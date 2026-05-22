@@ -155,7 +155,9 @@ class ClickHouseDatabase:
         if self._client is not None:
             return self._client
         if self._circuit_open and now - self._last_reconnect_attempt < _RECONNECT_INTERVAL_SEC:
-            raise ConnectionError("ClickHouse circuit breaker is open. Wait before retrying or restore ClickHouse connectivity.")
+            raise ConnectionError(
+                "ClickHouse circuit breaker is open. Wait before retrying or restore ClickHouse connectivity."
+            )
         self._last_reconnect_attempt = now
         try:
             self._client = await get_async_clickhouse_client(self._settings)
@@ -176,7 +178,9 @@ class ClickHouseDatabase:
             self._client = None
         if self._consecutive_failures >= _FAILURE_THRESHOLD:
             self._circuit_open = True
-            logger.warning("ClickHouse circuit breaker opened after %d consecutive failures", self._consecutive_failures)
+            logger.warning(
+                "ClickHouse circuit breaker opened after %d consecutive failures", self._consecutive_failures
+            )
 
     async def _query(self, sql: str, *, parameters: dict[str, Any] | None = None) -> Any:
         client = await self._ensure_client()
@@ -263,7 +267,8 @@ class ClickHouseDatabase:
 
     async def get_span(self, span_id: UUID) -> SpanRecord | None:
         result = await self._query(
-            f"SELECT {', '.join(SPAN_COLUMNS)} FROM {SPANS_TABLE} WHERE span_id = {{span_id:UUID}} ORDER BY version DESC LIMIT 1",
+            f"SELECT {', '.join(SPAN_COLUMNS)} FROM {SPANS_TABLE} "
+            "WHERE span_id = {span_id:UUID} ORDER BY version DESC LIMIT 1",
             parameters={"span_id": span_id},
         )
         if not result.result_rows:
@@ -760,7 +765,8 @@ class ClickHouseDatabase:
 
     async def get_document(self, document_sha256: str) -> DocumentRecord | None:
         result = await self._query(
-            f"SELECT {', '.join(DOCUMENT_COLUMNS)} FROM {DOCUMENTS_TABLE} FINAL WHERE document_sha256 = {{document_sha256:String}}",
+            f"SELECT {', '.join(DOCUMENT_COLUMNS)} FROM {DOCUMENTS_TABLE} FINAL "
+            "WHERE document_sha256 = {document_sha256:String}",
             parameters={"document_sha256": document_sha256},
         )
         if not result.result_rows:
@@ -772,10 +778,14 @@ class ClickHouseDatabase:
         if not unique_shas:
             return {}
         result = await self._query(
-            f"SELECT {', '.join(DOCUMENT_COLUMNS)} FROM {DOCUMENTS_TABLE} FINAL WHERE document_sha256 IN {{document_sha256s:Array(String)}}",
+            f"SELECT {', '.join(DOCUMENT_COLUMNS)} FROM {DOCUMENTS_TABLE} FINAL "
+            "WHERE document_sha256 IN {document_sha256s:Array(String)}",
             parameters={"document_sha256s": unique_shas},
         )
-        return {document.document_sha256: document for document in (row_to_document(tuple(row)) for row in result.result_rows)}
+        return {
+            document.document_sha256: document
+            for document in (row_to_document(tuple(row)) for row in result.result_rows)
+        }
 
     async def get_document_with_content(self, document_sha256: str) -> HydratedDocument | None:
         record = await self.get_document(document_sha256)
@@ -797,10 +807,13 @@ class ClickHouseDatabase:
         )
 
     async def get_all_document_shas_for_tree(self, root_deployment_id: UUID) -> set[str]:
+        shas_expr = (
+            "arrayDistinct(arrayConcat("
+            "groupUniqArrayArray(s.input_document_shas), "
+            "groupUniqArrayArray(s.output_document_shas))) AS shas"
+        )
         result = await self._query(
-            _root_latest_spans_query(
-                "arrayDistinct(arrayConcat(groupUniqArrayArray(s.input_document_shas), groupUniqArrayArray(s.output_document_shas))) AS shas"
-            ),
+            _root_latest_spans_query(shas_expr),
             parameters={"root_deployment_id": root_deployment_id},
         )
         if not result.result_rows:
@@ -809,7 +822,8 @@ class ClickHouseDatabase:
 
     async def get_blob(self, content_sha256: str) -> _BlobRecord | None:
         result = await self._query(
-            f"SELECT {', '.join(BLOB_SELECT_COLUMNS)} FROM {BLOBS_TABLE} WHERE content_sha256 = {{content_sha256:String}} LIMIT 1",
+            f"SELECT {', '.join(BLOB_SELECT_COLUMNS)} FROM {BLOBS_TABLE} "
+            "WHERE content_sha256 = {content_sha256:String} LIMIT 1",
             parameters={"content_sha256": content_sha256},
         )
         if not result.result_rows:
@@ -821,7 +835,8 @@ class ClickHouseDatabase:
         if not unique_shas:
             return {}
         result = await self._query(
-            f"SELECT {', '.join(BLOB_SELECT_COLUMNS)} FROM {BLOBS_TABLE} WHERE content_sha256 IN {{content_sha256s:Array(String)}}",
+            f"SELECT {', '.join(BLOB_SELECT_COLUMNS)} FROM {BLOBS_TABLE} "
+            "WHERE content_sha256 IN {content_sha256s:Array(String)}",
             parameters={"content_sha256s": unique_shas},
         )
         return {blob.content_sha256: blob for blob in (row_to_blob(tuple(row)) for row in result.result_rows)}
@@ -842,7 +857,8 @@ class ClickHouseDatabase:
             filters.append("category = {category:String}")
             parameters["category"] = category
         result = await self._query(
-            f"SELECT {', '.join(LOG_COLUMNS)} FROM {LOGS_TABLE} WHERE {' AND '.join(filters)} ORDER BY sequence_no, timestamp, span_id",
+            f"SELECT {', '.join(LOG_COLUMNS)} FROM {LOGS_TABLE} "
+            f"WHERE {' AND '.join(filters)} ORDER BY sequence_no, timestamp, span_id",
             parameters=parameters,
         )
         return [row_to_log(tuple(row)) for row in result.result_rows]
@@ -863,7 +879,8 @@ class ClickHouseDatabase:
             filters.append("category = {category:String}")
             parameters["category"] = category
         result = await self._query(
-            f"SELECT {', '.join(LOG_COLUMNS)} FROM {LOGS_TABLE} WHERE {' AND '.join(filters)} ORDER BY timestamp, sequence_no, span_id",
+            f"SELECT {', '.join(LOG_COLUMNS)} FROM {LOGS_TABLE} "
+            f"WHERE {' AND '.join(filters)} ORDER BY timestamp, sequence_no, span_id",
             parameters=parameters,
         )
         return [row_to_log(tuple(row)) for row in result.result_rows]
@@ -886,7 +903,8 @@ class ClickHouseDatabase:
             filters.append("category = {category:String}")
             parameters["category"] = category
         result = await self._query(
-            f"SELECT {', '.join(LOG_COLUMNS)} FROM {LOGS_TABLE} WHERE {' AND '.join(filters)} ORDER BY timestamp, sequence_no, span_id",
+            f"SELECT {', '.join(LOG_COLUMNS)} FROM {LOGS_TABLE} "
+            f"WHERE {' AND '.join(filters)} ORDER BY timestamp, sequence_no, span_id",
             parameters=parameters,
         )
         return [row_to_log(tuple(row)) for row in result.result_rows]

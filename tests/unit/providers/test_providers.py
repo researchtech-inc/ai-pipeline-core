@@ -586,7 +586,10 @@ class TestStatelessPollingProviderCall:
             sleep_durations.append(duration)
             await original_sleep(min(duration, 0.01))
 
-        with patch("ai_pipeline_core.providers.asyncio.sleep", side_effect=recording_sleep), patch("ai_pipeline_core.providers.add_cost"):
+        with (
+            patch("ai_pipeline_core.providers.asyncio.sleep", side_effect=recording_sleep),
+            patch("ai_pipeline_core.providers.add_cost"),
+        ):
             await poller.call("req", wait=10)
 
         assert len(sleep_durations) == 2

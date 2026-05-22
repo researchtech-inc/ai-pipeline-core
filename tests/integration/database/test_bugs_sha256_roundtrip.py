@@ -12,7 +12,9 @@ from ai_pipeline_core.documents.attachment import Attachment
 from ai_pipeline_core.documents.document import Document
 from ai_pipeline_core.settings import Settings
 
-MINIMAL_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+MINIMAL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 WEBP_LIKE = b"RIFF\x76\xbc\x00\x00WEBPVP8 " + bytes(range(128, 256))
 ALL_BYTES = bytes(range(256))
 
@@ -81,7 +83,8 @@ class TestClickHouseBlobRoundtrip:
         loaded = await ch_database.get_blob(sha)
         assert loaded is not None
         assert loaded.content == MINIMAL_PNG, (
-            f"Binary blob corrupted: original {len(MINIMAL_PNG)} bytes, loaded {len(loaded.content)} bytes, first 16: {loaded.content[:16]!r}"
+            f"Binary blob corrupted: original {len(MINIMAL_PNG)} bytes, "
+            f"loaded {len(loaded.content)} bytes, first 16: {loaded.content[:16]!r}"
         )
 
     async def test_binary_webp_blob_roundtrip(self, ch_database) -> None:
@@ -98,7 +101,9 @@ class TestClickHouseBlobRoundtrip:
         await ch_database.save_blob(_BlobRecord(content_sha256=sha, content=ALL_BYTES))
         loaded = await ch_database.get_blob(sha)
         assert loaded is not None
-        assert loaded.content == ALL_BYTES, f"All-bytes blob corrupted: original 256 bytes, loaded {len(loaded.content)} bytes"
+        assert loaded.content == ALL_BYTES, (
+            f"All-bytes blob corrupted: original 256 bytes, loaded {len(loaded.content)} bytes"
+        )
 
     async def test_binary_blob_content_sha256_preserved(self, ch_database) -> None:
         """Content SHA256 must match after round-trip, not just content bytes."""
@@ -138,7 +143,9 @@ class TestClickHouseDocumentRoundtrip:
         )
         loaded = await self._roundtrip_ch(doc, ch_database)
         assert loaded.sha256 == doc.sha256, f"Document sha256 mismatch: original={doc.sha256}, loaded={loaded.sha256}"
-        assert loaded.attachments[0].content == MINIMAL_PNG, f"Attachment content corrupted: {len(MINIMAL_PNG)} -> {len(loaded.attachments[0].content)}"
+        assert loaded.attachments[0].content == MINIMAL_PNG, (
+            f"Attachment content corrupted: {len(MINIMAL_PNG)} -> {len(loaded.attachments[0].content)}"
+        )
 
     async def test_document_with_webp_attachment(self, ch_database) -> None:
         att = Attachment(name="screenshot.webp", content=WEBP_LIKE)

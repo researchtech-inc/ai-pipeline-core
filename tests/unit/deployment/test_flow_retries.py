@@ -8,7 +8,15 @@ from unittest.mock import patch
 
 import pytest
 
-from ai_pipeline_core import DeploymentResult, Document, FlowOptions, NonRetriableError, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import (
+    DeploymentResult,
+    Document,
+    FlowOptions,
+    NonRetriableError,
+    PipelineDeployment,
+    PipelineFlow,
+    PipelineTask,
+)
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.deployment._types import _MemoryPublisher
 
@@ -188,7 +196,9 @@ class TestFlowRetryWithinDeployment:
     async def test_non_retriable_error_stops_immediately(self) -> None:
         pub = _MemoryPublisher()
         with pytest.raises(NonRetriableError, match="flow-level non-retriable"):
-            await _NonRetriableDeployment().run("nr-1", [_make_input()], FlowOptions(), publisher=pub, database=_MemoryDatabase())
+            await _NonRetriableDeployment().run(
+                "nr-1", [_make_input()], FlowOptions(), publisher=pub, database=_MemoryDatabase()
+            )
 
     async def test_exhausts_all_retries(self) -> None:
         _AlwaysFailTask._attempt_count = 0  # type: ignore[attr-defined]  # attribute injected at runtime for test

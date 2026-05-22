@@ -71,7 +71,9 @@ class TestCreateMethod:
     def test_create_with_dict_json(self):
         """Test create with dictionary for JSON file."""
         data = {"key": "value", "number": 42, "list": [1, 2, 3]}
-        doc = ConcreteTestDocument.create_root(name="test.json", description="JSON from dict", content=data, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="test.json", description="JSON from dict", content=data, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/json"
@@ -83,7 +85,9 @@ class TestCreateMethod:
     def test_create_with_dict_yaml(self):
         """Test create with dictionary for YAML file."""
         data = {"database": {"host": "localhost", "port": 5432}, "cache": {"ttl": 300}}
-        doc = ConcreteTestDocument.create_root(name="config.yaml", description="YAML config", content=data, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="config.yaml", description="YAML config", content=data, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/yaml"
@@ -102,7 +106,9 @@ class TestCreateMethod:
             active: bool = True
 
         user = UserModel(username="alice", email="alice@example.com")
-        doc = ConcreteTestDocument.create_root(name="user.json", description="User data", content=user, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="user.json", description="User data", content=user, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/json"
@@ -126,7 +132,9 @@ class TestCreateMethod:
             ssl_enabled: bool
 
         config = ServerConfig(name="api-server", workers=4, ssl_enabled=True)
-        doc = ConcreteTestDocument.create_root(name="server.yaml", description="Server config", content=config, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="server.yaml", description="Server config", content=config, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/yaml"
@@ -145,7 +153,9 @@ class TestCreateMethod:
     def test_create_with_list_json(self):
         """Test create with list for JSON file."""
         data = ["item1", "item2", "item3"]
-        doc = ConcreteTestDocument.create_root(name="list.json", description="JSON list", content=data, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="list.json", description="JSON list", content=data, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/json"
@@ -157,7 +167,9 @@ class TestCreateMethod:
     def test_create_with_list_yaml(self):
         """Test create with list for YAML file."""
         data = ["item1", "item2", "item3"]
-        doc = ConcreteTestDocument.create_root(name="list.yaml", description="YAML list", content=data, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="list.yaml", description="YAML list", content=data, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/yaml"
@@ -191,7 +203,9 @@ class TestCreateMethod:
             SampleModel(name="second", value=2),
         ]
 
-        doc = ConcreteTestDocument.create_root(name="models.json", description="List of models", content=models, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="models.json", description="List of models", content=models, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/json"
@@ -218,7 +232,9 @@ class TestCreateMethod:
             SampleModel(name="second", value=2),
         ]
 
-        doc = ConcreteTestDocument.create_root(name="models.yaml", description="List of models", content=models, reason="test input")
+        doc = ConcreteTestDocument.create_root(
+            name="models.yaml", description="List of models", content=models, reason="test input"
+        )
 
         assert doc.is_text
         assert doc.mime_type == "application/yaml"
@@ -236,7 +252,9 @@ class TestCreateMethod:
 
     def test_create_concrete_document(self):
         """Test creating concrete Document subclass with various content types."""
-        doc1 = ConcreteTestDocument.create_root(name="temp.txt", content="Temporary content", description="Test temp doc", reason="test input")
+        doc1 = ConcreteTestDocument.create_root(
+            name="temp.txt", content="Temporary content", description="Test temp doc", reason="test input"
+        )
         assert doc1.text == "Temporary content"
 
         doc2 = ConcreteTestDocument.create_root(name="temp.json", content={"temp": "data"}, reason="test input")

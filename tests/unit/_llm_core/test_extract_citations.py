@@ -23,7 +23,9 @@ def test_nested_url_citation_annotation_extracts() -> None:
         },
     }
 
-    assert _extract_citations(_message([annotation])) == (Citation(title="Nested", url="https://example.com/nested", start_index=2, end_index=8),)
+    assert _extract_citations(_message([annotation])) == (
+        Citation(title="Nested", url="https://example.com/nested", start_index=2, end_index=8),
+    )
 
 
 def test_top_level_responses_annotation_extracts() -> None:
@@ -36,7 +38,9 @@ def test_top_level_responses_annotation_extracts() -> None:
         "end_index": 12,
     }
 
-    assert _extract_citations(_message([annotation])) == (Citation(title="Top Level", url="https://example.com/top", start_index=4, end_index=12),)
+    assert _extract_citations(_message([annotation])) == (
+        Citation(title="Top Level", url="https://example.com/top", start_index=4, end_index=12),
+    )
 
 
 def test_pydantic_annotation_object_extracts() -> None:
@@ -55,7 +59,9 @@ def test_pydantic_annotation_object_extracts() -> None:
         url_citation=UrlCitationPayload(title="Object", url="https://example.com/object", start_index=1, end_index=6),
     )
 
-    assert _extract_citations(_message([annotation])) == (Citation(title="Object", url="https://example.com/object", start_index=1, end_index=6),)
+    assert _extract_citations(_message([annotation])) == (
+        Citation(title="Object", url="https://example.com/object", start_index=1, end_index=6),
+    )
 
 
 def test_pydantic_extra_annotation_fields_extract() -> None:
@@ -73,7 +79,9 @@ def test_pydantic_extra_annotation_fields_extract() -> None:
         end_index=9,
     )
 
-    assert _extract_citations(_message([annotation])) == (Citation(title="Extra", url="https://example.com/extra", start_index=3, end_index=9),)
+    assert _extract_citations(_message([annotation])) == (
+        Citation(title="Extra", url="https://example.com/extra", start_index=3, end_index=9),
+    )
 
 
 def test_camel_case_grounding_metadata_extracts() -> None:
@@ -85,7 +93,9 @@ def test_camel_case_grounding_metadata_extracts() -> None:
         }
     }
 
-    assert _extract_citations(_message(), fields) == (Citation(title="Grounding", url="https://example.com/grounding", start_index=0, end_index=0),)
+    assert _extract_citations(_message(), fields) == (
+        Citation(title="Grounding", url="https://example.com/grounding", start_index=0, end_index=0),
+    )
 
 
 def test_snake_case_grounding_metadata_extracts() -> None:
@@ -97,7 +107,9 @@ def test_snake_case_grounding_metadata_extracts() -> None:
         }
     }
 
-    assert _extract_citations(_message(), fields) == (Citation(title="Snake", url="https://example.com/snake", start_index=0, end_index=0),)
+    assert _extract_citations(_message(), fields) == (
+        Citation(title="Snake", url="https://example.com/snake", start_index=0, end_index=0),
+    )
 
 
 def test_flat_provider_citations_extract() -> None:
@@ -136,14 +148,18 @@ def test_annotation_without_grounding_chunks_preserves_indices() -> None:
     fields = {"thought_signatures": ["signature"]}
 
     assert _extract_citations(_message([annotation]), fields) == (
-        Citation(title="Provider Annotation", url="https://example.com/provider-annotation", start_index=5, end_index=22),
+        Citation(
+            title="Provider Annotation", url="https://example.com/provider-annotation", start_index=5, end_index=22
+        ),
     )
 
 
 def test_duplicate_annotations_are_deduplicated() -> None:
     annotation = {"type": "url_citation", "url": "https://example.com/dup", "title": "Dup"}
 
-    assert _extract_citations(_message([annotation, annotation])) == (Citation(title="Dup", url="https://example.com/dup", start_index=0, end_index=0),)
+    assert _extract_citations(_message([annotation, annotation])) == (
+        Citation(title="Dup", url="https://example.com/dup", start_index=0, end_index=0),
+    )
 
 
 def test_empty_when_no_citation_source() -> None:

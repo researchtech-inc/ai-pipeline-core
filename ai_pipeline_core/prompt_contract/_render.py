@@ -485,7 +485,11 @@ def build_prompt_render_context(
             name=availability.tool.name,
             class_name=availability.tool.__name__,
             class_path=f"{availability.tool.__module__}:{availability.tool.__qualname__}",
-            description=(availability.tool.__doc__.strip() if availability.tool.__doc__ and availability.tool.__doc__.strip() else None),
+            description=(
+                availability.tool.__doc__.strip()
+                if availability.tool.__doc__ and availability.tool.__doc__.strip()
+                else None
+            ),
             max_calls=availability.max_calls,
         )
         for availability in cls.tools

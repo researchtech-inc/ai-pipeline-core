@@ -86,12 +86,17 @@ def _validate_jinja_syntax(source: str, *, cls_name: str, kind: str, path: Path)
     try:
         env.parse(source)
     except jinja2.TemplateSyntaxError as exc:
-        raise TypeError(f"{kind} '{cls_name}' body file at {path} has invalid Jinja syntax at line {exc.lineno}: {exc.message}") from exc
+        raise TypeError(
+            f"{kind} '{cls_name}' body file at {path} has invalid Jinja syntax at line {exc.lineno}: {exc.message}"
+        ) from exc
 
 
 def _require_non_empty(source: str, *, cls_name: str, kind: str, path: Path) -> None:
     if not source.strip():
-        raise TypeError(f"{kind} '{cls_name}' body file is empty:\n  {path}\nAdd the operational instructions the model should read, or remove the class.")
+        raise TypeError(
+            f"{kind} '{cls_name}' body file is empty:\n  {path}\n"
+            "Add the operational instructions the model should read, or remove the class."
+        )
 
 
 def load_body_file(cls: type, *, suffix: str, kind: str, exempt: bool) -> BodyFile:
@@ -122,7 +127,10 @@ def load_body_file(cls: type, *, suffix: str, kind: str, exempt: bool) -> BodyFi
 
     module_dir = _module_dir(cls)
     if module_dir is None:
-        raise TypeError(f"{kind} '{cls.__name__}' cannot resolve its module file on disk; the paired markdown body file cannot be located.")
+        raise TypeError(
+            f"{kind} '{cls.__name__}' cannot resolve its module file on disk; "
+            "the paired markdown body file cannot be located."
+        )
 
     stem = _snake_case(cls.__name__.removesuffix(suffix))
     jinja_path = module_dir / f"{stem}.md.j2"

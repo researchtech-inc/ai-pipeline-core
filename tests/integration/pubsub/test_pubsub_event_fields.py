@@ -244,7 +244,9 @@ class TestBug1FlowClassFormat:
         flow_started = [e for e in pub.events if isinstance(e, FlowStartedEvent)]
 
         for plan_entry, event in zip(started.flow_plan, flow_started, strict=True):
-            assert plan_entry["flow_class"] == event.flow_class, f"flow_plan uses '{plan_entry['flow_class']}' but flow.started uses '{event.flow_class}'"
+            assert plan_entry["flow_class"] == event.flow_class, (
+                f"flow_plan uses '{plan_entry['flow_class']}' but flow.started uses '{event.flow_class}'"
+            )
 
     async def test_flow_class_contains_no_module_separator(self):
         pub = _MemoryPublisher()
@@ -504,7 +506,9 @@ class TestGap1ParentSpanId:
         flow_started = [e for e in pub.events if isinstance(e, FlowStartedEvent)]
 
         for event in flow_started:
-            assert event.parent_span_id == run_started.span_id, "Flow's parent_span_id must point to the deployment span"
+            assert event.parent_span_id == run_started.span_id, (
+                "Flow's parent_span_id must point to the deployment span"
+            )
 
     async def test_task_events_have_parent_span_id(self):
         pub = _MemoryPublisher()
@@ -542,7 +546,8 @@ class TestGap2FinalOutputsOnly:
         run_output_shas = set(completed.output_document_sha256s)
 
         assert run_output_shas == last_flow_output_shas, (
-            f"RunCompletedEvent should have only final flow outputs. Got {run_output_shas}, expected {last_flow_output_shas}"
+            f"RunCompletedEvent should have only final flow outputs. "
+            f"Got {run_output_shas}, expected {last_flow_output_shas}"
         )
 
 

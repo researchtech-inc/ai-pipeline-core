@@ -163,11 +163,19 @@ MARKET_DATA = {
 
 INDUSTRY_TRENDS = {
     "ai platform": (
-        "The AI platform market is projected to reach $150B by 2028. Key differentiators: model quality, developer experience, enterprise compliance."
+        "The AI platform market is projected to reach $150B by 2028. Key differentiators: "
+        "model quality, developer experience, enterprise compliance."
     ),
-    "data pipeline": ("Data pipeline tools are commoditizing. Winners differentiate on real-time processing, observability, and integration breadth."),
-    "developer tools": ("Developer tool adoption is bottom-up. Key metrics: time-to-value, documentation quality, and community size."),
-    "enterprise software": "Enterprise buyers prioritize security, compliance, and integration with existing stacks over innovation speed.",
+    "data pipeline": (
+        "Data pipeline tools are commoditizing. Winners differentiate on real-time "
+        "processing, observability, and integration breadth."
+    ),
+    "developer tools": (
+        "Developer tool adoption is bottom-up. Key metrics: time-to-value, documentation quality, and community size."
+    ),
+    "enterprise software": (
+        "Enterprise buyers prioritize security, compliance, and integration with existing stacks over innovation speed."
+    ),
 }
 
 
@@ -239,7 +247,9 @@ class ResearchTask(PipelineTask):
     name = "competitor_research"
 
     @classmethod
-    async def run(cls, brief: CompetitorInputDocument, config: PipelineConfigDocument) -> tuple[CompetitorResearchDocument, ...]:
+    async def run(
+        cls, brief: CompetitorInputDocument, config: PipelineConfigDocument
+    ) -> tuple[CompetitorResearchDocument, ...]:
         cfg = config.parsed
         tools = [LookupMarketData(), LookupIndustryTrends()]
         conv = Conversation(model=cfg.core_model).with_context(brief)
@@ -574,7 +584,9 @@ class DeepAnalysisFlow(PipelineFlow):
         options: CompetitiveIntelOptions,
     ) -> tuple[CompetitorAnalysisDocument, ...]:
         _ = options
-        logger.info("Dispatching %d competitor analyses via RemoteDeployment [%s]", len(triaged_competitors), get_run_id())
+        logger.info(
+            "Dispatching %d competitor analyses via RemoteDeployment [%s]", len(triaged_competitors), get_run_id()
+        )
 
         # Run all competitor analyses in parallel via safe_gather
         analysis_docs = await safe_gather(
@@ -672,7 +684,9 @@ class CompetitiveIntelPipeline(PipelineDeployment[CompetitiveIntelOptions, Compe
         analyses = outputs.all(CompetitorAnalysisDocument)
         reports = outputs.all(LandscapeReportDocument)
         if not reports:
-            raise RuntimeError("CompetitiveIntelPipeline expected a LandscapeReportDocument after the full plan completed.")
+            raise RuntimeError(
+                "CompetitiveIntelPipeline expected a LandscapeReportDocument after the full plan completed."
+            )
         high_count = sum(1 for a in analyses if "critical" in a.text.lower() or "high" in a.text.lower())
         return CompetitiveIntelResult(
             success=True,

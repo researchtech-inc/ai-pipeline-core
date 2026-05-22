@@ -130,7 +130,8 @@ class Settings(BaseSettings):
         if isinstance(value, dict):
             return AIModel(**value)
         raise TypeError(
-            "doc_summary_model must be empty, a model name string, an AIModel, or an AIModel-shaped mapping. Set DOC_SUMMARY_MODEL to an AIPL model name."
+            "doc_summary_model must be empty, a model name string, an AIModel, or an "
+            "AIModel-shaped mapping. Set DOC_SUMMARY_MODEL to an AIPL model name."
         )
 
     @model_validator(mode="before")

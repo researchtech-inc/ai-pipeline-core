@@ -10,7 +10,15 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from ai_pipeline_core import Conversation, DeploymentResult, Document, FlowOptions, PipelineDeployment, Tool, traced_operation
+from ai_pipeline_core import (
+    Conversation,
+    DeploymentResult,
+    Document,
+    FlowOptions,
+    PipelineDeployment,
+    Tool,
+    traced_operation,
+)
 from ai_pipeline_core._llm_core.model_response import ModelResponse
 from ai_pipeline_core._llm_core.types import RawToolCall, TokenUsage
 from ai_pipeline_core.database import CostTotals, SpanKind, SpanRecord, SpanStatus
@@ -72,7 +80,9 @@ class LifecycleTask(PipelineTask):
 class LifecycleFlow(PipelineFlow):
     """Single-flow deployment used for end-to-end lifecycle assertions."""
 
-    async def run(self, input_docs: tuple[LifecycleInputDocument, ...], options: FlowOptions) -> tuple[LifecycleOutputDocument, ...]:
+    async def run(
+        self, input_docs: tuple[LifecycleInputDocument, ...], options: FlowOptions
+    ) -> tuple[LifecycleOutputDocument, ...]:
         _ = options
         return await LifecycleTask.run(input_docs=input_docs)
 
@@ -217,7 +227,9 @@ async def test_full_deployment_lifecycle_records_complete_span_tree(monkeypatch:
 
     database = _MemoryDatabase()
     input_doc = LifecycleInputDocument.create_root(name="input.txt", content="seed", reason="integration lifecycle")
-    result = await _run_deployment(LifecycleDeployment(), database, run_id="integration-lifecycle", documents=[input_doc])
+    result = await _run_deployment(
+        LifecycleDeployment(), database, run_id="integration-lifecycle", documents=[input_doc]
+    )
 
     assert result.success
     assert result.output_count >= 1
@@ -252,7 +264,10 @@ async def test_full_deployment_lifecycle_records_complete_span_tree(monkeypatch:
     assert conversation_span.parent_span_id == operation_span.span_id
     assert [span.parent_span_id for span in llm_round_spans] == [conversation_span.span_id, conversation_span.span_id]
     assert tool_call_span.parent_span_id == conversation_span.span_id
-    assert [span.kind for span in sorted(await database.get_child_spans(conversation_span.span_id), key=lambda span: span.sequence_no)] == [
+    assert [
+        span.kind
+        for span in sorted(await database.get_child_spans(conversation_span.span_id), key=lambda span: span.sequence_no)
+    ] == [
         SpanKind.LLM_ROUND,
         SpanKind.TOOL_CALL,
         SpanKind.LLM_ROUND,
@@ -304,7 +319,9 @@ async def test_flow_cache_keys_hit_across_runs_with_new_root_deployments(monkeyp
     completed_flow = _sorted_spans(database, SpanKind.FLOW, status=SpanStatus.COMPLETED)[0]
     cached_flow = _sorted_spans(database, SpanKind.FLOW, status=SpanStatus.CACHED)[0]
     fingerprint = _compute_input_fingerprint([input_doc], FlowOptions())
-    expected_key = _build_flow_cache_key(input_fingerprint=fingerprint, flow_class=LifecycleFlow, step=1, flow_params={})
+    expected_key = _build_flow_cache_key(
+        input_fingerprint=fingerprint, flow_class=LifecycleFlow, step=1, flow_params={}
+    )
 
     assert len(deployment_spans) == 2
     assert deployment_spans[0].root_deployment_id != deployment_spans[1].root_deployment_id

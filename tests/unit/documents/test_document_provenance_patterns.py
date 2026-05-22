@@ -84,7 +84,9 @@ def test_provenance_patterns():
         content=ResearchSpec(categories={"financials": ["revenue", "profit"], "team": ["headcount"]}),
         reason="user-provided research specification",
     )
-    raw_data_doc = ResearchDocument.create_root(name="raw_data.md", content="Company X had $10M revenue...", reason="uploaded by user")
+    raw_data_doc = ResearchDocument.create_root(
+        name="raw_data.md", content="Company X had $10M revenue...", reason="uploaded by user"
+    )
 
     assert spec_doc.derived_from == ()
     assert spec_doc.triggered_by == ()
@@ -122,7 +124,9 @@ def test_provenance_patterns():
             new_items.append(item)
     updated_tracker = GapTracker(iteration=old_tracker.iteration + 1, items=new_items)
 
-    new_research_doc = ResearchDocument.create_root(name="team_research.md", content="Company X has 150 employees...", reason="web capture")
+    new_research_doc = ResearchDocument.create_root(
+        name="team_research.md", content="Company X has 150 employees...", reason="web capture"
+    )
 
     tracker_v2 = GapTrackerDocument.derive(
         name="tracker.json",
@@ -181,7 +185,11 @@ def test_provenance_patterns():
 
     manifest_doc = ManifestDocument.create(
         name="manifest.json",
-        content=UploadManifest(uploads=[{"filename": "report.json", "drive_url": "https://drive.google.com/file/d/abc123", "drive_id": "abc123"}]),
+        content=UploadManifest(
+            uploads=[
+                {"filename": "report.json", "drive_url": "https://drive.google.com/file/d/abc123", "drive_id": "abc123"}
+            ]
+        ),
         triggered_by=(output_doc,),  # report caused the upload, but manifest content is from Drive API
     )
 

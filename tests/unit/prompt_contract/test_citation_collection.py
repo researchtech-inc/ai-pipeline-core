@@ -141,7 +141,9 @@ async def test_engine_plus_parsed_citations_combined_and_deduped(monkeypatch: py
     from tests.support.model_catalog import DEFAULT_TEST_MODEL
 
     parsed = OutputWithBody(
-        body=CitedText(text="x", citations=(DocumentCitation(document_id="ev-001"), DocumentCitation(document_id="ev-001"))),
+        body=CitedText(
+            text="x", citations=(DocumentCitation(document_id="ev-001"), DocumentCitation(document_id="ev-001"))
+        ),
         label="x",
     )
     engine_citation = Citation(title="t", url="https://x", start_index=0, end_index=0)

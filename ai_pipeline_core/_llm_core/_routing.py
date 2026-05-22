@@ -108,7 +108,11 @@ def skip_ids(workload_id: str) -> frozenset[str]:
     expired = [key for key, (_consec_bad, skip_until) in state.items() if skip_until and skip_until <= now]
     for key in expired:
         state.pop(key, None)
-    return frozenset(deployment_id for (wid, deployment_id), (_consec_bad, skip_until) in state.items() if wid == workload_id and skip_until > now)
+    return frozenset(
+        deployment_id
+        for (wid, deployment_id), (_consec_bad, skip_until) in state.items()
+        if wid == workload_id and skip_until > now
+    )
 
 
 def _workload_state() -> WorkloadState | None:
@@ -122,7 +126,9 @@ class _CallContext:
         self.request = request
         self.skip = GroupSkipList()
         self.last_error: BaseException | None = None
-        self.workload_id = request.routing.workload_id or derive_workload_id(run_id=None, name=request.purpose or request.model.name)
+        self.workload_id = request.routing.workload_id or derive_workload_id(
+            run_id=None, name=request.purpose or request.model.name
+        )
         self.skip.update(skip_ids(self.workload_id))
 
     def model_chain(self) -> Iterator[AIModel]:

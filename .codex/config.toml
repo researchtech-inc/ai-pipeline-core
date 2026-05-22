@@ -2,24 +2,12 @@
 
 # Codex CLI project-local config.
 #
-# Registers the same PreToolUse guardrail Claude Code uses
-# (.claude/hooks/enforce_dev_cli.py) so the rules in tools/dev-cli/README.md
-# apply identically under Codex. The script reads tool_input.command and
-# exits with code 2 + a stderr message to block — a contract both Claude
-# Code and Codex honor, so no Codex-specific shim is needed.
-#
-# The hook command resolves the script path from the git repo root, not
-# from Codex's session cwd. Codex runs hook commands with the session cwd
-# as their working directory (per the official Codex hooks docs), and
-# Codex has no $CLAUDE_PROJECT_DIR equivalent and no working_directory
-# field on hook entries. A relative path would silently fail (Python
-# exits 2 = "file not found", which Codex interprets as "blocked") when
-# Codex is launched from any subdirectory of the repo. The git-root form
-# stays stable regardless of launch cwd.
+# Registers the ai-dev-cli PreToolUse hook so the rules in the ai-dev-cli
+# package apply identically under Codex and Claude Code. The hook reads
+# tool_input.command and exits with code 2 + a stderr message to block —
+# a contract both Claude Code and Codex honor.
 #
 # Onboarding: the repo must be trusted in Codex for this file to load.
-# See tools/dev-cli/README.md ("Codex CLI hook trust") for the one-time
-# trust step and how to verify via /hooks inside a Codex session.
 
 [features]
 hooks = true
@@ -30,6 +18,6 @@ matcher = "^Bash$"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "sh -c 'exec python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/enforce_dev_cli.py\"'"
+command = "python -m ai_dev_cli.hook"
 timeout = 10
 statusMessage = "checking dev CLI command policy"

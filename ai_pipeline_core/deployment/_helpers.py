@@ -85,7 +85,8 @@ def validate_run_id(run_id: str) -> None:
         raise ValueError("run_id must not be empty")
     if len(run_id) > MAX_RUN_ID_LENGTH:
         raise ValueError(
-            f"run_id '{run_id[:20]}...' is {len(run_id)} chars, max is {MAX_RUN_ID_LENGTH}. Shorten the base run_id before passing to the deployment."
+            f"run_id '{run_id[:20]}...' is {len(run_id)} chars, max is {MAX_RUN_ID_LENGTH}. "
+            "Shorten the base run_id before passing to the deployment."
         )
     if not _RUN_ID_PATTERN.match(run_id):
         raise ValueError(
@@ -229,7 +230,9 @@ async def _cancel_dispatched_handles(
     for handle in new_handles:
         handle.cancel()
 
-    pending_tasks: list[asyncio.Task[tuple[Document[Any], ...]]] = [handle._task for handle in new_handles if not handle.done]
+    pending_tasks: list[asyncio.Task[tuple[Document[Any], ...]]] = [
+        handle._task for handle in new_handles if not handle.done
+    ]
     if pending_tasks:
         _done, pending = await asyncio.wait(pending_tasks, timeout=_HANDLE_CANCEL_GRACE_SECONDS)
         if pending:
@@ -253,7 +256,8 @@ async def _flush_logs_once(
     pending_logs, dropped_from_backlog = _trim_pending_logs(pending_logs)
     if dropped_from_backlog > 0:
         logger.warning(
-            "Execution log backlog exceeded %d entries. Dropping %d oldest log(s) to keep memory bounded while database writes are failing.",
+            "Execution log backlog exceeded %d entries. Dropping %d oldest log(s) "
+            "to keep memory bounded while database writes are failing.",
             MAX_PENDING_EXECUTION_LOGS,
             dropped_from_backlog,
             extra={SKIP_EXECUTION_LOG_ATTR: True},
@@ -315,7 +319,8 @@ async def _log_flush_loop(
         pending_logs = await _flush_logs_once(log_sinks, log_buffer, pending_logs)
         if pending_logs:
             logger.warning(
-                "Execution log flush stopped with %d pending log(s). The database write path is still failing; inspect earlier log flush warnings.",
+                "Execution log flush stopped with %d pending log(s). "
+                "The database write path is still failing; inspect earlier log flush warnings.",
                 len(pending_logs),
                 extra={SKIP_EXECUTION_LOG_ATTR: True},
             )

@@ -62,7 +62,10 @@ class TestLLMReplayPinning:
         assert original_deployment_id
         assert isinstance(replayed, ModelResponse)
         assert replayed.transport.aipl.deployment_id == original_deployment_id
-        assert transport_spy.recorded_calls[-1].api_kwargs["metadata"]["aipl_force_deployment_id"] == original_deployment_id
+        assert (
+            transport_spy.recorded_calls[-1].api_kwargs["metadata"]["aipl_force_deployment_id"]
+            == original_deployment_id
+        )
         assert replayed.transport.model_chain.requested == source_response.transport.model_chain.requested
         assert replayed.transport.model_chain.active == source_response.transport.model_chain.active
 

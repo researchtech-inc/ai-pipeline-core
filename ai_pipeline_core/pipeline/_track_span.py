@@ -104,7 +104,11 @@ async def track_span(
     execution_ctx = get_execution_context()
     span_id = span_id or uuid7()
     effective_parent_span_id = parent_span_id
-    if effective_parent_span_id is None and execution_ctx is not None and (execution_ctx.current_span_id or execution_ctx.span_id) != span_id:
+    if (
+        effective_parent_span_id is None
+        and execution_ctx is not None
+        and (execution_ctx.current_span_id or execution_ctx.span_id) != span_id
+    ):
         effective_parent_span_id = execution_ctx.current_span_id or execution_ctx.span_id
     started_at = datetime.now(UTC)
     context = SpanContext(
@@ -197,7 +201,13 @@ async def track_span(
                 meta["retry_errors"] = context._retry_errors
             if context._status is not None:
                 meta["_span_status"] = context._status
-            _log_terminal_event(kind=kind, name=name, target=target, suffix=_terminal_suffix(raw_status=context._status, error=error), error=error)
+            _log_terminal_event(
+                kind=kind,
+                name=name,
+                target=target,
+                suffix=_terminal_suffix(raw_status=context._status, error=error),
+                error=error,
+            )
             metrics = context._build_metrics(
                 ended_at=ended_at,
                 started_at=started_at,
@@ -416,7 +426,9 @@ def _filter_new_artifacts(
     return blob_records, document_records
 
 
-async def _persist_artifacts(database: DatabaseWriter | None, artifacts: _CollectedArtifacts, execution_ctx: ExecutionContext | None = None) -> None:
+async def _persist_artifacts(
+    database: DatabaseWriter | None, artifacts: _CollectedArtifacts, execution_ctx: ExecutionContext | None = None
+) -> None:
     if database is None:
         return
 
@@ -537,7 +549,8 @@ async def _persist_for_span_boundary(
         if execution_ctx is not None:
             execution_ctx.recording_degraded = True
         logger.warning(
-            "Span %s artifact persistence failed for %s '%s': %s. Database-backed span recording is skipped for this span.",
+            "Span %s artifact persistence failed for %s '%s': %s. "
+            "Database-backed span recording is skipped for this span.",
             stage,
             kind,
             name,

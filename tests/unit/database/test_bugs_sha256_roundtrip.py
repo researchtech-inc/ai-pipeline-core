@@ -28,7 +28,9 @@ from ai_pipeline_core.documents.document import Document
 
 
 # Minimal valid PNG (1x1 transparent pixel)
-MINIMAL_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+MINIMAL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 # Minimal valid WebP (RIFF header + random binary)
 WEBP_LIKE = b"RIFF\x76\xbc\x00\x00WEBPVP8 " + bytes(range(128, 256))
@@ -52,7 +54,9 @@ def _hydrate_from_record(doc: Document) -> Document:
     blobs = document_to_blobs(doc)
     blob_map = {b.content_sha256: b.content for b in blobs}
     att_contents = {sha: blob_map[sha] for sha in record.attachment_content_sha256s}
-    hydrated = HydratedDocument(record=record, content=blob_map[record.content_sha256], attachment_contents=att_contents)
+    hydrated = HydratedDocument(
+        record=record, content=blob_map[record.content_sha256], attachment_contents=att_contents
+    )
     return hydrate_document(type(doc), hydrated)
 
 

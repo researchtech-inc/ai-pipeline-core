@@ -88,7 +88,9 @@ class PubSubPublisher:
             except Exception as e:
                 last_error = e
                 delay = BACKOFF_BASE_SECONDS * (2**attempt)
-                logger.warning("Pub/Sub publish attempt %d failed: %s (retry in %ds)", attempt + 1, e, delay, exc_info=e)
+                logger.warning(
+                    "Pub/Sub publish attempt %d failed: %s (retry in %ds)", attempt + 1, e, delay, exc_info=e
+                )
                 await asyncio.sleep(delay)
         logger.warning("Pub/Sub publish failed after %d attempts: %s", MAX_RETRIES, last_error, exc_info=last_error)
 
@@ -104,7 +106,9 @@ class PubSubPublisher:
         """Build and publish one CloudEvents payload for a lifecycle event."""
         data = self._build_envelope(event_type, run_id, payload)
         if event_type == EventType.RUN_COMPLETED and len(data) > MAX_PUBSUB_MESSAGE_BYTES:
-            raise ResultTooLargeError(f"Completed event ({len(data)} bytes) exceeds {MAX_PUBSUB_MESSAGE_BYTES} byte Pub/Sub limit")
+            raise ResultTooLargeError(
+                f"Completed event ({len(data)} bytes) exceeds {MAX_PUBSUB_MESSAGE_BYTES} byte Pub/Sub limit"
+            )
         attrs = self._make_attributes(event_type, run_id)
         try:
             root_id = payload["root_deployment_id"]

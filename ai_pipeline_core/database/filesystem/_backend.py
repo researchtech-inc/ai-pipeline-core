@@ -273,7 +273,9 @@ class FilesystemDatabase:
             raise TypeError(msg)
         for round_raw in rounds_raw:
             if not isinstance(round_raw, dict):
-                msg = f"Snapshot file {span_path} contains a non-object round entry. Persist each round as a JSON object."
+                msg = (
+                    f"Snapshot file {span_path} contains a non-object round entry. Persist each round as a JSON object."
+                )
                 raise TypeError(msg)
             llm_round = _deserialize_span(round_raw, path=span_path)
             self._store_span_from_disk(llm_round, path=span_path)
@@ -286,19 +288,26 @@ class FilesystemDatabase:
                 raise TypeError(msg)
             for tool_call_raw in tool_calls_raw:
                 if not isinstance(tool_call_raw, dict):
-                    msg = f"Snapshot file {span_path} contains a non-object tool_call entry. Persist each tool_call as a JSON object."
+                    msg = (
+                        f"Snapshot file {span_path} contains a non-object tool_call entry. "
+                        "Persist each tool_call as a JSON object."
+                    )
                     raise TypeError(msg)
                 self._store_span_from_disk(_deserialize_span(tool_call_raw, path=span_path), path=span_path)
 
     def _load_from_disk(self) -> None:
         for span_path in sorted(self._spans_dir.glob("*.json")):
-            self._store_span_from_disk(_deserialize_span(_read_json_dict(span_path, context="Span snapshot"), path=span_path), path=span_path)
+            self._store_span_from_disk(
+                _deserialize_span(_read_json_dict(span_path, context="Span snapshot"), path=span_path), path=span_path
+            )
 
         for span_path in sorted(self._runs_dir.rglob("*.json")):
             self._load_tree_span_file(span_path)
 
         for document_path in sorted(self._documents_dir.rglob("*.json")):
-            document = _deserialize_document(_read_json_dict(document_path, context="Document snapshot"), path=document_path)
+            document = _deserialize_document(
+                _read_json_dict(document_path, context="Document snapshot"), path=document_path
+            )
             if document.document_sha256 in self._documents:
                 continue
             self._documents[document.document_sha256] = document
@@ -320,7 +329,10 @@ class FilesystemDatabase:
                     )
                     raise ValueError(msg) from exc
                 if not isinstance(value, dict):
-                    msg = f"Log snapshot file {self._logs_path} contains a non-object line at {line_number}. Store each log entry as one JSON object per line."
+                    msg = (
+                        f"Log snapshot file {self._logs_path} contains a non-object line "
+                        f"at {line_number}. Store each log entry as one JSON object per line."
+                    )
                     raise TypeError(msg)
                 self._logs.append(_deserialize_log(value, path=self._logs_path))
 
@@ -400,7 +412,11 @@ class FilesystemDatabase:
         self._document_paths[updated.document_sha256] = path
 
     def _root_deployment_spans(self) -> list[SpanRecord]:
-        matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT and span.deployment_id == span.root_deployment_id]
+        matches = [
+            span
+            for span in self._spans.values()
+            if span.kind == SpanKind.DEPLOYMENT and span.deployment_id == span.root_deployment_id
+        ]
         return sorted(matches, key=deployment_sort_key)
 
     def _tree_children_map(self, root_deployment_id: UUID) -> dict[UUID, list[SpanRecord]]:
@@ -437,16 +453,23 @@ class FilesystemDatabase:
             if child.kind != SpanKind.LLM_ROUND:
                 continue
             round_payload = self._span_payload(child)
-            round_meta = parse_json_object(child.meta_json, context=f"Span {child.span_id}", field_name="meta_json")
+            round_meta = parse_json_object(
+                child.meta_json,
+                context=f"Span {child.span_id}",
+                field_name="meta_json",
+            )
             round_index = round_meta.get("round_index", 0)
             if not isinstance(round_index, int):
                 logger.warning(
-                    "LLM_ROUND span %s has non-integer round_index=%r in meta_json. Set round_index to an integer in the span's meta_json. Defaulting to 0.",
+                    "LLM_ROUND span %s has non-integer round_index=%r in meta_json. "
+                    "Set round_index to an integer in the span's meta_json. Defaulting to 0.",
                     child.span_id,
                     round_index,
                 )
                 round_index = 0
-            tool_call_payloads = [self._span_payload(tool_call) for tool_call in tool_calls_by_round.get(round_index, [])]
+            tool_call_payloads = [
+                self._span_payload(tool_call) for tool_call in tool_calls_by_round.get(round_index, [])
+            ]
             round_payload["tool_calls"] = tool_call_payloads
             rounds.append(round_payload)
         payload["rounds"] = rounds
@@ -461,14 +484,23 @@ class FilesystemDatabase:
         children_map: dict[UUID, list[SpanRecord]],
         is_root_deployment: bool = False,
     ) -> None:
-        filename = "deployment.json" if is_root_deployment else span_filename(span.kind, span.name, span.span_id, sibling_index)
+        filename = (
+            "deployment.json"
+            if is_root_deployment
+            else span_filename(span.kind, span.name, span.span_id, sibling_index)
+        )
         file_path = parent_dir / filename
-        payload = self._conversation_payload(span, children_map) if span.kind in _ROUNDS_EMBEDDING_KINDS else self._span_payload(span)
+        payload = (
+            self._conversation_payload(span, children_map)
+            if span.kind in _ROUNDS_EMBEDDING_KINDS
+            else self._span_payload(span)
+        )
         _atomic_write(file_path, json.dumps(payload, indent=2, sort_keys=True, default=_json_default))
         self._span_paths[span.span_id] = file_path
 
-        # LLM_ROUND and TOOL_CALL children of CONVERSATION/PROMPT_EXECUTION spans are embedded in the parent JSON payload,
-        # so they don't need separate files. Under any other parent kind, write them as regular child files.
+        # LLM_ROUND and TOOL_CALL children of CONVERSATION/PROMPT_EXECUTION spans are embedded
+        # in the parent JSON payload, so they don't need separate files. Under any other parent
+        # kind, write them as regular child files.
         embedded_kinds = {SpanKind.LLM_ROUND, SpanKind.TOOL_CALL} if span.kind in _ROUNDS_EMBEDDING_KINDS else set()
         child_spans = [child for child in children_map.get(span.span_id, []) if child.kind not in embedded_kinds]
         if not child_spans:
@@ -573,7 +605,9 @@ class FilesystemDatabase:
         matches = [
             span
             for span in self._spans.values()
-            if span.kind == SpanKind.DEPLOYMENT and span.span_id == span.root_deployment_id and span.status == SpanStatus.RUNNING
+            if span.kind == SpanKind.DEPLOYMENT
+            and span.span_id == span.root_deployment_id
+            and span.status == SpanStatus.RUNNING
         ]
         return sorted(matches, key=lambda span: (span.started_at, str(span.span_id)))[:limit]
 
@@ -652,7 +686,11 @@ class FilesystemDatabase:
         )
 
     def _get_blobs_batch_sync(self, content_sha256s: list[str]) -> dict[str, _BlobRecord]:
-        return {content_sha256: blob for content_sha256 in content_sha256s if (blob := self._get_blob_sync(content_sha256)) is not None}
+        return {
+            content_sha256: blob
+            for content_sha256 in content_sha256s
+            if (blob := self._get_blob_sync(content_sha256)) is not None
+        }
 
     def _get_document_with_content_sync(self, document_sha256: str) -> HydratedDocument | None:
         record = self._documents.get(document_sha256)
@@ -676,36 +714,58 @@ class FilesystemDatabase:
 
     def _get_span_logs_sync(self, span_id: UUID, level: str | None, category: str | None) -> list[LogRecord]:
         return sorted(
-            (log for log in self._logs if log.span_id == span_id and (level is None or log.level == level) and (category is None or log.category == category)),
+            (
+                log
+                for log in self._logs
+                if log.span_id == span_id
+                and (level is None or log.level == level)
+                and (category is None or log.category == category)
+            ),
             key=lambda log: (log.sequence_no, log.timestamp, str(log.span_id)),
         )
 
-    def _get_deployment_logs_sync(self, deployment_id: UUID, level: str | None, category: str | None) -> list[LogRecord]:
+    def _get_deployment_logs_sync(
+        self, deployment_id: UUID, level: str | None, category: str | None
+    ) -> list[LogRecord]:
         return sorted(
             (
                 log
                 for log in self._logs
-                if log.deployment_id == deployment_id and (level is None or log.level == level) and (category is None or log.category == category)
+                if log.deployment_id == deployment_id
+                and (level is None or log.level == level)
+                and (category is None or log.category == category)
             ),
             key=log_sort_key,
         )
 
-    def _get_deployment_logs_batch_sync(self, deployment_ids: list[UUID], level: str | None, category: str | None) -> list[LogRecord]:
+    def _get_deployment_logs_batch_sync(
+        self, deployment_ids: list[UUID], level: str | None, category: str | None
+    ) -> list[LogRecord]:
         allowed_ids = set(deployment_ids)
         return sorted(
             (
                 log
                 for log in self._logs
-                if log.deployment_id in allowed_ids and (level is None or log.level == level) and (category is None or log.category == category)
+                if log.deployment_id in allowed_ids
+                and (level is None or log.level == level)
+                and (category is None or log.category == category)
             ),
             key=log_sort_key,
         )
 
-    def _get_deployment_scoped_spans_sync(self, root_deployment_id: UUID, deployment_id: UUID, include_meta: bool) -> list[SpanRecord]:
-        matches = [s for s in self._spans.values() if s.root_deployment_id == root_deployment_id and s.deployment_id == deployment_id]
+    def _get_deployment_scoped_spans_sync(
+        self, root_deployment_id: UUID, deployment_id: UUID, include_meta: bool
+    ) -> list[SpanRecord]:
+        matches = [
+            s
+            for s in self._spans.values()
+            if s.root_deployment_id == root_deployment_id and s.deployment_id == deployment_id
+        ]
         return sorted(matches, key=span_sort_key)
 
-    def _list_deployment_summaries_sync(self, limit: int, status: str | None, root_only: bool, offset: int) -> list[DeploymentSummaryRecord]:
+    def _list_deployment_summaries_sync(
+        self, limit: int, status: str | None, root_only: bool, offset: int
+    ) -> list[DeploymentSummaryRecord]:
         if limit <= 0:
             return []
         matches = [s for s in self._spans.values() if s.kind == SpanKind.DEPLOYMENT]
@@ -734,7 +794,11 @@ class FilesystemDatabase:
         return results
 
     def _list_tree_deployments_sync(self, root_deployment_id: UUID) -> list[DeploymentSummaryRecord]:
-        dep_spans = [s for s in self._spans.values() if s.root_deployment_id == root_deployment_id and s.kind == SpanKind.DEPLOYMENT]
+        dep_spans = [
+            s
+            for s in self._spans.values()
+            if s.root_deployment_id == root_deployment_id and s.kind == SpanKind.DEPLOYMENT
+        ]
         cost_by_dep: dict[UUID, float] = {}
         for s in self._spans.values():
             if s.root_deployment_id == root_deployment_id:
@@ -988,7 +1052,9 @@ class FilesystemDatabase:
     ) -> list[LogRecord]:
         return await self._run(self._get_deployment_logs_batch_sync, deployment_ids, level, category)
 
-    async def get_deployment_scoped_spans(self, root_deployment_id: UUID, deployment_id: UUID, *, include_meta: bool = True) -> list[SpanRecord]:
+    async def get_deployment_scoped_spans(
+        self, root_deployment_id: UUID, deployment_id: UUID, *, include_meta: bool = True
+    ) -> list[SpanRecord]:
         return await self._run(self._get_deployment_scoped_spans_sync, root_deployment_id, deployment_id, include_meta)
 
     async def list_deployment_summaries(
@@ -1017,7 +1083,9 @@ class FilesystemDatabase:
         since: datetime | None = None,
         event_types: list[str] | None = None,
     ) -> DocumentEventPage:
-        return await self._run(self._get_document_events_sync, root_deployment_id, deployment_id, limit, offset, since, event_types)
+        return await self._run(
+            self._get_document_events_sync, root_deployment_id, deployment_id, limit, offset, since, event_types
+        )
 
     async def find_documents_by_name(
         self,

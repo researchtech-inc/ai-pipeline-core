@@ -16,7 +16,9 @@ __all__ = [
 
 def main(argv: list[str] | None = None) -> int:
     """Run the trace-inspector CLI."""
-    parser = argparse.ArgumentParser(prog="ai-trace-inspect", description="Render ai-pipeline-core traces as markdown bundles")
+    parser = argparse.ArgumentParser(
+        prog="ai-trace-inspect", description="Render ai-pipeline-core traces as markdown bundles"
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser("run", help="Inspect a full run")
@@ -41,8 +43,12 @@ def main(argv: list[str] | None = None) -> int:
     _add_named_source_arguments(compare_parser, prefix="left")
     _add_named_source_arguments(compare_parser, prefix="right")
     compare_parser.add_argument("--out", required=True, type=Path, help="Output directory")
-    compare_parser.add_argument("--left-task-span-id", required=True, type=UUID, help="Task span id from the left/original trace")
-    compare_parser.add_argument("--right-task-span-id", type=UUID, default=None, help="Task span id from the right/replay trace")
+    compare_parser.add_argument(
+        "--left-task-span-id", required=True, type=UUID, help="Task span id from the left/original trace"
+    )
+    compare_parser.add_argument(
+        "--right-task-span-id", type=UUID, default=None, help="Task span id from the right/replay trace"
+    )
 
     args = parser.parse_args(argv)
     if args.command is None:
@@ -107,15 +113,24 @@ def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--db-path", type=Path, default=None, help="FilesystemDatabase path")
     group.add_argument("--run-id", type=str, default=None, help="ClickHouse run id")
     group.add_argument("--deployment-id", type=UUID, default=None, help="ClickHouse deployment id")
-    parser.add_argument("--download-db-to", type=Path, default=None, help="Download a ClickHouse deployment into a FilesystemDatabase snapshot first")
+    parser.add_argument(
+        "--download-db-to",
+        type=Path,
+        default=None,
+        help="Download a ClickHouse deployment into a FilesystemDatabase snapshot first",
+    )
 
 
 def _add_named_source_arguments(parser: argparse.ArgumentParser, prefix: str) -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(f"--{prefix}-db-path", type=Path, default=None, help=f"{prefix.title()} FilesystemDatabase path")
     group.add_argument(f"--{prefix}-run-id", type=str, default=None, help=f"{prefix.title()} ClickHouse run id")
-    group.add_argument(f"--{prefix}-deployment-id", type=UUID, default=None, help=f"{prefix.title()} ClickHouse deployment id")
-    parser.add_argument(f"--download-{prefix}-db-to", type=Path, default=None, help=f"Download the {prefix} ClickHouse deployment first")
+    group.add_argument(
+        f"--{prefix}-deployment-id", type=UUID, default=None, help=f"{prefix.title()} ClickHouse deployment id"
+    )
+    parser.add_argument(
+        f"--download-{prefix}-db-to", type=Path, default=None, help=f"Download the {prefix} ClickHouse deployment first"
+    )
 
 
 def _source_from_args(args: argparse.Namespace) -> SourceSpec:

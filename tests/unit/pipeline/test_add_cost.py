@@ -137,7 +137,9 @@ class TestAddCostWithSpan:
 # --- Database cost totals integration ---
 
 
-def _make_span(*, root_deployment_id: UUID, kind: str, cost_usd: float, metrics_json: str = "", **kwargs: Any) -> SpanRecord:
+def _make_span(
+    *, root_deployment_id: UUID, kind: str, cost_usd: float, metrics_json: str = "", **kwargs: Any
+) -> SpanRecord:
     defaults: dict[str, Any] = {
         "span_id": uuid4(),
         "parent_span_id": None,
@@ -174,8 +176,12 @@ class TestDatabaseCostTotals:
 
         llm_metrics = json.dumps({"tokens_input": 100, "tokens_output": 50})
         task_metrics = json.dumps({"tokens_input": 9999, "tokens_output": 9999})
-        await db.insert_span(_make_span(root_deployment_id=rid, kind=SpanKind.LLM_ROUND, cost_usd=0.10, metrics_json=llm_metrics))
-        await db.insert_span(_make_span(root_deployment_id=rid, kind=SpanKind.TASK, cost_usd=0.05, metrics_json=task_metrics))
+        await db.insert_span(
+            _make_span(root_deployment_id=rid, kind=SpanKind.LLM_ROUND, cost_usd=0.10, metrics_json=llm_metrics)
+        )
+        await db.insert_span(
+            _make_span(root_deployment_id=rid, kind=SpanKind.TASK, cost_usd=0.05, metrics_json=task_metrics)
+        )
 
         totals = await db.get_deployment_cost_totals(rid)
 
@@ -196,19 +202,29 @@ class TestBaseCostUsdTask:
         from ai_pipeline_core.pipeline._task import PipelineTask
 
         with pytest.raises(TypeError, match="BASE_COST_USD"):
-            type("BadCostTask", (PipelineTask,), {"name": "BadCostTask", "BASE_COST_USD": -0.5, "estimated_minutes": 1.0})
+            type(
+                "BadCostTask", (PipelineTask,), {"name": "BadCostTask", "BASE_COST_USD": -0.5, "estimated_minutes": 1.0}
+            )
 
     def test_inf_raises(self) -> None:
         from ai_pipeline_core.pipeline._task import PipelineTask
 
         with pytest.raises(TypeError, match="BASE_COST_USD"):
-            type("InfCostTask", (PipelineTask,), {"name": "InfCostTask", "BASE_COST_USD": float("inf"), "estimated_minutes": 1.0})
+            type(
+                "InfCostTask",
+                (PipelineTask,),
+                {"name": "InfCostTask", "BASE_COST_USD": float("inf"), "estimated_minutes": 1.0},
+            )
 
     def test_nan_raises(self) -> None:
         from ai_pipeline_core.pipeline._task import PipelineTask
 
         with pytest.raises(TypeError, match="BASE_COST_USD"):
-            type("NanCostTask", (PipelineTask,), {"name": "NanCostTask", "BASE_COST_USD": float("nan"), "estimated_minutes": 1.0})
+            type(
+                "NanCostTask",
+                (PipelineTask,),
+                {"name": "NanCostTask", "BASE_COST_USD": float("nan"), "estimated_minutes": 1.0},
+            )
 
 
 class TestBaseCostUsdFlow:
@@ -221,19 +237,29 @@ class TestBaseCostUsdFlow:
         from ai_pipeline_core.pipeline._flow import PipelineFlow
 
         with pytest.raises(TypeError, match="BASE_COST_USD"):
-            type("NegCostFlow", (PipelineFlow,), {"name": "NegCostFlow", "BASE_COST_USD": -1.0, "estimated_minutes": 1.0})
+            type(
+                "NegCostFlow", (PipelineFlow,), {"name": "NegCostFlow", "BASE_COST_USD": -1.0, "estimated_minutes": 1.0}
+            )
 
     def test_inf_raises(self) -> None:
         from ai_pipeline_core.pipeline._flow import PipelineFlow
 
         with pytest.raises(TypeError, match="BASE_COST_USD"):
-            type("InfCostFlow", (PipelineFlow,), {"name": "InfCostFlow", "BASE_COST_USD": float("inf"), "estimated_minutes": 1.0})
+            type(
+                "InfCostFlow",
+                (PipelineFlow,),
+                {"name": "InfCostFlow", "BASE_COST_USD": float("inf"), "estimated_minutes": 1.0},
+            )
 
     def test_nan_raises(self) -> None:
         from ai_pipeline_core.pipeline._flow import PipelineFlow
 
         with pytest.raises(TypeError, match="BASE_COST_USD"):
-            type("NanCostFlow", (PipelineFlow,), {"name": "NanCostFlow", "BASE_COST_USD": float("nan"), "estimated_minutes": 1.0})
+            type(
+                "NanCostFlow",
+                (PipelineFlow,),
+                {"name": "NanCostFlow", "BASE_COST_USD": float("nan"), "estimated_minutes": 1.0},
+            )
 
 
 # --- End-to-end: add_cost → DatabaseSpanSink → SpanRecord ---
@@ -342,7 +368,17 @@ class TestExecutionContextTotalCost:
     async def test_total_cost_shared_across_derived_contexts(self) -> None:
         db = _MemoryDatabase()
         ctx = _make_execution_context(db)
-        derived = ctx.with_flow(FlowFrame(name="f", flow_class_name="F", step=1, total_steps=1, flow_minutes=(1.0,), completed_minutes=0.0, flow_params={}))
+        derived = ctx.with_flow(
+            FlowFrame(
+                name="f",
+                flow_class_name="F",
+                step=1,
+                total_steps=1,
+                flow_minutes=(1.0,),
+                completed_minutes=0.0,
+                flow_params={},
+            )
+        )
         with set_execution_context(derived):
             async with track_span(SpanKind.OPERATION, "in-flow", "", sinks=derived.sinks, db=derived.database):
                 add_cost(0.20)
@@ -359,7 +395,13 @@ class TestSnapshotCosts:
 
         rid = uuid4()
         base = datetime(2026, 3, 11, 12, 0, tzinfo=UTC)
-        deployment = _make_span(root_deployment_id=rid, kind=SpanKind.DEPLOYMENT, cost_usd=0.0, started_at=base, ended_at=base + timedelta(seconds=10))
+        deployment = _make_span(
+            root_deployment_id=rid,
+            kind=SpanKind.DEPLOYMENT,
+            cost_usd=0.0,
+            started_at=base,
+            ended_at=base + timedelta(seconds=10),
+        )
         task = _make_span(
             root_deployment_id=rid,
             kind=SpanKind.TASK,

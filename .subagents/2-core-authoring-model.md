@@ -1005,7 +1005,10 @@ class ResearchRoundFlow(PipelineFlow):
             model=options.fast_model,
         )
 
-        handles = [GatherEvidenceTask.run(request=request, planning=planning, model=options.analysis_model) for request in requests]
+        handles = [
+            GatherEvidenceTask.run(request=request, planning=planning, model=options.analysis_model)
+            for request in requests
+        ]
         batch = await collect_tasks(*handles)
 
         state = await ConsolidateEvidenceTask.run(

@@ -86,7 +86,9 @@ async def test_group_exhausted_exception_advances_to_fallback(monkeypatch: pytes
     seen_models: list[str] = []
 
     @asynccontextmanager
-    async def fake_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[_RawResponse]:
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[_RawResponse]:
         _ = messages, api_kwargs
         seen_models.append(req.model.name)
         if req.model.name == primary.name:
@@ -139,7 +141,9 @@ async def test_successful_response_with_exhausted_header_is_preserved(monkeypatc
     )
 
     @asynccontextmanager
-    async def fake_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[_RawResponse]:
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[_RawResponse]:
         _ = messages, api_kwargs
         seen_models.append(req.model.name)
         yield exhausted_success
@@ -163,7 +167,9 @@ async def test_fallback_model_retries_after_primary_exhaustion(monkeypatch: pyte
     seen: list[tuple[str, int]] = []
 
     @asynccontextmanager
-    async def fake_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[_RawResponse]:
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[_RawResponse]:
         _ = messages, api_kwargs
         attempt = req.attempt_index
         seen.append((req.model.name, attempt))
@@ -214,7 +220,9 @@ async def test_terminal_bad_request_does_not_advance_to_fallback(monkeypatch: py
     seen_models: list[str] = []
 
     @asynccontextmanager
-    async def fake_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[_RawResponse]:
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[_RawResponse]:
         _ = messages, api_kwargs
         seen_models.append(req.model.name)
         if req.model.name == primary.name:
@@ -231,14 +239,18 @@ async def test_terminal_bad_request_does_not_advance_to_fallback(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_auth_failure_without_group_exhaustion_does_not_advance_to_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_auth_failure_without_group_exhaustion_does_not_advance_to_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Auth-like failures are terminal for the model chain unless the proxy marks the group exhausted."""
     fallback = ALTERNATE_TEST_MODEL
     primary = DEFAULT_TEST_MODEL.model_copy(update={"fallback": fallback})
     seen_models: list[str] = []
 
     @asynccontextmanager
-    async def fake_open_stream(req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]) -> AsyncIterator[_RawResponse]:
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[_RawResponse]:
         _ = messages, api_kwargs
         seen_models.append(req.model.name)
         if req.model.name == primary.name:

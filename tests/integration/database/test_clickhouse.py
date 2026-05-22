@@ -137,7 +137,9 @@ def test_clickhouse_schema_version_mismatch_raises(clickhouse_settings) -> None:
                 "ENGINE = MergeTree() ORDER BY version"
             )
             future_version = SCHEMA_VERSION + 99
-            await admin_client.command(f"INSERT INTO {test_database}.{SCHEMA_META_TABLE} VALUES ({future_version}, now64(3), 'future-version')")
+            await admin_client.command(
+                f"INSERT INTO {test_database}.{SCHEMA_META_TABLE} VALUES ({future_version}, now64(3), 'future-version')"
+            )
         finally:
             await admin_client.close()
 

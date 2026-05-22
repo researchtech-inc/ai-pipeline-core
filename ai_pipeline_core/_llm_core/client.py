@@ -55,8 +55,12 @@ _SEMANTIC_FAILURES = (
 )
 _TERMINAL_FAILURES = (openai.BadRequestError, PayloadTooLargeError)
 _JITTER_RANDOM = SystemRandom()
-_STRUCTURED_BASE_SYSTEM_PROMPT = "Return valid JSON matching the response schema. Do not include prose, markdown, code fences, or explanation."
-_STRUCTURED_RETRY_SYSTEM_PROMPT = "Return ONLY the JSON value matching the response schema. No prose, no markdown, no code fences, no explanation."
+_STRUCTURED_BASE_SYSTEM_PROMPT = (
+    "Return valid JSON matching the response schema. Do not include prose, markdown, code fences, or explanation."
+)
+_STRUCTURED_RETRY_SYSTEM_PROMPT = (
+    "Return ONLY the JSON value matching the response schema. No prose, no markdown, no code fences, no explanation."
+)
 _STRUCTURED_SYSTEM_PROMPTS = frozenset({_STRUCTURED_BASE_SYSTEM_PROMPT, _STRUCTURED_RETRY_SYSTEM_PROMPT})
 _SIGNATURE_REPLAY_PATTERN = re.compile(
     r"(?:corrupted|invalid|missing|not\s+valid).{0,40}?thought.?signature|thought.?signature.{0,40}?(?:corrupted|invalid|missing|not\s+valid)",
@@ -161,7 +165,10 @@ async def _execute_attempt(req: AttemptRequest) -> AttemptOutcome:
         api_kwargs, prompt_cache_key = _prepare_api_kwargs(req)
         watchdog = _make_watchdog(req)
         messages = api_kwargs.pop("messages")
-        async with _transport.open_stream(req, messages=messages, api_kwargs=api_kwargs) as raw, StreamSession(raw, watchdog=watchdog) as session:
+        async with (
+            _transport.open_stream(req, messages=messages, api_kwargs=api_kwargs) as raw,
+            StreamSession(raw, watchdog=watchdog) as session,
+        ):
             completion = await session.drain()
         response = _build_model_response(completion, req, prompt_cache_key=prompt_cache_key)
         if req.call.debug.capture_trace:
@@ -199,16 +206,23 @@ def _check_capabilities(req: AttemptRequest) -> None:
         )
     if req.call.tools.schemas and not model.supports_tools:
         raise TerminalError(
-            f"Model {model.name!r} declares supports_tools=False but the request includes tool schemas. Use a model that supports tool calling."
+            f"Model {model.name!r} declares supports_tools=False but the request includes tool schemas. "
+            "Use a model that supports tool calling."
         )
     if model.supports_images and model.supports_pdfs:
         return
     for message in req.call.messages:
         for part in _iter_content_parts(message.content):
             if isinstance(part, ImageContent) and not model.supports_images:
-                raise TerminalError(f"Model {model.name!r} declares supports_images=False but the request includes ImageContent. Use a vision-capable model.")
+                raise TerminalError(
+                    f"Model {model.name!r} declares supports_images=False but the request "
+                    "includes ImageContent. Use a vision-capable model."
+                )
             if isinstance(part, PDFContent) and not model.supports_pdfs:
-                raise TerminalError(f"Model {model.name!r} declares supports_pdfs=False but the request includes PDFContent. Use a PDF-capable model.")
+                raise TerminalError(
+                    f"Model {model.name!r} declares supports_pdfs=False but the request "
+                    "includes PDFContent. Use a PDF-capable model."
+                )
 
 
 def _iter_content_parts(content: Any) -> Any:
@@ -236,7 +250,9 @@ def _prepare_api_kwargs(req: AttemptRequest) -> tuple[dict[str, Any], str | None
     if cache_prefix_len > 0 and len(messages) > len(req.call.messages):
         cache_prefix_len += len(messages) - len(req.call.messages)
 
-    prompt_cache_key = req.call.cache.key_override or (_transport.compute_cache_key(api_messages[:cache_prefix_len]) if cache_prefix_len > 0 else None)
+    prompt_cache_key = req.call.cache.key_override or (
+        _transport.compute_cache_key(api_messages[:cache_prefix_len]) if cache_prefix_len > 0 else None
+    )
 
     cache_ttl = req.call.cache.ttl
     if cache_ttl > 0 and cache_prefix_len > 0:
@@ -385,7 +401,9 @@ def _is_signature_replay_error(exc: BaseException) -> bool:
 def _headers_from_exception(exc: BaseException) -> _aipl.AIPLResponseHeaders | None:
     response_headers = getattr(exc, "response_headers", None)
     if isinstance(response_headers, Mapping):
-        return _aipl.AIPLResponseHeaders.from_response_headers({str(key): str(value) for key, value in response_headers.items()})
+        return _aipl.AIPLResponseHeaders.from_response_headers({
+            str(key): str(value) for key, value in response_headers.items()
+        })
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", None) if response is not None else None
     if isinstance(headers, Mapping):

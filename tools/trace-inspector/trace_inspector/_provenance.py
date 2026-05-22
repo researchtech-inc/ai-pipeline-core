@@ -17,7 +17,10 @@ def build_provenance(trace: LoadedTrace) -> dict[str, ProvenanceEntry]:
     producer_task_ids: dict[str, UUID | None] = {document_sha: None for document_sha in trace.documents}
     consumer_task_ids: dict[str, list[UUID]] = {document_sha: [] for document_sha in trace.documents}
 
-    ordered_tasks = sorted(trace.tasks.values(), key=lambda task: (task.parent_flow_span.sequence_no, task.span.sequence_no, task.span.started_at))
+    ordered_tasks = sorted(
+        trace.tasks.values(),
+        key=lambda task: (task.parent_flow_span.sequence_no, task.span.sequence_no, task.span.started_at),
+    )
     for task in ordered_tasks:
         new_outputs = set(task.output_document_shas) - set(task.input_document_shas)
         for document_sha in new_outputs:
@@ -33,18 +36,30 @@ def build_provenance(trace: LoadedTrace) -> dict[str, ProvenanceEntry]:
         produced_by_label = "root input"
         if produced_by_task is not None:
             produced_by_label = _task_label(produced_by_task, flow_labels)
-        external_source_labels = tuple(sorted(source for source in document.record.derived_from if not _is_document_sha256(source)))
+        external_source_labels = tuple(
+            sorted(source for source in document.record.derived_from if not _is_document_sha256(source))
+        )
         if produced_by_task is None and external_source_labels:
             produced_by_label = f"external: {external_source_labels[0]}"
-        consumed_task_spans = tuple(task for task_id in consumer_task_ids.get(document_sha, []) if (task := _resolve_task(trace, task_id)) is not None)
+        consumed_task_spans = tuple(
+            task
+            for task_id in consumer_task_ids.get(document_sha, [])
+            if (task := _resolve_task(trace, task_id)) is not None
+        )
         provenance[document_sha] = ProvenanceEntry(
             document_sha256=document_sha,
             produced_by_task_id=None if produced_by_task is None else produced_by_task.span.span_id,
             produced_by_label=produced_by_label,
             consumed_by_task_ids=tuple(task.span.span_id for task in consumed_task_spans),
             consumed_by_labels=tuple(_task_label(task, flow_labels) for task in consumed_task_spans),
-            derived_from_labels=tuple(_short_document_reference(trace, value) for value in document.record.derived_from if _is_document_sha256(value)),
-            triggered_by_labels=tuple(_short_document_reference(trace, value) for value in document.record.triggered_by),
+            derived_from_labels=tuple(
+                _short_document_reference(trace, value)
+                for value in document.record.derived_from
+                if _is_document_sha256(value)
+            ),
+            triggered_by_labels=tuple(
+                _short_document_reference(trace, value) for value in document.record.triggered_by
+            ),
             external_source_labels=external_source_labels,
         )
     return provenance

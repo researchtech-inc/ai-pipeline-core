@@ -74,7 +74,9 @@ async def run_benchmark_matrix(
         run = _with_progress(run, results=tuple(results), total_cost=total_cost)
         _write_run(run, output_dir=output_dir)
         if total_cost > cost_limit:
-            raise AssertionError(f"LLM benchmark cost ${total_cost:.4f} exceeded hard limit ${cost_limit:.2f}. Partial JSON was written.")
+            raise AssertionError(
+                f"LLM benchmark cost ${total_cost:.4f} exceeded hard limit ${cost_limit:.2f}. Partial JSON was written."
+            )
 
     finished_manifest = run.manifest.model_copy(
         update={
@@ -102,7 +104,9 @@ async def run_benchmark_case(
     result = await _run_probe(case)
     if result.cost_usd is not None and cost_budget is not None:
         cost_budget.add(result.cost_usd)
-    run = _load_or_create_shard(run_id=run_id, inventory=inventory, cases=all_cases, output_dir=output_dir, worker_id=worker_id)
+    run = _load_or_create_shard(
+        run_id=run_id, inventory=inventory, cases=all_cases, output_dir=output_dir, worker_id=worker_id
+    )
     results_by_case = {existing.case_id: existing for existing in run.results}
     results_by_case[result.case_id] = result
     ordered_results = tuple(results_by_case[case.case_id] for case in all_cases if case.case_id in results_by_case)
@@ -111,7 +115,9 @@ async def run_benchmark_case(
     run = _with_progress(run, results=ordered_results, total_cost=total_cost)
     _write_shard(run, output_dir=output_dir, worker_id=worker_id)
     if total_cost > cost_limit:
-        raise AssertionError(f"LLM benchmark shard cost ${total_cost:.4f} exceeded hard limit ${cost_limit:.2f}. Shard JSON was written.")
+        raise AssertionError(
+            f"LLM benchmark shard cost ${total_cost:.4f} exceeded hard limit ${cost_limit:.2f}. Shard JSON was written."
+        )
     return result
 
 
@@ -216,7 +222,9 @@ def _with_elapsed(result: ProbeResult, started: float) -> ProbeResult:
 
 
 def _with_progress(run: BenchmarkRun, *, results: tuple[ProbeResult, ...], total_cost: float) -> BenchmarkRun:
-    manifest = run.manifest.model_copy(update={"total_cost_usd": total_cost, "total_calls": sum(1 for result in results if result.actual != "skip")})
+    manifest = run.manifest.model_copy(
+        update={"total_cost_usd": total_cost, "total_calls": sum(1 for result in results if result.actual != "skip")}
+    )
     return run.model_copy(update={"manifest": manifest, "results": results})
 
 

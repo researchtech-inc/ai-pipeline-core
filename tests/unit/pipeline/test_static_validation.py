@@ -14,7 +14,13 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from ai_pipeline_core import Document, FlowOptions
-from ai_pipeline_core.deployment.base import DeploymentPlan, DeploymentResult, FlowStep, PipelineDeployment, _validate_flow_chain
+from ai_pipeline_core.deployment.base import (
+    DeploymentPlan,
+    DeploymentResult,
+    FlowStep,
+    PipelineDeployment,
+    _validate_flow_chain,
+)
 from ai_pipeline_core.documents import DocumentSha256
 from ai_pipeline_core.llm.conversation import Conversation
 from ai_pipeline_core.pipeline import PipelineFlow, PipelineTask
@@ -166,7 +172,9 @@ class NeedsDeltaFlow(PipelineFlow):
 
 
 class UnionInputFlow(PipelineFlow):
-    async def run(self, prior_docs: tuple[BetaDocument | DeltaDocument, ...], options: FlowOptions) -> tuple[GammaDocument, ...]:
+    async def run(
+        self, prior_docs: tuple[BetaDocument | DeltaDocument, ...], options: FlowOptions
+    ) -> tuple[GammaDocument, ...]:
         _ = (prior_docs, options)
         return ()
 
@@ -704,7 +712,9 @@ class TestFlowAnnotationValidation:
         """Flow returning tuple[ConcreteDocument, ...] is accepted."""
 
         class GoodFlow(PipelineFlow):
-            async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[BetaDocument, ...]:
+            async def run(
+                self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions
+            ) -> tuple[BetaDocument, ...]:
                 _ = (input_docs, options)
                 return ()
 
@@ -741,7 +751,9 @@ class TestFlowAnnotationValidation:
         """Flow that consumes and produces the same Document type is valid — needed for loops."""
 
         class LoopFlow(PipelineFlow):
-            async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[AlphaDocument, ...]:
+            async def run(
+                self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions
+            ) -> tuple[AlphaDocument, ...]:
                 _ = (input_docs, options)
                 return ()
 
@@ -914,7 +926,9 @@ class TestBareDocumentRejection:
         with pytest.raises(TypeError, match="bare 'Document'"):
 
             class BadFlow(PipelineFlow):
-                async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[Document, ...]:
+                async def run(
+                    self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions
+                ) -> tuple[Document, ...]:
                     _ = (input_docs, options)
                     return ()
 
@@ -923,7 +937,9 @@ class TestBareDocumentRejection:
         with pytest.raises(TypeError, match="bare 'Document'"):
 
             class BadFlow(PipelineFlow):
-                async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[Document | BetaDocument, ...]:
+                async def run(
+                    self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions
+                ) -> tuple[Document | BetaDocument, ...]:
                     _ = (input_docs, options)
                     return ()
 
@@ -987,7 +1003,9 @@ class TestBareDocumentRejection:
 
     def test_flow_accepts_concrete_subclasses(self):
         class GoodFlow(PipelineFlow):
-            async def run(self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions) -> tuple[BetaDocument, ...]:
+            async def run(
+                self, input_docs: tuple[AlphaDocument, ...], options: FlowOptions
+            ) -> tuple[BetaDocument, ...]:
                 _ = (input_docs, options)
                 return ()
 

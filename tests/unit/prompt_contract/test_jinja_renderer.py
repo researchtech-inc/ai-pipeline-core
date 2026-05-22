@@ -258,7 +258,9 @@ def _make_response(parsed: JinjaOutput) -> ModelResponse[Any]:
     )
 
 
-def _build_jinja_template_contract(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[type[PromptContract[JinjaOutput]], type[Methodology]]:
+def _build_jinja_template_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[type[PromptContract[JinjaOutput]], type[Methodology]]:
     """Construct a PromptContract subclass whose paired ``.md.j2`` lives in ``tmp_path``."""
     py_file = tmp_path / "_jinja_e2e_module.py"
     py_file.write_text("# stub for e2e jinja tests")
@@ -332,7 +334,11 @@ class TestEndToEndJinjaRendering:
         await contract_cls(topic="ml").execute(DEFAULT_TEST_MODEL)
 
         assert len(captured) == 1
-        user_text = "\n".join(message.content if isinstance(message.content, str) else "" for message in captured[0].messages if message.role.value == "user")
+        user_text = "\n".join(
+            message.content if isinstance(message.content, str) else ""
+            for message in captured[0].messages
+            if message.role.value == "user"
+        )
         # Substrings emitted only when the new Jinja renderer is wired up.
         assert "Contract purpose: use jinja template" in user_text
         assert "Topic: ml" in user_text

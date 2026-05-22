@@ -82,7 +82,9 @@ def test_response_format_override_applied_when_key_absent() -> None:
     _, new_args = _apply_overrides(receiver=receiver, arguments=arguments, overrides=overrides)
 
     assert isinstance(new_args, dict)
-    assert new_args.get("response_format") is OutputModel, "response_format override should be applied even when key was absent in original arguments"
+    assert new_args.get("response_format") is OutputModel, (
+        "response_format override should be applied even when key was absent in original arguments"
+    )
 
 
 def test_override_tools_appends_new_tools_after_matching() -> None:
@@ -145,7 +147,9 @@ def test_model_override_applies_to_constructor_args_receiver() -> None:
     new_receiver, _ = _apply_overrides(receiver=receiver, arguments=arguments, overrides=overrides)
 
     assert isinstance(new_receiver, dict)
-    assert new_receiver["value"]["model"] == ALTERNATE_TEST_MODEL, "Model override should apply to constructor_args receiver, not just Conversation"
+    assert new_receiver["value"]["model"] == ALTERNATE_TEST_MODEL, (
+        "Model override should apply to constructor_args receiver, not just Conversation"
+    )
 
 
 # ── Phase 7e: Replay tool override enforcement ───────────────────────────────

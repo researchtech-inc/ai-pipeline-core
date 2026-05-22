@@ -95,7 +95,9 @@ async def test_cached_flow_preserves_original_output_order(monkeypatch: pytest.M
     async def _reversed_loader(*args, **kwargs):
         return [second, first]
 
-    monkeypatch.setattr("ai_pipeline_core.deployment._deployment_runtime.load_documents_from_database", _reversed_loader)
+    monkeypatch.setattr(
+        "ai_pipeline_core.deployment._deployment_runtime.load_documents_from_database", _reversed_loader
+    )
     cached_span = SimpleNamespace(output_document_shas=(first.sha256, second.sha256))
     monkeypatch.setattr(db, "get_cached_completion", AsyncMock(return_value=cached_span))
 

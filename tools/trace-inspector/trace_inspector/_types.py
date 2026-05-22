@@ -70,8 +70,9 @@ class SourceSpec(_FrozenModel):
         configured_sources = [self.db_path is not None, self.run_id is not None, self.deployment_id is not None]
         if sum(configured_sources) != 1:
             msg = (
-                "Trace inspector source selection requires exactly one of db_path, run_id, or deployment_id. "
-                "Pass a FilesystemDatabase path for local inspection, or a run/deployment identifier for ClickHouse-backed inspection."
+                "Trace inspector source selection requires exactly one of db_path, "
+                "run_id, or deployment_id. Pass a FilesystemDatabase path for local "
+                "inspection, or a run/deployment identifier for ClickHouse-backed inspection."
             )
             raise ValueError(msg)
         if self.db_path is not None and self.download_db_to is not None:

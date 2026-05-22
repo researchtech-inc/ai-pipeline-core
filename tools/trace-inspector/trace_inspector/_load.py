@@ -35,7 +35,10 @@ async def load_trace(reader: DatabaseReader, deployment_id: UUID, *, reader_labe
     """Load the full trace graph for one deployment tree."""
     spans = await reader.get_deployment_tree(deployment_id)
     if not spans:
-        msg = f"Deployment {deployment_id} returned no spans. Pass a valid deployment id from ai-trace list or ai-trace show."
+        msg = (
+            f"Deployment {deployment_id} returned no spans. "
+            "Pass a valid deployment id from ai-trace list or ai-trace show."
+        )
         raise ValueError(msg)
 
     spans_by_id = {span.span_id: span for span in spans}
@@ -80,7 +83,11 @@ def _build_children_map(spans: list[SpanRecord], spans_by_id: dict[UUID, SpanRec
 
 def _resolve_root_span(spans: list[SpanRecord], deployment_id: UUID) -> SpanRecord:
     for span in spans:
-        if span.kind == SpanKind.DEPLOYMENT and span.root_deployment_id == deployment_id and span.parent_span_id is None:
+        if (
+            span.kind == SpanKind.DEPLOYMENT
+            and span.root_deployment_id == deployment_id
+            and span.parent_span_id is None
+        ):
             return span
     for span in spans:
         if span.kind == SpanKind.DEPLOYMENT and span.root_deployment_id == deployment_id:
@@ -136,7 +143,9 @@ def _build_loaded_tasks(
 ) -> dict[UUID, LoadedTask]:
     loaded_tasks: dict[UUID, LoadedTask] = {}
     for flow_span in flow_spans:
-        task_ids = sorted(tasks_by_flow.get(flow_span.span_id, []), key=lambda task_id: _span_sort_key(spans_by_id[task_id]))
+        task_ids = sorted(
+            tasks_by_flow.get(flow_span.span_id, []), key=lambda task_id: _span_sort_key(spans_by_id[task_id])
+        )
         tasks_by_flow[flow_span.span_id] = task_ids
         for task_id in task_ids:
             loaded_tasks[task_id] = _build_loaded_task(
@@ -163,7 +172,9 @@ def _build_loaded_task(
 ) -> LoadedTask:
     task_span = spans_by_id[task_id]
     attempt_spans = tuple(_child_spans_of_kind(task_span.span_id, spans_by_id, children_map, SpanKind.ATTEMPT))
-    conversation_spans, llm_rounds_by_conversation, tool_calls_by_conversation = _collect_task_conversations(task_id, spans_by_id, children_map)
+    conversation_spans, llm_rounds_by_conversation, tool_calls_by_conversation = _collect_task_conversations(
+        task_id, spans_by_id, children_map
+    )
     metrics = descendant_metrics.get(task_id, {})
     return LoadedTask(
         span=task_span,
@@ -181,7 +192,9 @@ def _build_loaded_task(
         tokens_cache_read=int(metrics.get("tokens_cache_read", 0)),
         tokens_reasoning=int(metrics.get("tokens_reasoning", 0)),
         parent_task_id=parent_task_by_task.get(task_id),
-        child_task_ids=tuple(sorted(child_tasks_by_task.get(task_id, []), key=lambda child_id: _span_sort_key(spans_by_id[child_id]))),
+        child_task_ids=tuple(
+            sorted(child_tasks_by_task.get(task_id, []), key=lambda child_id: _span_sort_key(spans_by_id[child_id]))
+        ),
     )
 
 
@@ -203,7 +216,12 @@ def _build_loaded_documents(
         blob = blob_records.get(record.content_sha256)
         content = None if blob is None else blob.content
         if blob is None:
-            logger.warning("Blob %s for document %s (%s) not found — content will be unavailable.", record.content_sha256[:12], sha[:12], record.name)
+            logger.warning(
+                "Blob %s for document %s (%s) not found — content will be unavailable.",
+                record.content_sha256[:12],
+                sha[:12],
+                record.name,
+            )
         text_content = _decode_text_content(content, record.mime_type)
         attachments: list[LoadedAttachment] = []
         for name, mime_type, size_bytes, attachment_sha in zip(
@@ -295,14 +313,22 @@ def _collect_task_conversations(
     """
     llm_rounds_by_conversation: dict[UUID, tuple[SpanRecord, ...]] = {}
     tool_calls_by_conversation: dict[UUID, tuple[SpanRecord, ...]] = {}
-    attempt_ids = [child_id for child_id in children_map.get(task_id, []) if spans_by_id[child_id].kind == SpanKind.ATTEMPT]
+    attempt_ids = [
+        child_id for child_id in children_map.get(task_id, []) if spans_by_id[child_id].kind == SpanKind.ATTEMPT
+    ]
     conversations: list[SpanRecord] = []
     for attempt_id in attempt_ids:
-        attempt_conversations = _collect_descendant_spans_of_kind(attempt_id, spans_by_id, children_map, SpanKind.CONVERSATION)
+        attempt_conversations = _collect_descendant_spans_of_kind(
+            attempt_id, spans_by_id, children_map, SpanKind.CONVERSATION
+        )
         for conversation_span in attempt_conversations:
             conversations.append(conversation_span)
-            llm_rounds = _collect_descendant_spans_of_kind(conversation_span.span_id, spans_by_id, children_map, SpanKind.LLM_ROUND)
-            tool_calls = _collect_descendant_spans_of_kind(conversation_span.span_id, spans_by_id, children_map, SpanKind.TOOL_CALL)
+            llm_rounds = _collect_descendant_spans_of_kind(
+                conversation_span.span_id, spans_by_id, children_map, SpanKind.LLM_ROUND
+            )
+            tool_calls = _collect_descendant_spans_of_kind(
+                conversation_span.span_id, spans_by_id, children_map, SpanKind.TOOL_CALL
+            )
             llm_rounds_by_conversation[conversation_span.span_id] = tuple(llm_rounds)
             tool_calls_by_conversation[conversation_span.span_id] = tuple(tool_calls)
     return tuple(conversations), llm_rounds_by_conversation, tool_calls_by_conversation
@@ -336,7 +362,13 @@ def _descendant_metrics(
         return {"cost_usd": 0.0, "tokens_input": 0, "tokens_output": 0, "tokens_cache_read": 0, "tokens_reasoning": 0}
 
     visiting.add(span_id)
-    metrics: dict[str, float | int] = {"cost_usd": 0.0, "tokens_input": 0, "tokens_output": 0, "tokens_cache_read": 0, "tokens_reasoning": 0}
+    metrics: dict[str, float | int] = {
+        "cost_usd": 0.0,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "tokens_cache_read": 0,
+        "tokens_reasoning": 0,
+    }
     for child_id in children_map.get(span_id, []):
         child = spans_by_id[child_id]
         metrics["cost_usd"] += child.cost_usd

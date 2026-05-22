@@ -1382,9 +1382,15 @@ async def test_log_filters_by_category_and_combined(database: ClickHouseDatabase
     deployment_id = uuid4()
     span_id = uuid4()
     await database.save_logs_batch([
-        _make_log(deployment_id=deployment_id, span_id=span_id, level="INFO", category="auth", message="a", sequence_no=0),
-        _make_log(deployment_id=deployment_id, span_id=span_id, level="ERROR", category="auth", message="b", sequence_no=1),
-        _make_log(deployment_id=deployment_id, span_id=span_id, level="INFO", category="db", message="c", sequence_no=2),
+        _make_log(
+            deployment_id=deployment_id, span_id=span_id, level="INFO", category="auth", message="a", sequence_no=0
+        ),
+        _make_log(
+            deployment_id=deployment_id, span_id=span_id, level="ERROR", category="auth", message="b", sequence_no=1
+        ),
+        _make_log(
+            deployment_id=deployment_id, span_id=span_id, level="INFO", category="db", message="c", sequence_no=2
+        ),
     ])
 
     # Category only

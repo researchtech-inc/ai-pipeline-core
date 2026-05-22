@@ -112,15 +112,31 @@ def _module_objects(tree: ast.Module, class_names: set[str], factory_name: str) 
     for node in ast.iter_child_nodes(tree):
         if _is_main_guard(node):
             continue
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and _leaf_name(node.value.func) in class_names:
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and _leaf_name(node.value.func) in class_names
+        ):
             for target in node.targets:
                 names.update(_assigned_names(target))
-        if isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call) and _leaf_name(node.value.func) in class_names:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.value, ast.Call)
+            and _leaf_name(node.value.func) in class_names
+        ):
             names.update(_assigned_names(node.target))
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and _leaf_name(node.value.func) == factory_name:
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and _leaf_name(node.value.func) == factory_name
+        ):
             for target in node.targets:
                 names.update(_assigned_names(target))
-        if isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call) and _leaf_name(node.value.func) == factory_name:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.value, ast.Call)
+            and _leaf_name(node.value.func) == factory_name
+        ):
             names.update(_assigned_names(node.target))
     return names
 
@@ -145,7 +161,9 @@ def _is_conversation_send(call: ast.Call, conversation_objects: set[str]) -> boo
     return isinstance(target, ast.Call) and _leaf_name(target.func) == "Conversation"
 
 
-def _call_violation(call: ast.Call, deployment_objects: set[str], deployment_classes: set[str], conversation_objects: set[str]) -> str | None:
+def _call_violation(
+    call: ast.Call, deployment_objects: set[str], deployment_classes: set[str], conversation_objects: set[str]
+) -> str | None:
     name = _expr_name(call.func)
     leaf = name.rsplit(".", 1)[-1]
     if name in BANNED_FULL_CALLS or leaf in BANNED_CALL_NAMES:

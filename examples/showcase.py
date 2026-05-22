@@ -78,10 +78,16 @@ class ResearchDocument(Document):
 # --- Tools for the research task ---
 
 TOPIC_DATABASE = {
-    "ai pipelines": "AI pipelines chain LLM calls with typed data flow, enabling reproducible multi-step reasoning.",
-    "immutable documents": "Immutable documents ensure provenance tracking and safe parallel processing without race conditions.",
-    "observability": "Pipeline observability captures execution trees, LLM metrics, and replay payloads for debugging.",
-    "validation": "Import-time validation catches configuration errors before any LLM call is made, reducing wasted compute.",
+    "ai pipelines": ("AI pipelines chain LLM calls with typed data flow, enabling reproducible multi-step reasoning."),
+    "immutable documents": (
+        "Immutable documents ensure provenance tracking and safe parallel processing without race conditions."
+    ),
+    "observability": (
+        "Pipeline observability captures execution trees, LLM metrics, and replay payloads for debugging."
+    ),
+    "validation": (
+        "Import-time validation catches configuration errors before any LLM call is made, reducing wasted compute."
+    ),
 }
 
 
@@ -96,15 +102,21 @@ class LookupRelatedTopics(Tool):
         subject: str
 
     async def run(self, input: Input) -> Output:
-        matches = [f"- **{topic}**: {summary}" for topic, summary in TOPIC_DATABASE.items() if any(word in topic for word in input.subject.lower().split())]
+        matches = [
+            f"- **{topic}**: {summary}"
+            for topic, summary in TOPIC_DATABASE.items()
+            if any(word in topic for word in input.subject.lower().split())
+        ]
         return self.Output(topics=matches, subject=input.subject)
 
 
 CLAIM_VERDICTS = {
     "provenance": "Confirmed: content-addressed SHA256 hashing provides full provenance chains.",
-    "typed documents": "Confirmed: Pydantic-based Document subclasses enforce type safety at definition time.",
-    "class-based tasks": "Confirmed: __init_subclass__ validates task signatures, return types, and config at import time.",
-    "parallel processing": "Confirmed: immutability and frozen dataclasses enable safe concurrent execution.",
+    "typed documents": ("Confirmed: Pydantic-based Document subclasses enforce type safety at definition time."),
+    "class-based tasks": (
+        "Confirmed: __init_subclass__ validates task signatures, return types, and config at import time."
+    ),
+    "parallel processing": ("Confirmed: immutability and frozen dataclasses enable safe concurrent execution."),
 }
 
 
@@ -338,7 +350,14 @@ class ShowcasePipeline(PipelineDeployment[ShowcaseFlowOptions, ShowcaseResult]):
     def build_plan(self, options: ShowcaseFlowOptions) -> DeploymentPlan:
         logger.info("Building flows for %s", type(self).__name__)
         _ = options
-        return DeploymentPlan(steps=(FlowStep(AnalysisFlow()), FlowStep(ExtractionFlow()), FlowStep(ResearchFlow()), FlowStep(ReportFlow())))
+        return DeploymentPlan(
+            steps=(
+                FlowStep(AnalysisFlow()),
+                FlowStep(ExtractionFlow()),
+                FlowStep(ResearchFlow()),
+                FlowStep(ReportFlow()),
+            )
+        )
 
     @staticmethod
     def build_result(

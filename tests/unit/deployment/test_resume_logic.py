@@ -6,7 +6,17 @@ Tests: cache TTL, option/input change invalidation, crash-retry resume, complete
 import pytest
 from pydantic import BaseModel
 
-from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FieldGate, FlowOptions, FlowStep, PipelineDeployment, PipelineFlow, PipelineTask
+from ai_pipeline_core import (
+    DeploymentPlan,
+    DeploymentResult,
+    Document,
+    FieldGate,
+    FlowOptions,
+    FlowStep,
+    PipelineDeployment,
+    PipelineFlow,
+    PipelineTask,
+)
 from ai_pipeline_core.database._memory import _MemoryDatabase
 
 from .conftest import OutputDoc, StageOne, StageTwo, _TestOptions, _TestResult
@@ -110,7 +120,10 @@ class ProduceAllTask(PipelineTask):
 
     @classmethod
     async def run(cls, inputs: tuple[ResumeInputDoc, ...]) -> tuple[ResumeOutputDoc, ...]:
-        return tuple(ResumeOutputDoc.derive(derived_from=(inputs[0],), name=f"out{i}.txt", content=f"output {i}") for i in range(1, 5))
+        return tuple(
+            ResumeOutputDoc.derive(derived_from=(inputs[0],), name=f"out{i}.txt", content=f"output {i}")
+            for i in range(1, 5)
+        )
 
 
 class CrashingFlow(PipelineFlow):
@@ -230,7 +243,9 @@ class TestResumeAfterSuccess:
 
         # Second run — flow should be skipped (resume from cache)
         await deployment.run("test-project", [input_doc], options, database=db)
-        assert _flow_call_count == 1, f"Flow executed {_flow_call_count} times — expected 1. Completed flow should be skipped on resume."
+        assert _flow_call_count == 1, (
+            f"Flow executed {_flow_call_count} times — expected 1. Completed flow should be skipped on resume."
+        )
 
 
 class _OptionedOptions(FlowOptions):

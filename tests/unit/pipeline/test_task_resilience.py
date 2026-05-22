@@ -187,7 +187,9 @@ async def test_handle_concurrent_await_returns_same_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retried_task_persists_final_attempt_and_failed_attempt_llm_rounds(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retried_task_persists_final_attempt_and_failed_attempt_llm_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         "ai_pipeline_core.llm._engine.generate",
         _make_fake_generate([

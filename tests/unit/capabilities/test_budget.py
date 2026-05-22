@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.capabilities._budget import COST_LIMIT_ENV, CapabilityCostBudget
+from tests.capabilities._budget import CapabilityCostBudget
 
 
 def test_add_accumulates_within_limit() -> None:
@@ -20,7 +20,7 @@ def test_add_aborts_immediately_when_exceeded() -> None:
     message = str(exc_info.value)
     assert "$1.10" in message
     assert "$1.00" in message
-    assert COST_LIMIT_ENV in message
+    assert "--cost-limit" in message
     assert budget.total_usd == pytest.approx(1.10)
 
 

@@ -188,7 +188,9 @@ class TestEncodeWebp:
 
         random.seed(42)
         img = Image.new("RGB", (500, 500))
-        img.putdata([(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(500 * 500)])
+        img.putdata([
+            (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(500 * 500)
+        ])
         low = encode_webp(img, quality=10)
         high = encode_webp(img, quality=95)
         assert len(low) < len(high)

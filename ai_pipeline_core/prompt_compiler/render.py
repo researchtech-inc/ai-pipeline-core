@@ -22,7 +22,9 @@ _RESULT_TAG = "result"
 _RESULT_OPEN = f"<{_RESULT_TAG}>"
 _RESULT_CLOSE = f"</{_RESULT_TAG}>"
 
-_RESULT_TAG_RULE = f"Write your complete response inside {_RESULT_OPEN} tags. Do not add any XML tags inside {_RESULT_OPEN}."
+_RESULT_TAG_RULE = (
+    f"Write your complete response inside {_RESULT_OPEN} tags. Do not add any XML tags inside {_RESULT_OPEN}."
+)
 
 
 def _role_sentence(text: str) -> str:
@@ -56,7 +58,10 @@ def _render_document_listing(items: list[tuple[str, str]]) -> str:
 def _render_documents_preview(spec_cls: type[PromptSpec[Any]]) -> str:
     """Render document listing from class-level info (for preview / no-documents mode)."""
     items = [
-        (doc_cls.__name__, (doc_cls.__doc__ or "").strip().splitlines()[0] if (doc_cls.__doc__ or "").strip() else "No description")
+        (
+            doc_cls.__name__,
+            (doc_cls.__doc__ or "").strip().splitlines()[0] if (doc_cls.__doc__ or "").strip() else "No description",
+        )
         for doc_cls in spec_cls.input_documents
     ]
     return _render_document_listing(items)

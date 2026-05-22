@@ -95,7 +95,9 @@ async def _reuse_cached_flow_output(
             filter_types=list(flow_class.output_document_types) if flow_class.output_document_types else None,
         )
         resumed_docs_by_sha = {doc.sha256: doc for doc in resumed_docs}
-        if len(resumed_docs_by_sha) != len(expected_output_shas) or any(sha not in resumed_docs_by_sha for sha in expected_output_shas):
+        if len(resumed_docs_by_sha) != len(expected_output_shas) or any(
+            sha not in resumed_docs_by_sha for sha in expected_output_shas
+        ):
             logger.warning(
                 "[%d/%d] Resume: ignoring cached %s output because hydration was incomplete. "
                 "Expected %d documents, hydrated %d. Re-running the flow to restore missing outputs.",
@@ -167,10 +169,13 @@ async def _execute_single_flow_attempt(
     raw_result_docs = cast(tuple[object, ...], raw_flow_result)
     if not raw_result_docs:
         raise TypeError(
-            f"PipelineFlow '{flow_class.__name__}' returned an empty tuple. run() must return at least one Document. Every flow must produce output documents."
+            f"PipelineFlow '{flow_class.__name__}' returned an empty tuple. "
+            "run() must return at least one Document. Every flow must produce output documents."
         )
     if any(not isinstance(document, Document) for document in raw_result_docs):
-        raise TypeError(f"PipelineFlow '{flow_class.__name__}' returned non-Document items. run() must return tuple[Document, ...].")
+        raise TypeError(
+            f"PipelineFlow '{flow_class.__name__}' returned non-Document items. run() must return tuple[Document, ...]."
+        )
     validated_result = cast(tuple[Document, ...], raw_flow_result)
     input_documents = _documents_from_flow_arguments(resolved_kwargs)
     if input_documents and validated_result:
@@ -180,8 +185,9 @@ async def _execute_single_flow_attempt(
             passthrough_names = ", ".join(f"'{document.name}'" for document in passthrough_documents)
             logger.warning(
                 "PipelineFlow '%s' returned input document(s) unchanged: %s. "
-                "Flows are the great filter of phase state: return only the handoff artifacts this phase produced. "
-                "If a phase intentionally returns prior state as the honest phase result, keep it; otherwise remove the passthrough.",
+                "Flows are the great filter of phase state: return only the handoff artifacts "
+                "this phase produced. If a phase intentionally returns prior state as the "
+                "honest phase result, keep it; otherwise remove the passthrough.",
                 flow_class.__name__,
                 passthrough_names,
             )
@@ -294,7 +300,9 @@ async def _run_flow_with_retries(
             raise
         except Exception as attempt_exc:
             if current_exec_ctx is not None:
-                await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=active_handles_before)
+                await _cancel_dispatched_handles(
+                    current_exec_ctx.active_task_handles, baseline_handles=active_handles_before
+                )
             will_retry = flow_attempt < flow_attempts - 1
             delay = min(retry_delay * (2**flow_attempt), MAX_RETRY_DELAY_SECONDS) if will_retry else 0
             parent_span_ctx.record_retry_failure(
@@ -439,7 +447,9 @@ async def _execute_flow_with_context(
                 span_ctx._set_output_value(validated_docs)
         except (Exception, asyncio.CancelledError) as flow_exc:  # fmt: skip
             if current_exec_ctx is not None:
-                await _cancel_dispatched_handles(current_exec_ctx.active_task_handles, baseline_handles=active_handles_before)
+                await _cancel_dispatched_handles(
+                    current_exec_ctx.active_task_handles, baseline_handles=active_handles_before
+                )
             flow_error_message = str(flow_exc)
             try:
                 await publisher.publish_flow_failed(
@@ -544,7 +554,11 @@ def _validate_flow_chain(deployment_name: str, flows: Sequence[PipelineFlow]) ->
         if index == 0:
             type_pool.update(required_input_types)
         elif required_input_types:
-            missing_required_types = [required for required in required_input_types if not any(issubclass(available, required) for available in type_pool)]
+            missing_required_types = [
+                required
+                for required in required_input_types
+                if not any(issubclass(available, required) for available in type_pool)
+            ]
             if missing_required_types:
                 input_names = sorted(document_type.__name__ for document_type in missing_required_types)
                 pool_names = sorted(document_type.__name__ for document_type in type_pool) if type_pool else ["(empty)"]

@@ -3,7 +3,8 @@
 Rules enforced at class definition time for concrete tasks:
 1. Subclasses must define ``@classmethod async def run(cls, ...)`` or inherit one from a parent task.
 2. Every ``run()`` parameter after ``cls`` must use a supported annotation.
-3. ``run()`` must return ``Document``, ``None``, ``list[Document]``, ``tuple[Document, ...]``, or unions of those shapes.
+3. ``run()`` must return ``Document``, ``None``, ``list[Document]``, ``tuple[Document, ...]``,
+   or unions of those shapes.
 4. Bare ``Document`` is forbidden in both inputs and outputs; use concrete subclasses.
 5. Class names must not start with ``Test``.
 6. ``estimated_minutes`` must be >= 1, ``retries`` >= 0, and ``timeout_seconds`` positive when set.
@@ -13,7 +14,8 @@ Concrete subclasses of those abstract bases are validated normally.
 
 Runtime behavior:
 1. ``Task.run(...)`` returns an awaitable ``TaskHandle``.
-2. ``await Task.run(...)`` executes the full lifecycle: retries, timeout, events, persistence, summaries, and replay capture.
+2. ``await Task.run(...)`` executes the full lifecycle: retries, timeout, events, persistence,
+   summaries, and replay capture.
 3. Tasks must run inside an active pipeline execution context (or ``pipeline_test_context()`` in tests).
 """
 
@@ -93,7 +95,10 @@ SUMMARY_GENERATION_EXCEPTIONS = (Exception,)
 TASK_EXECUTION_EXCEPTIONS = (Exception, asyncio.CancelledError)
 RETRY_CAPTURE_EXCEPTIONS = (Exception,)
 SUMMARY_EXCERPT_MAX_CHARS = 6000
-_SUMMARY_PROMPT = "Write a concise 1-2 sentence summary of document '{name}'. Focus on the main topic and purpose.\n\nExcerpt:\n{excerpt}"
+_SUMMARY_PROMPT = (
+    "Write a concise 1-2 sentence summary of document '{name}'. "
+    "Focus on the main topic and purpose.\n\nExcerpt:\n{excerpt}"
+)
 
 __all__ = ["PipelineTask"]
 
@@ -105,12 +110,15 @@ def _validate_run_parameter_count(task_name: str, parameters: list[inspect.Param
         raise TypeError(
             f"PipelineTask '{task_name}'.run declares {input_parameter_count} input parameters. "
             f"Task signatures may define at most {_RUN_SIGNATURE_ERROR_PARAMETER_COUNT - 1} inputs excluding 'cls'. "
-            "Group related values into a frozen BaseModel parameter or a typed Document so the task interface stays explicit and maintainable."
+            "Group related values into a frozen BaseModel parameter or a typed Document "
+            "so the task interface stays explicit and maintainable."
         )
     if input_parameter_count >= _RUN_SIGNATURE_WARNING_PARAMETER_COUNT:
         logger.warning(
-            "PipelineTask '%s'.run declares %d input parameters. Keep task signatures below %d inputs when possible. "
-            "Group related values into a frozen BaseModel parameter or a typed Document to keep orchestration explicit.",
+            "PipelineTask '%s'.run declares %d input parameters. "
+            "Keep task signatures below %d inputs when possible. "
+            "Group related values into a frozen BaseModel parameter or a typed Document "
+            "to keep orchestration explicit.",
             task_name,
             input_parameter_count,
             _RUN_SIGNATURE_WARNING_PARAMETER_COUNT,
@@ -188,7 +196,10 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         if own_run is None:
             inherited_spec = getattr(cls, "_run_spec", None)
             if inherited_spec is None:
-                raise TypeError(f"PipelineTask '{cls.__name__}' must define @classmethod async def run(cls, ...) or inherit a validated run() implementation.")
+                raise TypeError(
+                    f"PipelineTask '{cls.__name__}' must define @classmethod async def run(cls, ...) "
+                    "or inherit a validated run() implementation."
+                )
             cls.input_document_types = tuple(inherited_spec.input_document_types)
             cls.output_document_types = tuple(inherited_spec.output_document_types)
             cls._prefect_task_fn = cls._build_prefect_task()
@@ -212,12 +223,15 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     def _validate_class_config(cls) -> None:
         if cls.__name__.startswith("Test"):
             raise TypeError(
-                f"PipelineTask class name cannot start with 'Test': {cls.__name__}. Use a production-style class name; pytest classes reserve the Test* prefix."
+                f"PipelineTask class name cannot start with 'Test': {cls.__name__}. "
+                "Use a production-style class name; pytest classes reserve the Test* prefix."
             )
         if "name" not in cls.__dict__:
             cls.name = cls.__name__
         if cls.estimated_minutes < 1:
-            raise TypeError(f"PipelineTask '{cls.__name__}' has estimated_minutes={cls.estimated_minutes}. Use a value >= 1.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}' has estimated_minutes={cls.estimated_minutes}. Use a value >= 1."
+            )
         if not math.isfinite(cls.BASE_COST_USD) or cls.BASE_COST_USD < 0:
             raise TypeError(
                 f"PipelineTask '{cls.__name__}' has BASE_COST_USD={cls.BASE_COST_USD}. "
@@ -226,13 +240,23 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         if cls.retries is not None and cls.retries < 0:
             raise TypeError(f"PipelineTask '{cls.__name__}' has retries={cls.retries}. Use a value >= 0.")
         if cls.retry_delay_seconds is not None and cls.retry_delay_seconds < 0:
-            raise TypeError(f"PipelineTask '{cls.__name__}' has retry_delay_seconds={cls.retry_delay_seconds}. Use a value >= 0.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}' has retry_delay_seconds={cls.retry_delay_seconds}. Use a value >= 0."
+            )
         if cls.timeout_seconds is not None and cls.timeout_seconds <= 0:
-            raise TypeError(f"PipelineTask '{cls.__name__}' has timeout_seconds={cls.timeout_seconds}. Use a positive integer timeout or None.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}' has timeout_seconds={cls.timeout_seconds}. "
+                "Use a positive integer timeout or None."
+            )
         if cls.cache_version < 1:
-            raise TypeError(f"PipelineTask '{cls.__name__}' has cache_version={cls.cache_version}. Use an integer >= 1.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}' has cache_version={cls.cache_version}. Use an integer >= 1."
+            )
         if cls.cache_ttl_seconds is not None and cls.cache_ttl_seconds <= 0:
-            raise TypeError(f"PipelineTask '{cls.__name__}' has cache_ttl_seconds={cls.cache_ttl_seconds}. Use a positive integer number of seconds or None.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}' has cache_ttl_seconds={cls.cache_ttl_seconds}. "
+                "Use a positive integer number of seconds or None."
+            )
 
     @classmethod
     def _validate_run_signature(cls, run_descriptor: Any) -> _TaskRunSpec:
@@ -242,11 +266,17 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         descriptor = cast(object, run_descriptor)
         descriptor_func = getattr(descriptor, "__func__", None)
         if descriptor_func is None or not callable(descriptor_func):
-            raise TypeError(f"PipelineTask '{cls.__name__}'.run descriptor is invalid. Declare it as @classmethod async def run(cls, ...).")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}'.run descriptor is invalid. "
+                "Declare it as @classmethod async def run(cls, ...)."
+            )
 
         user_run = cast(Callable[..., Awaitable[Any]], descriptor_func)
         if not inspect.iscoroutinefunction(user_run):
-            raise TypeError(f"PipelineTask '{cls.__name__}'.run must be async def. Use async operations in task code and return Documents.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}'.run must be async def. "
+                "Use async operations in task code and return Documents."
+            )
 
         signature = inspect.signature(user_run)
         parameters = list(signature.parameters.values())
@@ -254,7 +284,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             raise TypeError(f"PipelineTask '{cls.__name__}'.run must accept 'cls' as the first parameter.")
         if parameters[0].name != "cls":
             raise TypeError(
-                f"PipelineTask '{cls.__name__}'.run must use signature @classmethod async def run(cls, ...). Found first parameter '{parameters[0].name}'."
+                f"PipelineTask '{cls.__name__}'.run must use signature @classmethod async def run(cls, ...). "
+                f"Found first parameter '{parameters[0].name}'."
             )
         _validate_run_parameter_count(cls.__name__, parameters)
 
@@ -262,12 +293,15 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
                 raise TypeError(
                     f"PipelineTask '{cls.__name__}'.run parameter '*{parameter.name}' uses *args. "
-                    f"Task inputs must be explicit named parameters. Replace *{parameter.name} with named parameters like 'documents: tuple[MyDocument, ...]'."
+                    "Task inputs must be explicit named parameters. "
+                    f"Replace *{parameter.name} with named parameters "
+                    "like 'documents: tuple[MyDocument, ...]'."
                 )
             if parameter.kind == inspect.Parameter.VAR_KEYWORD:
                 raise TypeError(
                     f"PipelineTask '{cls.__name__}'.run parameter '**{parameter.name}' uses **kwargs. "
-                    f"Task inputs must be explicit named parameters. Replace **{parameter.name} with named parameters like 'config: MyConfig'."
+                    "Task inputs must be explicit named parameters. "
+                    f"Replace **{parameter.name} with named parameters like 'config: MyConfig'."
                 )
 
         hints = resolve_type_hints(user_run)
@@ -276,7 +310,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
             annotation = hints.get(parameter.name)
             if annotation is None:
                 raise TypeError(
-                    f"PipelineTask '{cls.__name__}'.run parameter '{parameter.name}' is missing a type annotation. Annotate every task input explicitly."
+                    f"PipelineTask '{cls.__name__}'.run parameter '{parameter.name}' "
+                    "is missing a type annotation. Annotate every task input explicitly."
                 )
             input_document_types.extend(
                 validate_task_input_annotation(
@@ -312,7 +347,10 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         try:
             bound = cls._run_spec.signature.bind(cls, *args, **kwargs)
         except TypeError as exc:
-            raise TypeError(f"PipelineTask '{cls.__name__}.run' called with invalid arguments. Expected signature {cls._public_signature()}: {exc}") from exc
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}.run' called with invalid arguments. "
+                f"Expected signature {cls._public_signature()}: {exc}"
+            ) from exc
 
         bound.apply_defaults()
         arguments = {name: value for name, value in bound.arguments.items() if name != "cls"}
@@ -339,7 +377,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                 asyncio.get_running_loop()
             except RuntimeError as exc:
                 raise RuntimeError(
-                    f"PipelineTask '{task_cls.__name__}.run' must be called from async code. Use `await Task.run(...)` inside a flow or test context."
+                    f"PipelineTask '{task_cls.__name__}.run' must be called from async code. "
+                    "Use `await Task.run(...)` inside a flow or test context."
                 ) from exc
 
             execution_ctx = get_execution_context()
@@ -426,7 +465,9 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
         TASK span via ``record_retry_failure``, regardless of retry count.
         """
         retries = cls.retries if cls.retries is not None else settings.task_retries
-        retry_delay = cls.retry_delay_seconds if cls.retry_delay_seconds is not None else settings.task_retry_delay_seconds
+        retry_delay = (
+            cls.retry_delay_seconds if cls.retry_delay_seconds is not None else settings.task_retry_delay_seconds
+        )
         attempts = retries + 1
         prefect_task_fn = cls._prefect_task_fn
         use_prefect = _FlowRunContext.get() is not None and prefect_task_fn is not None
@@ -445,7 +486,9 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     if use_prefect and prefect_task_fn is not None:
                         result = await prefect_task_fn(dict(arguments))
                     else:
-                        result = await _maybe_with_timeout(cls.timeout_seconds, lambda: cls._run_and_normalize(arguments))
+                        result = await _maybe_with_timeout(
+                            cls.timeout_seconds, lambda: cls._run_and_normalize(arguments)
+                        )
                     return result, attempt
             except (_CoreNonRetriable, asyncio.CancelledError) as exc:  # fmt: skip
                 _attach_task_attempt(exc, attempt)
@@ -500,8 +543,10 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     passthrough_names = ", ".join(f"'{document.name}'" for document in passthrough_docs)
                     logger.warning(
                         "PipelineTask '%s' returned input document(s) unchanged: %s. "
-                        "Tasks should create new documents via derive(), create(), create_external(), or create_root(). "
-                        "The deployment blackboard carries earlier artifacts automatically, so tasks should not forward input documents unchanged.",
+                        "Tasks should create new documents via derive(), create(), "
+                        "create_external(), or create_root(). "
+                        "The deployment blackboard carries earlier artifacts automatically, "
+                        "so tasks should not forward input documents unchanged.",
                         cls.__name__,
                         passthrough_names,
                     )
@@ -523,7 +568,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
     ) -> tuple[Document, ...] | None:
         if not output_document_shas:
             logger.warning(
-                "Task cache span for '%s' has no output_document_shas. Persist cached task outputs on the completed span before expecting cache reuse.",
+                "Task cache span for '%s' has no output_document_shas. "
+                "Persist cached task outputs on the completed span before expecting cache reuse.",
                 cls.__name__,
             )
             return None
@@ -635,7 +681,10 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
 
         if bad_types:
             bad_types_text = ", ".join(sorted(bad_types))
-            raise TypeError(f"PipelineTask '{cls.__name__}' returned non-Document items ({bad_types_text}). run() must return only Document subclasses.")
+            raise TypeError(
+                f"PipelineTask '{cls.__name__}' returned non-Document items ({bad_types_text}). "
+                "run() must return only Document subclasses."
+            )
         return tuple(normalized_docs)
 
     @staticmethod
@@ -660,7 +709,9 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     run_id=execution_ctx.run_id,
                     span_id=span_id,
                     root_deployment_id=str(root_id),
-                    parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id) if execution_ctx.parent_deployment_task_id else None,
+                    parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id)
+                    if execution_ctx.parent_deployment_task_id
+                    else None,
                     flow_name=flow_frame.name,
                     step=step,
                     total_steps=flow_frame.total_steps,
@@ -699,7 +750,9 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     run_id=execution_ctx.run_id,
                     span_id=span_id,
                     root_deployment_id=str(root_id),
-                    parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id) if execution_ctx.parent_deployment_task_id else None,
+                    parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id)
+                    if execution_ctx.parent_deployment_task_id
+                    else None,
                     flow_name=flow_frame.name,
                     step=step,
                     total_steps=flow_frame.total_steps,
@@ -738,7 +791,9 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     run_id=execution_ctx.run_id,
                     span_id=span_id,
                     root_deployment_id=str(root_id),
-                    parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id) if execution_ctx.parent_deployment_task_id else None,
+                    parent_deployment_task_id=str(execution_ctx.parent_deployment_task_id)
+                    if execution_ctx.parent_deployment_task_id
+                    else None,
                     flow_name=flow_frame.name,
                     step=step,
                     total_steps=flow_frame.total_steps,
@@ -773,7 +828,11 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     result = await execute_interaction(
                         InteractionRequest(
                             model=summary_model,
-                            messages=(CoreMessage(role=Role.USER, content=_SUMMARY_PROMPT.format(name=document.name, excerpt=excerpt)),),
+                            messages=(
+                                CoreMessage(
+                                    role=Role.USER, content=_SUMMARY_PROMPT.format(name=document.name, excerpt=excerpt)
+                                ),
+                            ),
                             purpose="doc_summary",
                         )
                     )
@@ -862,7 +921,9 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     cache_version=cls.cache_version,
                     arguments=arguments,
                 )
-                task_cache_source_span = await cast(Any, database).get_cached_completion(task_cache_key, max_age=task_cache_ttl)
+                task_cache_source_span = await cast(Any, database).get_cached_completion(
+                    task_cache_key, max_age=task_cache_ttl
+                )
                 if task_cache_source_span is not None:
                     cached_documents = await cls._reuse_cached_output(
                         arguments=arguments,

@@ -759,10 +759,12 @@ class TestSerializationRoundTrip:
             resolved = await resolve_document_inputs(doc_inputs, [AlphaDoc, BetaDoc])
             assert len(resolved) == 1
             assert resolved[0].derived_from == original.derived_from, (
-                f"derived_from lost for {original.name}: expected {original.derived_from}, got {resolved[0].derived_from}"
+                f"derived_from lost for {original.name}: expected {original.derived_from}, "
+                f"got {resolved[0].derived_from}"
             )
             assert resolved[0].triggered_by == original.triggered_by, (
-                f"triggered_by lost for {original.name}: expected {original.triggered_by}, got {resolved[0].triggered_by}"
+                f"triggered_by lost for {original.name}: expected {original.triggered_by}, "
+                f"got {resolved[0].triggered_by}"
             )
 
     async def test_remote_path_preserves_provenance_on_derived_documents(self):

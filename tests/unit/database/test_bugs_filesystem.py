@@ -82,7 +82,8 @@ async def test_log_file_append_only_io() -> None:
         final_size = db._logs_path.stat().st_size
         ratio = total_bytes_written / final_size
         assert ratio < 2.0, (
-            f"Total bytes written ({total_bytes_written}) is {ratio:.1f}x the final file size ({final_size}). Expected ratio < 2.0 for append-only writes."
+            f"Total bytes written ({total_bytes_written}) is {ratio:.1f}x the final file "
+            f"size ({final_size}). Expected ratio < 2.0 for append-only writes."
         )
 
 

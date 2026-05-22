@@ -135,7 +135,11 @@ def core_messages_to_api(
     result: list[APIMessage] = []
     for message in messages:
         if message.role == Role.TOOL:
-            result.append({"role": "tool", "tool_call_id": message.tool_call_id or "", "content": message.content if isinstance(message.content, str) else ""})
+            result.append({
+                "role": "tool",
+                "tool_call_id": message.tool_call_id or "",
+                "content": message.content if isinstance(message.content, str) else "",
+            })
             continue
         if message.tool_calls:
             parts = _content_to_api_parts(message.content)
@@ -167,7 +171,9 @@ def core_messages_to_api(
             continue
         parts = _content_to_api_parts(message.content)
         content_value = _content_value_for_api(parts)
-        has_reasoning_carriers = message.role == Role.ASSISTANT and bool(message.provider_specific_fields or message.thinking_blocks)
+        has_reasoning_carriers = message.role == Role.ASSISTANT and bool(
+            message.provider_specific_fields or message.thinking_blocks
+        )
         if content_value is None and not has_reasoning_carriers:
             continue
         entry = {"role": message.role.value, "content": content_value}
@@ -217,7 +223,9 @@ def build_extra_body(req: AttemptRequest, *, prompt_cache_key: str | None) -> di
 
 
 @asynccontextmanager
-async def open_stream(req: AttemptRequest, *, messages: list[APIMessage], api_kwargs: dict[str, Any]) -> AsyncIterator[Any]:
+async def open_stream(
+    req: AttemptRequest, *, messages: list[APIMessage], api_kwargs: dict[str, Any]
+) -> AsyncIterator[Any]:
     """Open a raw streaming response for one attempt.
 
     Yields:

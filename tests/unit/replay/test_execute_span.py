@@ -10,7 +10,13 @@ from ai_pipeline_core.llm.conversation import Conversation
 from ai_pipeline_core.pipeline import PipelineTask
 from ai_pipeline_core.pipeline._execution_context import get_execution_context
 from ai_pipeline_core.replay import execute_span
-from tests.unit.replay.conftest import ReplayFlowOptions, ReplayResultDocument, ReplayTextDocument, make_span, store_document_in_database
+from tests.unit.replay.conftest import (
+    ReplayFlowOptions,
+    ReplayResultDocument,
+    ReplayTextDocument,
+    make_span,
+    store_document_in_database,
+)
 from tests.support.helpers import create_test_model_response
 from tests.support.model_catalog import DEFAULT_TEST_MODEL
 

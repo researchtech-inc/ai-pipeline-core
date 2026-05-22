@@ -139,7 +139,11 @@ class TestStripReasoningSignatures:
         message = CoreMessage(
             role=Role.ASSISTANT,
             content="answer",
-            provider_specific_fields={"thought_signature": "abc", "thought_signatures": "xyz", "reasoning_items": [{"text": "keep"}]},
+            provider_specific_fields={
+                "thought_signature": "abc",
+                "thought_signatures": "xyz",
+                "reasoning_items": [{"text": "keep"}],
+            },
         )
         result = strip_reasoning_signatures((message,))
 
@@ -193,7 +197,9 @@ class TestStripReasoningSignatures:
         assert result[2].tool_call_id == "other_call"
 
     def test_idempotent_on_clean_messages(self) -> None:
-        message = CoreMessage(role=Role.ASSISTANT, content="plain", provider_specific_fields={"reasoning_items": [{"text": "x"}]})
+        message = CoreMessage(
+            role=Role.ASSISTANT, content="plain", provider_specific_fields={"reasoning_items": [{"text": "x"}]}
+        )
         original = (message,)
         result = strip_reasoning_signatures(original)
         # Nothing to strip → must return the same tuple identity.

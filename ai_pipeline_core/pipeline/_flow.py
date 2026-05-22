@@ -36,7 +36,10 @@ def _declared_init_annotations(klass: type) -> set[str]:
     """Return non-private annotations declared directly on ``klass``."""
     annotate = annotationlib.get_annotate_from_class_namespace(klass.__dict__)
     if callable(annotate):
-        annotations = cast(dict[str, Any], annotationlib.call_annotate_function(cast(Any, annotate), format=annotationlib.Format.FORWARDREF))
+        annotations = cast(
+            dict[str, Any],
+            annotationlib.call_annotate_function(cast(Any, annotate), format=annotationlib.Format.FORWARDREF),
+        )
         return {name for name in annotations if not name.startswith("_")}
 
     annotations = annotationlib.get_annotations(klass, format=annotationlib.Format.FORWARDREF)
@@ -192,8 +195,10 @@ def _warn_on_unused_task_outputs(flow_name: str, bindings: list[_TaskCallBinding
             continue
         output_names = ", ".join(document_type.__name__ for document_type in output_types)
         logger.warning(
-            "PipelineFlow '%s' calls task '%s' at line %d but never uses its returned document type(s): %s. "
-            "Every task return should either feed another task, drive flow control, or be returned as the phase handoff. "
+            "PipelineFlow '%s' calls task '%s' at line %d but never uses its returned "
+            "document type(s): %s. "
+            "Every task return should either feed another task, drive flow control, "
+            "or be returned as the phase handoff. "
             "Use the task result, return it from the flow, or remove the call.",
             flow_name,
             binding.task_class.__name__,
@@ -340,16 +345,21 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
     def _validate_class_config(cls) -> None:
         if cls.__name__.startswith("Test"):
             raise TypeError(
-                f"PipelineFlow class name cannot start with 'Test': {cls.__name__}. Use a production-style class name; pytest classes reserve the Test* prefix."
+                f"PipelineFlow class name cannot start with 'Test': {cls.__name__}. "
+                "Use a production-style class name; pytest classes reserve the Test* prefix."
             )
         if "name" not in cls.__dict__:
             cls.name = cls.__name__
         if cls.estimated_minutes < 1:
-            raise TypeError(f"PipelineFlow '{cls.__name__}' has estimated_minutes={cls.estimated_minutes}. Use a value >= 1.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}' has estimated_minutes={cls.estimated_minutes}. Use a value >= 1."
+            )
         if cls.retries is not None and cls.retries < 0:
             raise TypeError(f"PipelineFlow '{cls.__name__}' has retries={cls.retries}. Use a value >= 0.")
         if cls.retry_delay_seconds is not None and cls.retry_delay_seconds < 0:
-            raise TypeError(f"PipelineFlow '{cls.__name__}' has retry_delay_seconds={cls.retry_delay_seconds}. Use a value >= 0.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}' has retry_delay_seconds={cls.retry_delay_seconds}. Use a value >= 0."
+            )
         if not math.isfinite(cls.BASE_COST_USD) or cls.BASE_COST_USD < 0:
             raise TypeError(
                 f"PipelineFlow '{cls.__name__}' has BASE_COST_USD={cls.BASE_COST_USD}. "
@@ -367,19 +377,27 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
                     run_fn = parent.__dict__["run"]
                     break
         if run_fn is None:
-            raise TypeError(f"PipelineFlow '{cls.__name__}' must define async def run(self, ...) -> tuple[Document, ...].")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}' must define async def run(self, ...) -> tuple[Document, ...]."
+            )
         if not inspect.iscoroutinefunction(run_fn):
             raise TypeError(f"PipelineFlow '{cls.__name__}'.run must be async def.")
         sig = inspect.signature(run_fn)
         params = list(sig.parameters.values())
         if not params or params[0].name != "self":
-            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must be an instance method with 'self' as first parameter.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}'.run must be an instance method with 'self' as first parameter."
+            )
         for parameter in params[1:]:
             if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
-                raise TypeError(f"PipelineFlow '{cls.__name__}'.run parameter '*{parameter.name}' uses *args. Flow inputs must be explicit named parameters.")
+                raise TypeError(
+                    f"PipelineFlow '{cls.__name__}'.run parameter '*{parameter.name}' uses *args. "
+                    "Flow inputs must be explicit named parameters."
+                )
             if parameter.kind == inspect.Parameter.VAR_KEYWORD:
                 raise TypeError(
-                    f"PipelineFlow '{cls.__name__}'.run parameter '**{parameter.name}' uses **kwargs. Flow inputs must be explicit named parameters."
+                    f"PipelineFlow '{cls.__name__}'.run parameter '**{parameter.name}' uses **kwargs. "
+                    "Flow inputs must be explicit named parameters."
                 )
         if len(params) < 2:
             raise TypeError(
@@ -400,7 +418,8 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
             annotation = hints.get(parameter.name)
             if annotation is None:
                 raise TypeError(
-                    f"PipelineFlow '{cls.__name__}'.run parameter '{parameter.name}' is missing a type annotation. Annotate every flow input explicitly."
+                    f"PipelineFlow '{cls.__name__}'.run parameter '{parameter.name}' "
+                    "is missing a type annotation. Annotate every flow input explicitly."
                 )
             unwrapped = unwrap_optional(annotation)
             if isinstance(unwrapped, type) and issubclass(unwrapped, FlowOptions):
@@ -415,14 +434,26 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
 
         return_annotation = hints.get("return")
         if return_annotation is None:
-            raise TypeError(f"PipelineFlow '{cls.__name__}'.run is missing return annotation. Use tuple[MyDocument, ...] or tuple[DocA | DocB, ...].")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}'.run is missing return annotation. "
+                "Use tuple[MyDocument, ...] or tuple[DocA | DocB, ...]."
+            )
         if contains_bare_document(return_annotation):
-            raise TypeError(f"PipelineFlow '{cls.__name__}' uses bare 'Document' in run() return type. Use specific Document subclasses.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}' uses bare 'Document' in run() return type. "
+                "Use specific Document subclasses."
+            )
         if get_origin(return_annotation) is not tuple:
-            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. Got: {return_annotation!r}.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. "
+                f"Got: {return_annotation!r}."
+            )
         output_types = collect_document_types(return_annotation)
         if not output_types:
-            raise TypeError(f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. Got: {return_annotation!r}.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}'.run must return tuple[DocumentSubclass, ...]. "
+                f"Got: {return_annotation!r}."
+            )
         return input_types, output_types
 
     @classmethod
@@ -440,8 +471,7 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
         """
 
         async def _prefect_body(flow_instance: PipelineFlow, **kwargs: Any) -> tuple[Any, ...]:
-            # nosemgrep: no-dict-unpacking-task-flow-call -- framework wrapper forwards validated flow kwargs into the user flow
-            return await flow_instance.run(**kwargs)
+            return await flow_instance.run(**kwargs)  # nosemgrep: no-dict-unpacking-task-flow-call - forward
 
         return _prefect_flow(
             name=cls.name,
@@ -462,12 +492,17 @@ class PipelineFlow(metaclass=_FrozenDocumentTypesMeta):
             known_params.update(
                 name
                 for name, value in vars(klass).items()
-                if not name.startswith("_") and not callable(value) and not isinstance(value, (classmethod, staticmethod, property))
+                if not name.startswith("_")
+                and not callable(value)
+                and not isinstance(value, (classmethod, staticmethod, property))
             )
         unknown = sorted(key for key in kwargs if key not in known_params)
         if unknown:
             allowed = ", ".join(sorted(known_params)) or "(none)"
-            raise TypeError(f"PipelineFlow '{cls.__name__}' got unknown init parameter(s): {', '.join(unknown)}. Allowed parameters: {allowed}.")
+            raise TypeError(
+                f"PipelineFlow '{cls.__name__}' got unknown init parameter(s): "
+                f"{', '.join(unknown)}. Allowed parameters: {allowed}."
+            )
         self._params: dict[str, Any] = dict(kwargs)
         for key, value in kwargs.items():
             setattr(self, key, value)

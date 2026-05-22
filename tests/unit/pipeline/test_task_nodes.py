@@ -245,7 +245,9 @@ async def test_started_and_completed_rows_are_valid_span_records() -> None:
     with set_execution_context(_make_context_with_db(database)):
         await _SimpleTask.run((_make_input(),))
 
-    started_span, completed_span = [span for span in database.inserted_spans if getattr(span, "kind", None) == SpanKind.TASK]
+    started_span, completed_span = [
+        span for span in database.inserted_spans if getattr(span, "kind", None) == SpanKind.TASK
+    ]
     assert started_span.status == SpanStatus.RUNNING
     assert completed_span.status == SpanStatus.COMPLETED
     assert started_span.span_id == completed_span.span_id

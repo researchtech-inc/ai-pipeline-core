@@ -7,7 +7,15 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
-from ai_pipeline_core import DeploymentPlan, DeploymentResult, Document, FlowOptions, FlowStep, PipelineDeployment, PipelineFlow
+from ai_pipeline_core import (
+    DeploymentPlan,
+    DeploymentResult,
+    Document,
+    FlowOptions,
+    FlowStep,
+    PipelineDeployment,
+    PipelineFlow,
+)
 from ai_pipeline_core.database.filesystem._backend import FilesystemDatabase
 
 

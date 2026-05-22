@@ -34,5 +34,8 @@ def declared_annotations(cls: type) -> dict[str, Any]:
     """Return annotations declared directly on ``cls`` (FORWARDREF format)."""
     annotate = annotationlib.get_annotate_from_class_namespace(cls.__dict__)
     if callable(annotate):
-        return cast(dict[str, Any], annotationlib.call_annotate_function(cast(Any, annotate), format=annotationlib.Format.FORWARDREF))
+        return cast(
+            dict[str, Any],
+            annotationlib.call_annotate_function(cast(Any, annotate), format=annotationlib.Format.FORWARDREF),
+        )
     return cast(dict[str, Any], annotationlib.get_annotations(cls, format=annotationlib.Format.FORWARDREF))

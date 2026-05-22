@@ -45,7 +45,9 @@ def _get_completed_event(events: list[CollectedEvent]) -> CollectedEvent:
     return completed[0]
 
 
-def _make_second_publisher(pubsub_test_resources: PubsubTestResources) -> tuple[PubsubTestResources, PublisherWithStore]:
+def _make_second_publisher(
+    pubsub_test_resources: PubsubTestResources,
+) -> tuple[PubsubTestResources, PublisherWithStore]:
     """Create a second topic+subscription and publisher for collecting only a second run's events."""
     from google.cloud.pubsub_v1 import PublisherClient, SubscriberClient
 

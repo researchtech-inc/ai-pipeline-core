@@ -155,7 +155,9 @@ async def test_database_span_sink_writes_running_then_terminal_rows() -> None:
             db=database,
             input_preview={"task_class": "Task", "input_documents": [input_doc.name]},
         ) as span_ctx:
-            span_ctx._set_output_value((_SpanOutputDoc.derive(derived_from=(input_doc,), name="out.txt", content="output"),))
+            span_ctx._set_output_value((
+                _SpanOutputDoc.derive(derived_from=(input_doc,), name="out.txt", content="output"),
+            ))
 
     assert len(database.inserted_spans) == 2
     started_span, finished_span = database.inserted_spans
@@ -312,7 +314,9 @@ async def test_track_span_consumes_log_summary_in_finally() -> None:
 
 
 @pytest.mark.asyncio
-async def test_track_span_preserves_original_exception_when_sink_cleanup_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_track_span_preserves_original_exception_when_sink_cleanup_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     database = _RecordingMemoryDatabase()
     ctx = _make_context(database)
 
@@ -380,7 +384,11 @@ async def test_database_span_sink_extracts_previous_conversation_id() -> None:
             sinks=get_sinks(),
             encode_receiver={
                 "mode": "decoded_state",
-                "value": {"$type": "pydantic", "class_path": "test:Conversation", "data": {"_conversation_id": str(previous_span_id)}},
+                "value": {
+                    "$type": "pydantic",
+                    "class_path": "test:Conversation",
+                    "data": {"_conversation_id": str(previous_span_id)},
+                },
             },
             encode_input={"content": "hello"},
             db=database,
@@ -468,7 +476,9 @@ async def test_database_span_sink_logs_and_does_not_raise_when_insert_fails(capl
 
 
 @pytest.mark.asyncio
-async def test_database_span_sink_logs_and_degrades_when_clickhouse_insert_fails(caplog: pytest.LogCaptureFixture) -> None:
+async def test_database_span_sink_logs_and_degrades_when_clickhouse_insert_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     database = _ClickHouseFailingSpanInsertDatabase()
     ctx = _make_context(database)
 

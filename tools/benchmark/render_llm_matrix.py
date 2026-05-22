@@ -60,7 +60,14 @@ def render_matrix(run: BenchmarkRun) -> str:
     for model_name in run.inventory.model_names:
         row = [model_name]
         for probe_key in CANONICAL_PROBES:
-            case = next((item for item in run.cases if item.model_name == model_name and item.probe_key == probe_key and item.scope != "deployment"), None)
+            case = next(
+                (
+                    item
+                    for item in run.cases
+                    if item.model_name == model_name and item.probe_key == probe_key and item.scope != "deployment"
+                ),
+                None,
+            )
             row.append(_cell(results.get(case.case_id) if case is not None else None))
         lines.append(_table_row(row))
 
@@ -68,12 +75,33 @@ def render_matrix(run: BenchmarkRun) -> str:
         "",
         "## Per-Deployment Cheap Probes",
         "",
-        _table_header(("deployment_id", "model_name", "basic_generation", "aipl_metadata", "cost_sync", "routing_telemetry", "structured_basemodel")),
+        _table_header((
+            "deployment_id",
+            "model_name",
+            "basic_generation",
+            "aipl_metadata",
+            "cost_sync",
+            "routing_telemetry",
+            "structured_basemodel",
+        )),
     ])
     for deployment in run.inventory.concrete_deployments:
         row = [deployment.deployment_id, deployment.model_name]
-        for probe_key in ("basic_generation", "aipl_metadata", "cost_sync", "routing_telemetry", "structured_basemodel"):
-            case = next((item for item in run.cases if item.deployment_id == deployment.deployment_id and item.probe_key == probe_key), None)
+        for probe_key in (
+            "basic_generation",
+            "aipl_metadata",
+            "cost_sync",
+            "routing_telemetry",
+            "structured_basemodel",
+        ):
+            case = next(
+                (
+                    item
+                    for item in run.cases
+                    if item.deployment_id == deployment.deployment_id and item.probe_key == probe_key
+                ),
+                None,
+            )
             row.append(_cell(results.get(case.case_id) if case is not None else None))
         lines.append(_table_row(row))
 

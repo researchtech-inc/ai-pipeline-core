@@ -128,12 +128,17 @@ class TestRunRemoteDeployment:
 
             with (
                 patch("ai_pipeline_core.deployment.remote.PrefectClient") as mock_prefect_client,
-                patch("ai_pipeline_core.deployment.remote.AsyncClientContext.model_construct", return_value=nullcontext()),
+                patch(
+                    "ai_pipeline_core.deployment.remote.AsyncClientContext.model_construct", return_value=nullcontext()
+                ),
                 patch(
                     "ai_pipeline_core.deployment.remote.arun_deployment",
                     new=AsyncMock(side_effect=[local_run_error, remote_flow_run]),
                 ) as mock_run_deployment,
-                patch("ai_pipeline_core.deployment.remote._poll_remote_flow_run", new=AsyncMock(return_value={"success": True})) as mock_poll,
+                patch(
+                    "ai_pipeline_core.deployment.remote._poll_remote_flow_run",
+                    new=AsyncMock(return_value={"success": True}),
+                ) as mock_poll,
                 patch("ai_pipeline_core.deployment.remote.settings") as mock_settings,
             ):
                 remote_client = AsyncMock()
@@ -168,7 +173,9 @@ class TestRunRemoteDeployment:
             not_found_error = ObjectNotFound(http_exc=Exception("missing"))
             with (
                 patch("ai_pipeline_core.deployment.remote.PrefectClient") as mock_prefect_client,
-                patch("ai_pipeline_core.deployment.remote.AsyncClientContext.model_construct", return_value=nullcontext()),
+                patch(
+                    "ai_pipeline_core.deployment.remote.AsyncClientContext.model_construct", return_value=nullcontext()
+                ),
                 patch(
                     "ai_pipeline_core.deployment.remote.arun_deployment",
                     new=AsyncMock(side_effect=[not_found_error, not_found_error]),

@@ -51,7 +51,9 @@ def render_message_sequence(
                 lines.append("```")
                 lines.append("")
                 continue
-            lines.append(_render_message_content(content, documents_by_short_id, config, seen_document_turns, turn_index))
+            lines.append(
+                _render_message_content(content, documents_by_short_id, config, seen_document_turns, turn_index)
+            )
             lines.append("")
         response_content = meta.get("response_content")
         if isinstance(response_content, str) and response_content:
@@ -127,7 +129,9 @@ def _render_document_block(
 
     if short_id in seen_document_turns:
         previous_turn = seen_document_turns[short_id]
-        rendered = _replace_xml_content(block, f"[Previously shown in Turn {previous_turn} — full content in {document.output_filename}]")
+        rendered = _replace_xml_content(
+            block, f"[Previously shown in Turn {previous_turn} — full content in {document.output_filename}]"
+        )
         return _ensure_xml_attachments(_replace_xml_attachments(rendered, document, config), document, config)
 
     seen_document_turns[short_id] = turn_index
@@ -171,7 +175,9 @@ def _replace_xml_attachments(block: str, document: LoadedDocument, config: Rende
         attachment = next(attachment_iter, None)
         attrs = dict(ATTRIBUTE_RE.findall(match.group(1)))
         attachment_name = attrs.get("name") or (attachment.name if attachment is not None else "attachment")
-        mime_type = attrs.get("type") or (attachment.mime_type if attachment is not None else "application/octet-stream")
+        mime_type = attrs.get("type") or (
+            attachment.mime_type if attachment is not None else "application/octet-stream"
+        )
         if attachment is None or attachment.text_content is None:
             replacement = binary_notice(
                 name=attachment_name,
@@ -201,7 +207,9 @@ def _ensure_xml_attachments(block: str, document: LoadedDocument, config: Render
     attachment_lines = ["<attachments>"]
     for attachment in document.attachments:
         body = _attachment_body(attachment, document.output_filename, config)
-        attachment_lines.append(f'<attachment name="{attachment.name}" type="{attachment.mime_type}">{body}</attachment>')
+        attachment_lines.append(
+            f'<attachment name="{attachment.name}" type="{attachment.mime_type}">{body}</attachment>'
+        )
     attachment_lines.append("</attachments>")
     return block.replace("</document>", "\n" + "\n".join(attachment_lines) + "\n</document>", 1)
 

@@ -178,7 +178,13 @@ class ThreeStageDeployment(PipelineDeployment[FlowOptions, PubsubResult]):
 
     def build_plan(self, options: FlowOptions) -> DeploymentPlan:
         _ = options
-        return DeploymentPlan(steps=(FlowStep(ChainInputToMiddleFlow()), FlowStep(ChainMiddleToOutputFlow()), FlowStep(ChainOutputToFinalFlow())))
+        return DeploymentPlan(
+            steps=(
+                FlowStep(ChainInputToMiddleFlow()),
+                FlowStep(ChainMiddleToOutputFlow()),
+                FlowStep(ChainOutputToFinalFlow()),
+            )
+        )
 
     @staticmethod
     def build_result(run_id: str, documents: tuple[Document, ...], options: FlowOptions) -> PubsubResult:

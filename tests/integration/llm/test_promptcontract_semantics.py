@@ -246,7 +246,10 @@ class RefineJudgmentContract(PromptContract[FinalJudgment]):
 
     purpose: ClassVar[str] = "Decide whether to keep the prior label, weighting high-confidence priors."
     returns: ClassVar[str] = "A FinalJudgment with the chosen label and whether it matches the prior label."
-    success_criteria: ClassVar[str] = "When the prior confidence is >= 0.9 the final label must equal the prior label and consistent_with_prior must be true."
+    success_criteria: ClassVar[str] = (
+        "When the prior confidence is >= 0.9 the final label must equal the prior label "
+        "and consistent_with_prior must be true."
+    )
 
     prior: PriorJudgment = Field(description="Prior typed judgment to incorporate.")
 

@@ -55,11 +55,20 @@ def _build_model_response(
         )
 
     provider_fields = _extract_provider_specific_fields(message)
-    if not content and not tool_calls and finish_reason != "length" and not _has_reasoning_signal(reasoning, provider_fields, usage):
-        raise EmptyResponseError(f"Empty response content from model={req.model.name} — no text, tool calls, or reasoning signal.")
+    if (
+        not content
+        and not tool_calls
+        and finish_reason != "length"
+        and not _has_reasoning_signal(reasoning, provider_fields, usage)
+    ):
+        raise EmptyResponseError(
+            f"Empty response content from model={req.model.name} — no text, tool calls, or reasoning signal."
+        )
 
     if req.call.response.format is None and not tool_calls and (explanation := detect_output_degeneration(content)):
-        raise OutputDegenerationError(f"model={req.model.name}, tokens={usage.completion_tokens}, content_length={len(content)}: {explanation}")
+        raise OutputDegenerationError(
+            f"model={req.model.name}, tokens={usage.completion_tokens}, content_length={len(content)}: {explanation}"
+        )
 
     cost = _extract_cost(completion)
     parsed_content, parsed = _parse_content(
@@ -78,7 +87,9 @@ def _build_model_response(
         model=req.model.name,
         response_id=str(getattr(response, "id", "") or ""),
         finish_reason=finish_reason,
-        transport=_aipl.build_transport_metadata(completion, req, prompt_cache_key=prompt_cache_key, response_cost=cost),
+        transport=_aipl.build_transport_metadata(
+            completion, req, prompt_cache_key=prompt_cache_key, response_cost=cost
+        ),
         tool_calls=tool_calls,
         thinking_blocks=_extract_thinking_blocks(message),
         provider_specific_fields=provider_fields,
@@ -108,7 +119,9 @@ def _parse_list_content(content: str, inner: type[BaseModel], *, strict_schema: 
         if isinstance(payload, list):
             payload = {"items": payload}
         if not isinstance(payload, dict) or "items" not in payload:
-            raise StructuredSchemaError(_schema_error_message(label, content, "expected an object with an 'items' field"))
+            raise StructuredSchemaError(
+                _schema_error_message(label, content, "expected an object with an 'items' field")
+            )
         if strict_schema:
             _raise_on_strict_extra_keys(payload, schema)
         parsed = TypeAdapter(list[inner]).validate_python(payload["items"])
@@ -122,7 +135,9 @@ def _parse_list_content(content: str, inner: type[BaseModel], *, strict_schema: 
     return array_content, parsed
 
 
-def _parse_model_content(content: str, response_format: type[BaseModel], *, strict_schema: bool) -> tuple[str, BaseModel]:
+def _parse_model_content(
+    content: str, response_format: type[BaseModel], *, strict_schema: bool
+) -> tuple[str, BaseModel]:
     label = response_format.__name__
     schema = schema_for_model(response_format)
     try:
@@ -140,7 +155,9 @@ def _parse_model_content(content: str, response_format: type[BaseModel], *, stri
         raise StructuredSchemaError(_schema_error_message(label, content)) from exc
 
 
-def _schema_error_message(label: str, content: str, detail: str = "failed parsing or validation against the declared Pydantic schema") -> str:
+def _schema_error_message(
+    label: str, content: str, detail: str = "failed parsing or validation against the declared Pydantic schema"
+) -> str:
     return f"Structured output for {label} {detail}. Content preview: {content[:_CONTENT_PREVIEW_CHARS]!r}"
 
 
@@ -164,7 +181,8 @@ def _load_json_payload(content: str, *, allow_bare_array: bool) -> tuple[Any, st
         ) from exc
     if isinstance(payload, list) and not allow_bare_array:
         raise StructuredSchemaError(
-            f"Structured output returned a JSON array but the declared schema requires an object. Content preview: {content[:_CONTENT_PREVIEW_CHARS]!r}"
+            "Structured output returned a JSON array but the declared schema requires an object. "
+            f"Content preview: {content[:_CONTENT_PREVIEW_CHARS]!r}"
         )
     return payload, _normalized_json(payload)
 
@@ -181,7 +199,9 @@ def _strip_code_fence(text: str) -> str:
 def _raise_on_strict_extra_keys(payload: Any, schema: Mapping[str, Any]) -> None:
     extras = _strict_extra_paths(payload, schema, schema, "$")
     if extras:
-        raise StrictModeViolationError(f"Provider returned keys outside a strict structured-output schema: {', '.join(extras[:10])}")
+        raise StrictModeViolationError(
+            f"Provider returned keys outside a strict structured-output schema: {', '.join(extras[:10])}"
+        )
 
 
 def _strict_extra_paths(value: Any, schema: Mapping[str, Any], root: Mapping[str, Any], path: str) -> list[str]:
@@ -194,7 +214,9 @@ def _strict_extra_paths(value: Any, schema: Mapping[str, Any], root: Mapping[str
             # ``Optional[Child]`` would otherwise classify as "no extras"
             # whenever ``value`` is a non-None dict, silently masking real
             # extra keys on the object branch.
-            compatible: list[Mapping[str, Any]] = [branch for branch in branches if isinstance(branch, Mapping) and _branch_compatible(value, branch, root)]
+            compatible: list[Mapping[str, Any]] = [
+                branch for branch in branches if isinstance(branch, Mapping) and _branch_compatible(value, branch, root)
+            ]
             if not compatible:
                 # No branch matches the value's shape; Pydantic validation
                 # will surface the mismatch — extra-key check is moot here.
@@ -210,7 +232,9 @@ def _strict_extra_paths(value: Any, schema: Mapping[str, Any], root: Mapping[str
     if schema_type == "object" and isinstance(value, dict):
         properties = resolved.get("properties")
         props = properties if isinstance(properties, Mapping) else {}
-        errors = [f"{path}.{key}" for key in value if key not in props and resolved.get("additionalProperties") is False]
+        errors = [
+            f"{path}.{key}" for key in value if key not in props and resolved.get("additionalProperties") is False
+        ]
         for key, child_schema in props.items():
             if key in value and isinstance(child_schema, Mapping):
                 errors.extend(_strict_extra_paths(value[key], child_schema, root, f"{path}.{key}"))
@@ -401,8 +425,12 @@ def _build_usage(completion: StreamCompletion) -> TokenUsage:
         completion_tokens=int(_get_value(usage, "completion_tokens") or 0),
         total_tokens=int(_get_value(usage, "total_tokens") or 0),
         cached_tokens=int(_get_value(prompt_details, "cached_tokens") or 0) if prompt_details is not None else 0,
-        cache_creation_tokens=int(_get_value(prompt_details, "cache_creation_tokens") or 0) if prompt_details is not None else 0,
-        reasoning_tokens=int(_get_value(completion_details, "reasoning_tokens") or 0) if completion_details is not None else 0,
+        cache_creation_tokens=int(_get_value(prompt_details, "cache_creation_tokens") or 0)
+        if prompt_details is not None
+        else 0,
+        reasoning_tokens=int(_get_value(completion_details, "reasoning_tokens") or 0)
+        if completion_details is not None
+        else 0,
     )
 
 
@@ -425,7 +453,12 @@ def _has_reasoning_signal(reasoning: str, provider_fields: Mapping[str, Any] | N
     if reasoning:
         return True
     fields = provider_fields or {}
-    if fields.get("reasoning_items") or fields.get("reasoning_details") or fields.get("thought_signatures") or fields.get("chain_of_thought"):
+    if (
+        fields.get("reasoning_items")
+        or fields.get("reasoning_details")
+        or fields.get("thought_signatures")
+        or fields.get("chain_of_thought")
+    ):
         return True
     return usage.reasoning_tokens > 0
 

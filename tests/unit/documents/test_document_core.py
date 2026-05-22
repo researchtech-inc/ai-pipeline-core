@@ -231,7 +231,9 @@ class TestDocumentProperties:
     def test_mime_detection_binary(self):
         """Test MIME type detection for binary documents."""
         # Simple PNG header (minimal valid PNG)
-        png_header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        png_header = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+        )
         doc_png = ConcreteTestDocument(name="test.png", content=png_header)
         assert doc_png.is_image is True
         assert doc_png.is_text is False
@@ -880,7 +882,9 @@ class TestDerivedFromTuple:
 
     def test_derived_from_is_tuple(self):
         """derived_from is stored as tuple."""
-        doc = ConcreteTestDocument(name="doc.txt", content=b"data", derived_from=("https://example.com/ref1", "https://example.com/ref2"))
+        doc = ConcreteTestDocument(
+            name="doc.txt", content=b"data", derived_from=("https://example.com/ref1", "https://example.com/ref2")
+        )
         assert isinstance(doc.derived_from, tuple)
         assert doc.derived_from == ("https://example.com/ref1", "https://example.com/ref2")
 
@@ -921,7 +925,9 @@ class TestModelValidateRoundtrip:
 
     def test_derived_from_roundtrip(self):
         """Non-empty derived_from survives serialize → deserialize roundtrip."""
-        doc = ConcreteTestDocument(name="doc.txt", content=b"data", derived_from=("https://example.com/ref1", "https://example.com/ref2"))
+        doc = ConcreteTestDocument(
+            name="doc.txt", content=b"data", derived_from=("https://example.com/ref1", "https://example.com/ref2")
+        )
         serialized = doc.serialize_model()
         restored = ConcreteTestDocument.model_validate(serialized)
         assert restored.derived_from == ("https://example.com/ref1", "https://example.com/ref2")

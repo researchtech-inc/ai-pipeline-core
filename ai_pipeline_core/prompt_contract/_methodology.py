@@ -18,7 +18,10 @@ def _require_docstring(cls: type) -> None:
 def _require_purpose(cls: type) -> None:
     annotations = declared_annotations(cls)
     if "purpose" in annotations and not is_classvar_annotation(annotations["purpose"]):
-        raise TypeError(f"Methodology '{cls.__name__}'.purpose must be declared as 'ClassVar[str]' (got '{annotations['purpose']!r}').")
+        raise TypeError(
+            f"Methodology '{cls.__name__}'.purpose must be declared as 'ClassVar[str]' "
+            f"(got '{annotations['purpose']!r}')."
+        )
     if "purpose" not in cls.__dict__:
         raise TypeError(f"Methodology '{cls.__name__}' must define 'purpose' as a ClassVar[str] in its own class body.")
     value = cls.__dict__["purpose"]

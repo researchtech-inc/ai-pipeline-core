@@ -119,20 +119,41 @@ class Tool:
                 result = await asyncio.wait_for(self.run(input), timeout=self.timeout_seconds)
             except TimeoutError as timeout_exc:
                 if attempt < self.retries:
-                    logger.warning("Tool '%s' timed out (attempt %d/%d), retrying", self.name, attempt + 1, self.retries + 1, exc_info=timeout_exc)
+                    logger.warning(
+                        "Tool '%s' timed out (attempt %d/%d), retrying",
+                        self.name,
+                        attempt + 1,
+                        self.retries + 1,
+                        exc_info=timeout_exc,
+                    )
                     await asyncio.sleep(self.retry_delay_seconds)
                     continue
-                logger.warning("Tool '%s' timed out after %d attempts", self.name, self.retries + 1, exc_info=timeout_exc)
-                return ToolOutput(content=f"Error: Tool '{self.name}' timed out after {self.timeout_seconds}s ({self.retries + 1} attempts).")
+                logger.warning(
+                    "Tool '%s' timed out after %d attempts", self.name, self.retries + 1, exc_info=timeout_exc
+                )
+                return ToolOutput(
+                    content=(
+                        f"Error: Tool '{self.name}' timed out after "
+                        f"{self.timeout_seconds}s ({self.retries + 1} attempts)."
+                    )
+                )
             except self.handled_exceptions as error:
                 if self._is_retryable(error) and attempt < self.retries:
-                    logger.warning("Tool '%s' failed (attempt %d/%d), retrying", self.name, attempt + 1, self.retries + 1, exc_info=error)
+                    logger.warning(
+                        "Tool '%s' failed (attempt %d/%d), retrying",
+                        self.name,
+                        attempt + 1,
+                        self.retries + 1,
+                        exc_info=error,
+                    )
                     await asyncio.sleep(self.retry_delay_seconds)
                     continue
                 try:
                     return self.handle_error(error)
                 except Exception as handler_error:
-                    logger.warning("Tool '%s' handle_error failed; re-raising original error", self.name, exc_info=handler_error)
+                    logger.warning(
+                        "Tool '%s' handle_error failed; re-raising original error", self.name, exc_info=handler_error
+                    )
                     raise error from handler_error
             else:
                 break
@@ -140,7 +161,8 @@ class Tool:
         expected_output = type(self).Output
         if not isinstance(result, expected_output):
             raise TypeError(
-                f"Tool '{self.name}'.run() must return {expected_output.__name__}, got {type(result).__name__}. Return self.Output(...) from run()."
+                f"Tool '{self.name}'.run() must return {expected_output.__name__}, "
+                f"got {type(result).__name__}. Return self.Output(...) from run()."
             )
 
         data = result.model_dump(mode="json")
@@ -151,7 +173,11 @@ class Tool:
             return ToolOutput(
                 content=json.dumps({
                     "error": "response_too_large",
-                    "message": f"Tool '{self.name}' response exceeds {self.max_response_bytes} bytes. Use narrower filters or pagination.",
+                    "message": (
+                        f"Tool '{self.name}' response exceeds "
+                        f"{self.max_response_bytes} bytes. "
+                        "Use narrower filters or pagination."
+                    ),
                     "actual_bytes": content_bytes,
                 }),
                 data=result,
@@ -165,7 +191,9 @@ def _validate_tool_class(cls: type[Tool]) -> None:
     name = cls.name
 
     if not cls.__doc__ or not cls.__doc__.strip():
-        raise TypeError(f"Tool '{name}' must define a non-empty docstring. The docstring becomes the LLM tool description.")
+        raise TypeError(
+            f"Tool '{name}' must define a non-empty docstring. The docstring becomes the LLM tool description."
+        )
 
     _validate_tool_input_class(cls, name)
     _validate_tool_output_class(cls, name)
@@ -183,7 +211,8 @@ def _validate_tool_input_class(cls: type[Tool], name: str) -> None:
         for field_name, field_info in input_cls.model_fields.items():
             if field_info.description is None:
                 raise TypeError(
-                    f"Tool '{name}'.Input field '{field_name}' must use Field(description='...'). All Input fields require descriptions for the LLM."
+                    f"Tool '{name}'.Input field '{field_name}' must use "
+                    "Field(description='...'). All Input fields require descriptions for the LLM."
                 )
             if field_name in _RESERVED_FIELD_NAMES:
                 raise TypeError(
@@ -194,7 +223,10 @@ def _validate_tool_input_class(cls: type[Tool], name: str) -> None:
                 )
         reject_dynamic_key_objects(input_cls.model_json_schema(), context=f"Tool '{name}'.Input")
     elif not getattr(cls, "_tool_spec", None):
-        raise TypeError(f"Tool '{name}' must define an 'Input' inner class (BaseModel). Example: class Input(BaseModel): query: str = Field(description='...')")
+        raise TypeError(
+            f"Tool '{name}' must define an 'Input' inner class (BaseModel). "
+            "Example: class Input(BaseModel): query: str = Field(description='...')"
+        )
 
 
 def _validate_tool_output_class(cls: type[Tool], name: str) -> None:
@@ -204,9 +236,15 @@ def _validate_tool_output_class(cls: type[Tool], name: str) -> None:
         if not isinstance(output_cls, type) or not issubclass(output_cls, BaseModel):
             raise TypeError(f"Tool '{name}'.Output must be a BaseModel subclass")
         if issubclass(output_cls, ToolOutput):
-            raise TypeError(f"Tool '{name}'.Output must extend BaseModel, not ToolOutput. The framework creates ToolOutput internally.")
+            raise TypeError(
+                f"Tool '{name}'.Output must extend BaseModel, not ToolOutput. "
+                "The framework creates ToolOutput internally."
+            )
     elif not getattr(cls, "_tool_spec", None):
-        raise TypeError(f"Tool '{name}' must define an 'Output' inner class (BaseModel) or inherit one from a validated parent tool.")
+        raise TypeError(
+            f"Tool '{name}' must define an 'Output' inner class (BaseModel) "
+            "or inherit one from a validated parent tool."
+        )
 
 
 def _validate_tool_run_method(cls: type[Tool], name: str) -> None:
@@ -220,13 +258,19 @@ def _validate_tool_run_method(cls: type[Tool], name: str) -> None:
         if len(params) != 2 or params[0].name != "self" or params[1].name != "input":
             raise TypeError(f"Tool '{name}'.run must have signature async def run(self, input: Input) -> Output.")
         module = inspect.getmodule(run_method)
-        hints = get_type_hints(run_method, globalns=vars(module) if module is not None else {}, localns=dict(cls.__dict__))
+        hints = get_type_hints(
+            run_method, globalns=vars(module) if module is not None else {}, localns=dict(cls.__dict__)
+        )
         if hints.get("input") is not cls.Input:
             raise TypeError(f"Tool '{name}'.run input annotation must be the tool's Input class.")
         if hints.get("return") is not cls.Output:
             raise TypeError(f"Tool '{name}'.run return annotation must be the tool's Output class.")
     elif not getattr(cls, "_tool_spec", None):
-        raise TypeError(f"Tool '{name}' must define an 'async def run(self, input: Input) -> Output' method or inherit one from a validated parent tool.")
+        raise TypeError(
+            f"Tool '{name}' must define an "
+            "'async def run(self, input: Input) -> Output' method "
+            "or inherit one from a validated parent tool."
+        )
 
 
 def _validate_lifecycle_classvars(cls: type[Tool], name: str) -> None:
@@ -238,10 +282,14 @@ def _validate_lifecycle_classvars(cls: type[Tool], name: str) -> None:
     if cls.timeout_seconds <= 0:
         raise TypeError(f"Tool '{name}' has invalid timeout_seconds={cls.timeout_seconds}. Use a value > 0.")
     if cls.max_response_bytes is not None and cls.max_response_bytes <= 0:
-        raise TypeError(f"Tool '{name}' has invalid max_response_bytes={cls.max_response_bytes}. Use None or a value > 0.")
+        raise TypeError(
+            f"Tool '{name}' has invalid max_response_bytes={cls.max_response_bytes}. Use None or a value > 0."
+        )
     if not isinstance(cls.handled_exceptions, tuple):
         raise TypeError(f"Tool '{name}' handled_exceptions must be a tuple of Exception subclasses.")
-    if any(not isinstance(exc_type, type) or not issubclass(exc_type, Exception) for exc_type in cls.handled_exceptions):
+    if any(
+        not isinstance(exc_type, type) or not issubclass(exc_type, Exception) for exc_type in cls.handled_exceptions
+    ):
         raise TypeError(f"Tool '{name}' handled_exceptions must contain only Exception subclasses.")
     if inspect.iscoroutinefunction(cls._is_retryable):
         raise TypeError(f"Tool '{name}' _is_retryable must be sync; async definitions break execute() control flow.")

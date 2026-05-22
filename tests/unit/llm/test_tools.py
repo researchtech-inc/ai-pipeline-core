@@ -85,7 +85,11 @@ def test_tool_definition_input_not_basemodel() -> None:
         async def run(self: Tool, input: BaseModel) -> ToolOutput:  # pragma: no cover
             return ToolOutput(content="")
 
-        type("BadTool", (Tool,), {"__doc__": "Bad input.", "Input": type("Input", (), {}), "Output": BaseModel, "run": run})
+        type(
+            "BadTool",
+            (Tool,),
+            {"__doc__": "Bad input.", "Input": type("Input", (), {}), "Output": BaseModel, "run": run},
+        )
 
 
 def test_tool_definition_input_field_missing_description() -> None:

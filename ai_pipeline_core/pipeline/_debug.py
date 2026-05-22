@@ -23,7 +23,11 @@ from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.database.filesystem._backend import FilesystemDatabase
 from ai_pipeline_core.database.filesystem.overlay import create_debug_sink
 from ai_pipeline_core.deployment._deployment_runtime import _execute_flow_with_context
-from ai_pipeline_core.deployment._helpers import _cancel_dispatched_handles, _ensure_execution_log_handler_installed, _log_flush_loop
+from ai_pipeline_core.deployment._helpers import (
+    _cancel_dispatched_handles,
+    _ensure_execution_log_handler_installed,
+    _log_flush_loop,
+)
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.llm import AIModel
@@ -111,7 +115,12 @@ async def run_task_debug(
             name=f"debug-{task_cls.name}",
             execute_fn=lambda: task_cls.run(*task_args, **task_kwargs),
         )
-        return DebugRunResult(output_documents=result, output_dir=effective_output_dir, run_id=resolved_run_id, root_deployment_id=deployment_id)
+        return DebugRunResult(
+            output_documents=result,
+            output_dir=effective_output_dir,
+            run_id=resolved_run_id,
+            root_deployment_id=deployment_id,
+        )
     finally:
         if owns_db:
             await _safe_shutdown(database)
@@ -188,7 +197,12 @@ async def run_flow_debug(
             name=f"debug-{flow.name}",
             execute_fn=_execute,
         )
-        return DebugRunResult(output_documents=result, output_dir=effective_output_dir, run_id=resolved_run_id, root_deployment_id=deployment_id)
+        return DebugRunResult(
+            output_documents=result,
+            output_dir=effective_output_dir,
+            run_id=resolved_run_id,
+            root_deployment_id=deployment_id,
+        )
     finally:
         if owns_db:
             await _safe_shutdown(database)
@@ -236,8 +250,14 @@ async def _run_debug(
     baseline_handles: set[object] = set()
 
     try:
-        with limits_scope, set_execution_context(ctx), set_task_context(TaskContext(scope_kind="debug", task_class_name=name)):
-            async with track_span(SpanKind.DEPLOYMENT, name, "", sinks=runtime_sinks.span_sinks, span_id=deployment_id, db=database):
+        with (
+            limits_scope,
+            set_execution_context(ctx),
+            set_task_context(TaskContext(scope_kind="debug", task_class_name=name)),
+        ):
+            async with track_span(
+                SpanKind.DEPLOYMENT, name, "", sinks=runtime_sinks.span_sinks, span_id=deployment_id, db=database
+            ):
                 baseline_handles = set(ctx.active_task_handles)
                 result = await execute_fn()
                 if not isinstance(result, tuple):
@@ -343,7 +363,9 @@ class DebugSession:
         await stack.__aenter__()
         stack.enter_context(_set_limits_state(_LimitsState(limits=MappingProxyType({}), status=_SharedStatus())))
         stack.enter_context(set_execution_context(ctx))
-        stack.enter_context(set_task_context(TaskContext(scope_kind="debug", task_class_name=f"debug-session-{self._run_id}")))
+        stack.enter_context(
+            set_task_context(TaskContext(scope_kind="debug", task_class_name=f"debug-session-{self._run_id}"))
+        )
         await stack.enter_async_context(
             track_span(
                 SpanKind.DEPLOYMENT,
@@ -375,7 +397,12 @@ class DebugSession:
         """Execute a task within this session."""
         result = await task_cls.run(*args, **kwargs)
         docs = _normalize_result(result)
-        return DebugRunResult(output_documents=docs, output_dir=self._output_dir, run_id=self._run_id, root_deployment_id=self._deployment_id)
+        return DebugRunResult(
+            output_documents=docs,
+            output_dir=self._output_dir,
+            run_id=self._run_id,
+            root_deployment_id=self._deployment_id,
+        )
 
     async def run_flow(self, flow: PipelineFlow, documents: Sequence[Document], options: FlowOptions) -> DebugRunResult:
         """Execute a flow within this session."""
@@ -418,7 +445,12 @@ class DebugSession:
             root_id_str=str(self._deployment_id),
             parent_task_id_str=None,
         )
-        return DebugRunResult(output_documents=result, output_dir=self._output_dir, run_id=self._run_id, root_deployment_id=self._deployment_id)
+        return DebugRunResult(
+            output_documents=result,
+            output_dir=self._output_dir,
+            run_id=self._run_id,
+            root_deployment_id=self._deployment_id,
+        )
 
     async def run_conversation(
         self,
@@ -484,4 +516,6 @@ async def run_conversation_debug(
 ) -> DebugRunResult:
     """Execute a standalone conversation into a filesystem-backed debug context."""
     async with DebugSession(output_dir=output_dir, run_id=run_id) as session:
-        return await session.run_conversation(model, messages=messages, spec=spec, spec_documents=spec_documents, context=context)
+        return await session.run_conversation(
+            model, messages=messages, spec=spec, spec_documents=spec_documents, context=context
+        )

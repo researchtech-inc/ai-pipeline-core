@@ -21,7 +21,9 @@ def _image_part_count(content: object) -> int:
 
 def test_to_core_messages_uses_passed_model_vision_preset() -> None:
     """Image conversion uses the AIModel passed to the converter, not its fallback."""
-    image = make_text_image_tile(["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL"], width=4000, tile_height=500)
+    image = make_text_image_tile(
+        ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL"], width=4000, tile_height=500
+    )
     doc = ConcreteDocument.create_root(name="fallback-vision.jpg", content=image, reason="phase3 vision preset")
     primary = DEFAULT_TEST_MODEL.model_copy(
         update={
@@ -45,11 +47,17 @@ def test_to_core_messages_uses_passed_model_vision_preset() -> None:
 def test_to_core_messages_does_not_inspect_fallback_vision_preset() -> None:
     """Changing only the fallback preset must not change primary conversion."""
     image = make_text_image_tile(["INDIA", "JULIET", "KILO", "LIMA", "MIKE", "NOVEMBER"], width=4000, tile_height=500)
-    doc = ConcreteDocument.create_root(name="primary-only-vision.jpg", content=image, reason="phase3 vision fallback ignored")
+    doc = ConcreteDocument.create_root(
+        name="primary-only-vision.jpg", content=image, reason="phase3 vision fallback ignored"
+    )
     compact_fallback = ALTERNATE_TEST_MODEL.model_copy(update={"vision_preset": ImagePreset.COMPACT})
     high_res_fallback = ALTERNATE_TEST_MODEL.model_copy(update={"vision_preset": ImagePreset.HIGH_RES})
-    primary_a = DEFAULT_TEST_MODEL.model_copy(update={"vision_preset": ImagePreset.BALANCED, "fallback": compact_fallback})
-    primary_b = DEFAULT_TEST_MODEL.model_copy(update={"vision_preset": ImagePreset.BALANCED, "fallback": high_res_fallback})
+    primary_a = DEFAULT_TEST_MODEL.model_copy(
+        update={"vision_preset": ImagePreset.BALANCED, "fallback": compact_fallback}
+    )
+    primary_b = DEFAULT_TEST_MODEL.model_copy(
+        update={"vision_preset": ImagePreset.BALANCED, "fallback": high_res_fallback}
+    )
 
     count_a = _image_part_count(to_core_messages((doc,), primary_a)[0].content)
     count_b = _image_part_count(to_core_messages((doc,), primary_b)[0].content)

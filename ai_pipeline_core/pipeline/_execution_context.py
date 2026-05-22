@@ -154,15 +154,26 @@ class _TaskDocumentContext:
                 if not _is_document_sha256(src):
                     continue
                 if src in self.output_sha256s and src != doc.sha256:
-                    warnings.append(f"Document '{doc.name}' references derived_from {src[:12]}... created in the same task (same-task interdependency)")
+                    warnings.append(
+                        f"Document '{doc.name}' references derived_from {src[:12]}... "
+                        "created in the same task (same-task interdependency)"
+                    )
                 elif src not in existing_sha256s and src not in self.output_sha256s:
-                    warnings.append(f"Document '{doc.name}' references derived_from {src[:12]}... which does not exist in the store")
+                    warnings.append(
+                        f"Document '{doc.name}' references derived_from {src[:12]}... which does not exist in the store"
+                    )
 
             for trigger in doc.triggered_by:
                 if trigger in self.output_sha256s and trigger != doc.sha256:
-                    warnings.append(f"Document '{doc.name}' references triggered_by {trigger[:12]}... created in the same task (same-task interdependency)")
+                    warnings.append(
+                        f"Document '{doc.name}' references triggered_by {trigger[:12]}... "
+                        "created in the same task (same-task interdependency)"
+                    )
                 elif trigger not in existing_sha256s and trigger not in self.output_sha256s:
-                    warnings.append(f"Document '{doc.name}' references triggered_by {trigger[:12]}... which does not exist in the store")
+                    warnings.append(
+                        f"Document '{doc.name}' references triggered_by {trigger[:12]}... "
+                        "which does not exist in the store"
+                    )
 
             if not doc.derived_from and not doc.triggered_by:
                 warnings.append(f"Document '{doc.name}' has no derived_from and no triggered_by (no provenance)")
@@ -446,7 +457,10 @@ def pipeline_test_context(
         span_id=deployment_id,
         current_span_id=deployment_id,
     )
-    with set_execution_context(ctx), set_task_context(TaskContext(scope_kind="test", task_class_name="pipeline_test_context")):
+    with (
+        set_execution_context(ctx),
+        set_task_context(TaskContext(scope_kind="test", task_class_name="pipeline_test_context")),
+    ):
         yield ctx
 
 
@@ -462,16 +476,22 @@ def add_cost(amount: float, reason: str = "") -> None:
     """
     _ = reason
     if not math.isfinite(amount):
-        raise ValueError(f"add_cost() amount must be a finite USD value, got {amount!r}. Pass the actual cost as a positive float (e.g. 0.006).")
+        raise ValueError(
+            f"add_cost() amount must be a finite USD value, got {amount!r}. "
+            "Pass the actual cost as a positive float (e.g. 0.006)."
+        )
     if amount < 0:
-        raise ValueError(f"add_cost() amount must be non-negative, got {amount}. Pass the actual cost as a positive float (e.g. 0.006).")
+        raise ValueError(
+            f"add_cost() amount must be non-negative, got {amount}. "
+            "Pass the actual cost as a positive float (e.g. 0.006)."
+        )
     if amount <= 0:
         return
     _apply_cost_to_current_span(amount)
 
 
 def _apply_cost_to_current_span(amount: float) -> None:
-    from ai_pipeline_core.pipeline._track_span import get_current_span_context  # noqa: PLC0415  # circular: _track_span imports from this module
+    from ai_pipeline_core.pipeline._track_span import get_current_span_context  # noqa: PLC0415 - circular import
 
     span_ctx = get_current_span_context()
     if span_ctx is not None:

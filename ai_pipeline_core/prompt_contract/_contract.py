@@ -86,7 +86,8 @@ def _validate_required_string(cls: type, name: str, attr: str, annotations: dict
         )
     if attr not in cls.__dict__:
         raise TypeError(
-            f"PromptContract '{name}' must define '{attr}' as a ClassVar[str] in its own class body. Inherited values do not satisfy the requirement."
+            f"PromptContract '{name}' must define '{attr}' as a ClassVar[str] in its own "
+            "class body. Inherited values do not satisfy the requirement."
         )
     value = cls.__dict__[attr]
     if not isinstance(value, str):
@@ -113,7 +114,10 @@ def _validate_tools(cls: type, name: str) -> tuple[ToolAvailability, ...]:
         raise TypeError(f"PromptContract '{name}'.tools must be a tuple of ToolAvailability values")
     for item in cast(tuple[Any, ...], items):
         if not isinstance(item, ToolAvailability):
-            raise TypeError(f"PromptContract '{name}'.tools must contain ToolAvailability(tool=..., max_calls=...) values, got {item!r}")
+            raise TypeError(
+                f"PromptContract '{name}'.tools must contain "
+                f"ToolAvailability(tool=..., max_calls=...) values, got {item!r}"
+            )
     validated = cast(tuple[ToolAvailability, ...], items)
 
     def _tool_key(availability: ToolAvailability) -> type[Tool]:
@@ -127,10 +131,14 @@ def _resolve_output_type(cls: type, name: str) -> type[FrozenBaseModel]:
     output_type = extract_generic_arg(cls, expected_origin=PromptContract, default=_GENERIC_ARG_MISSING)
     if output_type is _GENERIC_ARG_MISSING:
         raise TypeError(
-            f"PromptContract '{name}' must declare a structured output type: class {name}(PromptContract[MyModel]) where MyModel is a FrozenBaseModel subclass."
+            f"PromptContract '{name}' must declare a structured output type: "
+            f"class {name}(PromptContract[MyModel]) "
+            "where MyModel is a FrozenBaseModel subclass."
         )
     if not (isinstance(output_type, type) and issubclass(output_type, FrozenBaseModel)):
-        raise TypeError(f"PromptContract '{name}' generic parameter must be a FrozenBaseModel subclass, got {output_type!r}")
+        raise TypeError(
+            f"PromptContract '{name}' generic parameter must be a FrozenBaseModel subclass, got {output_type!r}"
+        )
     return output_type
 
 
@@ -140,10 +148,16 @@ def _validate_prompt_contract(cls: type, name: str) -> None:
     if not name.endswith("Contract"):
         raise TypeError(f"PromptContract subclass '{name}' name must end with 'Contract'.")
 
-    non_contract = [b.__name__ for b in cls.__bases__ if not (b is PromptContract or (issubclass(b, PromptContract) and "[" in b.__name__))]
+    non_contract = [
+        b.__name__
+        for b in cls.__bases__
+        if not (b is PromptContract or (issubclass(b, PromptContract) and "[" in b.__name__))
+    ]
     if non_contract or len(cls.__bases__) != 1:
         raise TypeError(
-            f"PromptContract '{name}' must inherit directly from PromptContract (or PromptContract[T]), not from {', '.join(non_contract) or 'multiple bases'}"
+            f"PromptContract '{name}' must inherit directly from PromptContract "
+            f"(or PromptContract[T]), not from "
+            f"{', '.join(non_contract) or 'multiple bases'}"
         )
 
     if not exempt:
@@ -318,7 +332,10 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
 
             parsed = response.parsed
             if not isinstance(parsed, cls._output_type):
-                raise TypeError(f"PromptContract '{purpose_label}' expected parsed response of {cls._output_type.__name__}, got {type(parsed).__name__}.")
+                raise TypeError(
+                    f"PromptContract '{purpose_label}' expected parsed response of "
+                    f"{cls._output_type.__name__}, got {type(parsed).__name__}."
+                )
 
             combined_citations = _build_prompt_result_citations(parsed, response.citations)
             span_ctx.set_meta(
@@ -362,13 +379,17 @@ def _build_tool_runtime(
         return None
     if not declared and tool_bindings:
         raise TypeError(
-            f"PromptContract '{cls.__name__}' has no tools declared but {len(tool_bindings)} tool_bindings were provided. "
-            "Declare tools via 'tools: ClassVar[tuple[ToolAvailability, ...]] = (...)' or remove the bindings."
+            f"PromptContract '{cls.__name__}' has no tools declared but "
+            f"{len(tool_bindings)} tool_bindings were provided. "
+            "Declare tools via 'tools: ClassVar[tuple[ToolAvailability, ...]] = (...)' "
+            "or remove the bindings."
         )
     bindings_by_tool: dict[type[Tool], ToolBinding] = {}
     for binding in tool_bindings:
         if binding.tool in bindings_by_tool:
-            raise TypeError(f"PromptContract '{cls.__name__}' received duplicate ToolBinding for {binding.tool.__name__}.")
+            raise TypeError(
+                f"PromptContract '{cls.__name__}' received duplicate ToolBinding for {binding.tool.__name__}."
+            )
         bindings_by_tool[binding.tool] = binding
 
     instances: list[Tool] = []
@@ -376,20 +397,27 @@ def _build_tool_runtime(
         binding = bindings_by_tool.get(availability.tool)
         if binding is None:
             raise TypeError(
-                f"PromptContract '{cls.__name__}' declares tool {availability.tool.__name__} but no matching ToolBinding was provided. "
+                f"PromptContract '{cls.__name__}' declares tool "
+                f"{availability.tool.__name__} but no matching ToolBinding was provided. "
                 "Pass tool_bindings=(ToolBinding(<Tool>, args={...}),) to execute()."
             )
         try:
             instance = availability.tool(**dict(binding.args))
         except TypeError as exc:
-            raise TypeError(f"PromptContract '{cls.__name__}' could not construct {availability.tool.__name__}(**{dict(binding.args)!r}): {exc}") from exc
+            raise TypeError(
+                f"PromptContract '{cls.__name__}' could not construct "
+                f"{availability.tool.__name__}(**{dict(binding.args)!r}): {exc}"
+            ) from exc
         instances.append(instance)
 
-    extra_bound = [binding for binding in tool_bindings if binding.tool not in {availability.tool for availability in declared}]
+    extra_bound = [
+        binding for binding in tool_bindings if binding.tool not in {availability.tool for availability in declared}
+    ]
     if extra_bound:
         names = ", ".join(binding.tool.__name__ for binding in extra_bound)
         raise TypeError(
-            f"PromptContract '{cls.__name__}' received tool_bindings for undeclared tools: {names}. Add them to the contract's 'tools' ClassVar first."
+            f"PromptContract '{cls.__name__}' received tool_bindings for undeclared "
+            f"tools: {names}. Add them to the contract's 'tools' ClassVar first."
         )
 
     max_rounds = sum(availability.max_calls for availability in declared)
@@ -501,7 +529,9 @@ def _dedupe_document_citations(citations: list[DocumentCitation]) -> tuple[Docum
     return tuple(unique)
 
 
-def _build_prompt_result_citations(response: Any, engine_citations: tuple[Citation, ...]) -> tuple[DocumentCitation, ...]:
+def _build_prompt_result_citations(
+    response: Any, engine_citations: tuple[Citation, ...]
+) -> tuple[DocumentCitation, ...]:
     """Merge engine URL citations with parsed-response ``CitedText`` citations.
 
     Engine citations land first (with ``field=None``); response citations
@@ -577,8 +607,13 @@ def _prompt_contract_meta(
         "returns_text": cls.returns,
         "success_criteria_text": cls.success_criteria,
         "methodologies": [f"{m.__module__}:{m.__qualname__}" for m in cls.methodologies],
-        "tools": [{"name": tb.tool.name, "class_path": f"{tb.tool.__module__}:{tb.tool.__qualname__}"} for tb in tool_bindings],
-        "tool_bindings": [{"tool_class_path": f"{tb.tool.__module__}:{tb.tool.__qualname__}", "args": dict(tb.args)} for tb in tool_bindings],
+        "tools": [
+            {"name": tb.tool.name, "class_path": f"{tb.tool.__module__}:{tb.tool.__qualname__}"} for tb in tool_bindings
+        ],
+        "tool_bindings": [
+            {"tool_class_path": f"{tb.tool.__module__}:{tb.tool.__qualname__}", "args": dict(tb.args)}
+            for tb in tool_bindings
+        ],
         "llm_round_count": llm_round_count,
         "repair_attempt_count": repair_attempt_count,
     }

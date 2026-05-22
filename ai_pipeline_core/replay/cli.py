@@ -41,7 +41,9 @@ def _infer_db_path(replay_file: Path) -> Path:
         if (current / "spans").is_dir() or (current / "blobs").is_dir():
             return current
         current = current.parent
-    raise FileNotFoundError(f"Could not find a snapshot root above {replay_file}. Use --db-path to point at the FilesystemDatabase root.")
+    raise FileNotFoundError(
+        f"Could not find a snapshot root above {replay_file}. Use --db-path to point at the FilesystemDatabase root."
+    )
 
 
 def _import_modules(modules: list[str]) -> None:
@@ -61,7 +63,9 @@ def _resolve_database_for_span(db_path: str | None) -> tuple[Database, str]:
         resolved_path = Path(db_path).resolve()
         return FilesystemDatabase(resolved_path, read_only=True), str(resolved_path)
     if not settings.clickhouse_host:
-        raise ValueError("--from-db without --db-path requires CLICKHOUSE_HOST, or pass --db-path to a FilesystemDatabase snapshot.")
+        raise ValueError(
+            "--from-db without --db-path requires CLICKHOUSE_HOST, or pass --db-path to a FilesystemDatabase snapshot."
+        )
     return create_database_from_settings(settings), "clickhouse"
 
 
@@ -74,9 +78,14 @@ def _validate_replay_file(replay_file: Path) -> None:
     if not replay_file.exists():
         raise FileNotFoundError(f"File not found: {replay_file}")
     if replay_file.is_dir():
-        raise ValueError(f"Expected a span JSON file, got directory {replay_file}. Use --from-db <span_id> or point at one span JSON file.")
+        raise ValueError(
+            f"Expected a span JSON file, got directory {replay_file}. "
+            "Use --from-db <span_id> or point at one span JSON file."
+        )
     if replay_file.suffix != ".json":
-        raise ValueError(f"Replay file {replay_file} must be a span JSON file. YAML replay payloads are no longer supported.")
+        raise ValueError(
+            f"Replay file {replay_file} must be a span JSON file. YAML replay payloads are no longer supported."
+        )
 
 
 def _read_span_id_from_json_file(replay_file: Path) -> UUID:
@@ -255,7 +264,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
             source_label = replay_file.name
             span = asyncio.run(_load_span_from_file_path(replay_file, database))
 
-        output_dir = Path(args.output_dir).resolve() if args.output_dir else _default_output_dir(replay_file, args.from_db)
+        output_dir = (
+            Path(args.output_dir).resolve() if args.output_dir else _default_output_dir(replay_file, args.from_db)
+        )
         parent = database if isinstance(database, FilesystemDatabase) else None
         sink_db = create_debug_sink(output_dir, parent=parent)
 
@@ -267,7 +278,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if overrides is None:
             result = asyncio.run(_run_span(span_id=span.span_id, database=database, sink_db=sink_db))
         else:
-            result = asyncio.run(_run_experiment_span(span_id=span.span_id, database=database, overrides=overrides, sink_db=sink_db))
+            result = asyncio.run(
+                _run_experiment_span(span_id=span.span_id, database=database, overrides=overrides, sink_db=sink_db)
+            )
         print(_format_result(result))
         _write_output(output_dir, result)
         print(f"\n[replay database: {output_dir}]")
@@ -337,7 +350,10 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         )
         print(f"Ran {len(results)} replay experiments from {database_label}")
         for result in results:
-            print(f"{result.source_span_id} model={result.model_used or '<none>'} duration={result.duration_seconds:.2f}s cost=${result.cost_usd:.4f}")
+            print(
+                f"{result.source_span_id} model={result.model_used or '<none>'} "
+                f"duration={result.duration_seconds:.2f}s cost=${result.cost_usd:.4f}"
+            )
         return 0
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -358,10 +374,19 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--from-db", type=str, help="Load a span by span ID from the database")
     run_parser.add_argument("--db-path", type=str, help="Use a FilesystemDatabase at this path instead of ClickHouse")
     run_parser.add_argument("--model", type=str, default=None, help="Override model for replayed conversation spans")
-    run_parser.add_argument("--force-deployment-id", type=str, default=None, help="Pin replayed conversation spans to this AIPL deployment ID")
-    run_parser.add_argument("--set", action="append", metavar="KEY=VALUE", help="Set ExperimentOverrides fields or model_options values")
+    run_parser.add_argument(
+        "--force-deployment-id",
+        type=str,
+        default=None,
+        help="Pin replayed conversation spans to this AIPL deployment ID",
+    )
+    run_parser.add_argument(
+        "--set", action="append", metavar="KEY=VALUE", help="Set ExperimentOverrides fields or model_options values"
+    )
     run_parser.add_argument("--output-dir", type=str, default=None, help="Output directory for replay results")
-    run_parser.add_argument("--import", dest="modules", action="append", metavar="MODULE", help="Import a module before replay")
+    run_parser.add_argument(
+        "--import", dest="modules", action="append", metavar="MODULE", help="Import a module before replay"
+    )
 
     show_parser = subparsers.add_parser("show", help="Inspect one replayable span")
     show_parser.add_argument("replay_file", nargs="?", help="Path to a span JSON file from a snapshot")
@@ -369,16 +394,27 @@ def main(argv: list[str] | None = None) -> int:
     show_parser.add_argument("--db-path", type=str, help="Use a FilesystemDatabase at this path instead of ClickHouse")
 
     batch_parser = subparsers.add_parser("batch", help="Run replay experiments over many spans")
-    batch_parser.add_argument("--from-deployment", required=True, type=str, help="Deployment/root_deployment_id to search")
+    batch_parser.add_argument(
+        "--from-deployment", required=True, type=str, help="Deployment/root_deployment_id to search"
+    )
     batch_parser.add_argument("--db-path", type=str, help="Use a FilesystemDatabase at this path instead of ClickHouse")
     batch_parser.add_argument("--kind", type=str, default=None, help="Filter spans by kind")
     batch_parser.add_argument("--purpose", type=str, default=None, help="Filter conversation spans by purpose")
     batch_parser.add_argument("--task-class", type=str, default=None, help="Filter task spans by module:Class path")
     batch_parser.add_argument("--model", type=str, default=None, help="Override model for replayed conversation spans")
-    batch_parser.add_argument("--force-deployment-id", type=str, default=None, help="Pin replayed conversation spans to this AIPL deployment ID")
-    batch_parser.add_argument("--set", action="append", metavar="KEY=VALUE", help="Set ExperimentOverrides fields or model_options values")
+    batch_parser.add_argument(
+        "--force-deployment-id",
+        type=str,
+        default=None,
+        help="Pin replayed conversation spans to this AIPL deployment ID",
+    )
+    batch_parser.add_argument(
+        "--set", action="append", metavar="KEY=VALUE", help="Set ExperimentOverrides fields or model_options values"
+    )
     batch_parser.add_argument("--concurrency", type=int, default=5, help="Maximum concurrent experiments")
-    batch_parser.add_argument("--import", dest="modules", action="append", metavar="MODULE", help="Import a module before replay")
+    batch_parser.add_argument(
+        "--import", dest="modules", action="append", metavar="MODULE", help="Import a module before replay"
+    )
 
     args = parser.parse_args(argv)
 

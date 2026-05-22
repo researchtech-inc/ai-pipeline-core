@@ -31,7 +31,9 @@ def test_llm_round_meta_includes_serialized_citations() -> None:
 
     _record_round_meta(ctx, _response(citations=(citation,)), _request())
 
-    assert ctx._meta["citations"] == [{"title": "Source", "url": "https://example.com", "start_index": 0, "end_index": 6}]
+    assert ctx._meta["citations"] == [
+        {"title": "Source", "url": "https://example.com", "start_index": 0, "end_index": 6}
+    ]
 
 
 def test_llm_round_meta_includes_empty_citations_list() -> None:

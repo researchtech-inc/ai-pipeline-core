@@ -226,7 +226,9 @@ class TestPubSubPublisher:
         pub, mock_client = _make_pubsub_publisher()
 
         with pytest.raises(ValueError, match="root_deployment_id missing"):
-            await pub._publish_event(EventType.RUN_HEARTBEAT, "run-1", {"span_id": "span-1", "timestamp": "2026-01-01T00:00:00+00:00"})
+            await pub._publish_event(
+                EventType.RUN_HEARTBEAT, "run-1", {"span_id": "span-1", "timestamp": "2026-01-01T00:00:00+00:00"}
+            )
 
         mock_client.publish.assert_not_called()
 

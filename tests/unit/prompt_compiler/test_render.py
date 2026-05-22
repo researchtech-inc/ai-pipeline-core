@@ -345,7 +345,9 @@ def test_render_text_no_rules_section_when_empty() -> None:
 
 
 def test_render_text_guide_section(tmp_path: Path, temp_modules: list[str]) -> None:
-    guide_cls = _make_guide(tmp_path, temp_modules, class_name="RiskAssessmentFramework", content="Use four dimensions.\n")
+    guide_cls = _make_guide(
+        tmp_path, temp_modules, class_name="RiskAssessmentFramework", content="Use four dimensions.\n"
+    )
 
     class GuideSpec(PromptSpec):
         """Doc."""
@@ -389,7 +391,9 @@ def test_render_text_guide_title_dedup(tmp_path: Path, temp_modules: list[str]) 
 
 
 def test_render_text_guide_keeps_non_matching_title(tmp_path: Path, temp_modules: list[str]) -> None:
-    guide_cls = _make_guide(tmp_path, temp_modules, class_name="MethodPlaybook", content="Different Heading\nBody line\n")
+    guide_cls = _make_guide(
+        tmp_path, temp_modules, class_name="MethodPlaybook", content="Different Heading\nBody line\n"
+    )
 
     class GuideSpec(PromptSpec):
         """Doc."""
@@ -673,7 +677,11 @@ def test_render_full_prompt_spec_workflow() -> None:
 
 
 class TestFieldValueValidation:
-    """Regular field values exceeding _MAX_FIELD_VALUE_LENGTH or containing newlines are auto-promoted to multi-line treatment."""
+    """Regular field values exceeding length or containing newlines auto-promote.
+
+    Values exceeding ``_MAX_FIELD_VALUE_LENGTH`` or containing newlines render with
+    multi-line treatment.
+    """
 
     def test_short_single_line_renders_inline(self):
         """Short single-line values render as plain '**label:**\\nvalue'."""

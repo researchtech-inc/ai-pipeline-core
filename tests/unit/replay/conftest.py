@@ -145,7 +145,9 @@ def make_span(
         ended_at=finished,
         version=1,
         previous_conversation_id=previous_conversation_id,
-        input_document_shas=tuple(sorted(input_document_shas or tuple((*receiver_document_shas, *input_document_refs)))),
+        input_document_shas=tuple(
+            sorted(input_document_shas or tuple((*receiver_document_shas, *input_document_refs)))
+        ),
         output_document_shas=(),
         input_blob_shas=tuple(sorted(input_blob_shas or tuple((*receiver_blob_shas, *input_blob_refs)))),
         output_blob_shas=(),

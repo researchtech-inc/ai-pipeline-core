@@ -1,6 +1,6 @@
 [project]
 name = "ai-pipeline-core"
-version = "0.23.1"
+version = "0.23.2"
 description = "Core utilities for AI-powered processing pipelines using prefect"
 readme = "README.md"
 license = {text = "MIT"}
@@ -64,7 +64,7 @@ dev = [
     "testcontainers[clickhouse,google]>=4.0.0",
     "vulture==2.14",
     "pylint>=3.0.0",
-    "dev-cli",
+    "ai-dev-cli==0.2.0",
 ]
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -107,7 +107,7 @@ directory = ".tmp/dev-runs/coverage-html"
 
 [tool.ruff]
 # Configuration for the Ruff linter and formatter
-line-length = 160
+line-length = 120
 target-version = "py314"
 preview = true  # Required for DOC (pydoclint-derived) rules
 exclude = [".tmp", "build", "dist", ".venv", "venv", "__pycache__", "scripts"]
@@ -214,8 +214,6 @@ max-public-methods = 30
 "ai_pipeline_core/replay/_execute.py" = ["PLC0415"]
 "ai_pipeline_core/replay/cli.py" = ["T201", "BLE001"]
 "ai_pipeline_core/observability/cli.py" = ["T201", "BLE001", "PLC0415", "PLR0911", "PLR0914"]
-".claude/**/*.py" = ["T20", "D", "DOC", "TID251", "S"]
-"tools/dev-cli/**/*.py" = ["T20", "D", "DOC", "TID251", "S", "ARG", "PLW", "PLR", "PLC0415", "PERF", "RUF059", "C901", "E741", "PIE"]
 "tools/trace-inspector/**/*.py" = ["T20", "D", "DOC", "TID251", "S", "ARG", "PLR", "PLC0415", "PLC2701", "PERF", "RUF059"]
 
 [tool.ruff.format]
@@ -320,21 +318,116 @@ include = [
 ]
 
 [tool.uv.workspace]
-members = ["tools/dev-cli", "tools/trace-inspector"]
+members = ["tools/trace-inspector"]
+
+[tool.dev-cli]
+schema_version = 1
+cache_dir = ".tmp/dev-runs"
+tracked_extensions = [".py", ".toml", ".yml", ".yaml", ".json"]
+runner = "auto"
+test_roots = ["tests"]
+source_packages = ["ai_pipeline_core"]
+replace_auto_checks = false
+
+[tool.dev-cli.pytest_plugin]
+enabled = true
+
+[tool.dev-cli.step_timeouts]
+lint = 300
+typecheck = 300
+deadcode = 300
+semgrep = 600
+docstrings = 300
+test_validator = 120
+
+[tool.dev-cli.hash]
+globs = [
+    "examples/**/*.py",
+    "examples/manifest.yml",
+    "benchmarks/**/*.py",
+    "tests/conftest.py",
+    "tests/support/**/*.py",
+    ".semgrep/*.yml",
+    "pyrightconfig*.json",
+    "tools/trace-inspector/**/*.py",
+]
+files = ["pyproject.toml", ".vulture_whitelist.py"]
+optional_files = [
+    ".env",
+    ".tmp/production-server-v2/services/litellm/litellm.yaml",
+    "litellm.yaml",
+]
+
+[tool.dev-cli.lanes.unit]
+paths = ["tests/unit"]
+xdist = ["-n", "auto", "--dist", "worksteal"]
+timeout = 30
+slow_threshold = 30
+testmon = true
+agent_allowed = true
+
+[tool.dev-cli.lanes.integration]
+paths = ["tests/integration"]
+xdist = ["-n", "4", "--dist", "loadfile"]
+timeout = 180
+slow_threshold = 120
+testmon = true
+agent_allowed = true
+blast_radius_ratio = 0.5
+
+[tool.dev-cli.lanes.qualification]
+paths = ["tests/qualification"]
+xdist = ["-n", "2"]
+timeout = 900
+testmon = false
+agent_allowed = true
+
+[tool.dev-cli.examples]
+enabled = true
+static_path = "examples/tests/test_static.py"
+smoke_path = "examples/tests/test_smoke.py"
+path_lane = "unit"
+
+[tool.dev-cli.benchmark]
+enabled = true
+target = "benchmarks/llm_matrix/"
+run_env = { RUN_BENCHMARK = "1" }
+tier_env = "BENCHMARK_TIER"
+cases_env = "BENCHMARK_CASE_GLOB"
+tiers = ["full", "nightly"]
+smoke_tier = "smoke"
+
+[tool.dev-cli.probes.capabilities]
+enabled = true
+target = "tests/capabilities"
+agent_allowed = true
+timeout = 900
+
+[tool.dev-cli.verify]
+enabled = true
+steps = [
+    { command = "check" },
+    { command = "test", lane = "integration" },
+    { command = "examples", mode = "smoke" },
+]
 
 [tool.dev-cli.infrastructure]
 integration = { env = ["OPENAI_API_KEY", "OPENAI_BASE_URL"], label = "LLM API" }
 docker = { command = "docker info", label = "Docker" }
 
-[tool.dev-cli.lanes]
-unit = { paths = ["tests/unit"] }
-integration = { paths = ["tests/integration"] }
-qualification = { paths = ["tests/qualification"] }
+[tool.dev-cli.hook]
+disable = []
+
+[[tool.dev-cli.checks]]
+name = "test-validator"
+description = "AI Pipeline Core test authoring validator"
+run = [["python", "-m", "ai_pipeline_core._dev_extensions._test_validator"]]
+position = "after:semgrep"
+cacheable = false
 
 [tool.dev-cli.scopes]
 _llm_core = "tests/unit/_llm_core"
-benchmark = "benchmarks/llm_matrix"
-capabilities = "tests/capabilities"
+_pydantic_base = "tests/unit/_pydantic_base"
 codec = "tests/unit/codec"
 database = "tests/unit/database"
 deployment = "tests/unit/deployment"
@@ -351,6 +444,7 @@ logging = "tests/unit/logging"
 observability = "tests/unit/observability"
 pipeline = "tests/unit/pipeline"
 prompt_compiler = "tests/unit/prompt_compiler"
+prompt_contract = "tests/unit/prompt_contract"
 providers = "tests/unit/providers"
 pubsub = "tests/integration/pubsub"
 qualification = "tests/qualification"
@@ -358,7 +452,32 @@ replay = "tests/unit/replay"
 settings = "tests/unit/settings"
 unit = "tests/unit"
 
+[tool.dev-cli.source_to_test]
+"ai_pipeline_core/_codec.py" = ["tests/unit/codec"]
+"ai_pipeline_core/_pydantic_base.py" = ["tests/unit/_pydantic_base"]
+"ai_pipeline_core/_llm_core" = [
+    "tests/unit/_llm_core",
+    "tests/unit/llm",
+    "tests/integration/llm",
+    "tests/qualification/llm",
+]
+"ai_pipeline_core/database" = ["tests/unit/database", "tests/integration/database"]
+"ai_pipeline_core/deployment" = ["tests/unit/deployment", "tests/integration/pubsub"]
+"ai_pipeline_core/documents" = ["tests/unit/documents"]
+"ai_pipeline_core/llm" = [
+    "tests/unit/llm",
+    "tests/integration/llm",
+    "tests/qualification/llm",
+]
+"ai_pipeline_core/logger" = ["tests/unit/logging"]
+"ai_pipeline_core/observability" = ["tests/unit/observability"]
+"ai_pipeline_core/pipeline" = ["tests/unit/pipeline"]
+"ai_pipeline_core/prompt_compiler" = ["tests/unit/prompt_compiler", "examples/tests"]
+"ai_pipeline_core/prompt_contract" = ["tests/unit/prompt_contract", "tests/integration/llm"]
+"ai_pipeline_core/providers.py" = ["tests/unit/providers"]
+"ai_pipeline_core/replay" = ["tests/unit/replay", "tests/integration/replay"]
+"ai_pipeline_core/settings.py" = ["tests/unit/settings", "tests/integration"]
+
 [tool.uv.sources]
-dev-cli = { workspace = true }
 trace-inspector = { workspace = true }
 ai-pipeline-core = { workspace = true }

@@ -58,7 +58,9 @@ class TestPromptInjection:
 
         monkeypatch.setattr("ai_pipeline_core.llm._engine.generate", fake_generate)
 
-        conv = Conversation(model=DEFAULT_TEST_MODEL, include_date=False, model_options=ModelOptions(system_prompt=user_prompt))
+        conv = Conversation(
+            model=DEFAULT_TEST_MODEL, include_date=False, model_options=ModelOptions(system_prompt=user_prompt)
+        )
         await conv.send(f"Check {LONG_URL}")
 
         assert captured_prompts == [f"{user_prompt}\n\n{_SUBSTITUTOR_INSTRUCTION}"]
@@ -146,7 +148,9 @@ class TestPromptIntegration:
 
         monkeypatch.setattr("ai_pipeline_core.llm._engine.generate", fake_generate)
 
-        conv = Conversation(model=DEFAULT_TEST_MODEL, include_date=False, model_options=ModelOptions(reasoning_effort="high", retries=5))
+        conv = Conversation(
+            model=DEFAULT_TEST_MODEL, include_date=False, model_options=ModelOptions(reasoning_effort="high", retries=5)
+        )
         await conv.send(f"Check {LONG_URL}")
 
         assert captured_prompts == [_SUBSTITUTOR_INSTRUCTION]

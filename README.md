@@ -62,10 +62,10 @@ This installs four CLI commands:
 
 ### Development Tools for Downstream Projects
 
-Projects built on ai-pipeline-core can install the companion development tools directly from GitHub:
+Projects built on ai-pipeline-core install the companion development tools as dev dependencies:
 
 ```bash
-pip install "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/dev-cli"
+pip install ai-dev-cli==0.2.0
 pip install "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/trace-inspector"
 ```
 
@@ -74,20 +74,26 @@ Or add them to your project's `pyproject.toml`:
 ```toml
 [project.optional-dependencies]
 dev = [
-    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/dev-cli",
+    "ai-dev-cli==0.2.0",
     "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git#subdirectory=tools/trace-inspector",
 ]
 ```
 
-To pin to a specific version, append `@v0.23.1` (or a commit hash) before `#subdirectory`:
+`ai-dev-cli` ships on PyPI; pin the exact version to lock the workflow contract. To pin `trace-inspector` to a specific revision, append `@v0.23.2` (or a commit hash) before `#subdirectory`:
 
 ```toml
-    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.23.1#subdirectory=tools/dev-cli"
+    "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.23.2#subdirectory=tools/trace-inspector"
 ```
 
 This installs two additional CLI commands:
-- `dev` — development workflow CLI (test, lint, typecheck, format, check)
+- `dev` — development workflow CLI (test, lint, typecheck, format, check, probe)
 - `ai-trace-inspect` — trace inspection and markdown debug bundle generation
+
+Probe model capabilities through the `dev probe` interface:
+
+```bash
+dev probe capabilities -- --models <csv-of-model-names> [--cost-limit <usd>]
+```
 
 ### Requirements
 
@@ -172,7 +178,9 @@ class AnalyzeDocument(PipelineTask):
 class AnalysisFlow(PipelineFlow):
     """Analyze all input documents."""
 
-    async def run(self, input_documents: tuple[InputDocument, ...], options: FlowOptions) -> tuple[AnalysisDocument, ...]:
+    async def run(
+        self, input_documents: tuple[InputDocument, ...], options: FlowOptions
+    ) -> tuple[AnalysisDocument, ...]:
         results: list[AnalysisDocument] = []
         for doc in input_documents:
             results.extend(await AnalyzeDocument.run(documents=(doc,)))
@@ -217,7 +225,9 @@ class MyPipeline(PipelineDeployment[FlowOptions, MyResult]):
 
 # 6. CLI initializer provides run ID and initial documents
 def initialize(options: FlowOptions) -> tuple[str, tuple[Document, ...]]:
-    docs: tuple[Document, ...] = (InputDocument.create_root(name="input.txt", content="Sample data", reason="CLI input"),)
+    docs: tuple[Document, ...] = (
+        InputDocument.create_root(name="input.txt", content="Sample data", reason="CLI input"),
+    )
     return "my-project", docs
 
 
@@ -992,7 +1002,9 @@ class AnalyzeDataTask(PipelineTask, stub=True):
 class AnalysisFlow(PipelineFlow, stub=True):
     """Run analysis pipeline."""
 
-    async def run(self, cleaned_docs: tuple[CleanedDataDoc, ...], options: FlowOptions) -> tuple[AnalysisResultDoc, ...]: ...
+    async def run(
+        self, cleaned_docs: tuple[CleanedDataDoc, ...], options: FlowOptions
+    ) -> tuple[AnalysisResultDoc, ...]: ...
 
 
 # Stub PromptSpec — uses keyword arg syntax
@@ -1452,7 +1464,13 @@ Always import from the top-level package when possible:
 ```python
 # Top-level imports (preferred)
 from ai_pipeline_core import Document, PipelineTask, PipelineFlow, PipelineDeployment, Conversation, Tool
-from ai_pipeline_core import ExternalProvider, StatelessPollingProvider, ProviderOutcome, ProviderError, ProviderAuthError
+from ai_pipeline_core import (
+    ExternalProvider,
+    StatelessPollingProvider,
+    ProviderOutcome,
+    ProviderError,
+    ProviderAuthError,
+)
 from ai_pipeline_core import collect_tasks, as_task_completed, TaskHandle, TaskBatch
 
 # Sub-package imports for symbols not at top level
@@ -1554,7 +1572,6 @@ ai-pipeline-core/
 |   |-- settings.py        # Configuration management (Pydantic BaseSettings)
 |   +-- exceptions.py      # Framework exceptions (LLMError, DocumentNameError, etc.)
 |-- tools/
-|   |-- dev-cli/           # Dev CLI — enforces correct test/lint/check workflows
 |   +-- trace-inspector/   # Trace inspection — generates markdown debug bundles from execution data
 |-- tests/                 # Comprehensive test suite
 |-- examples/              # Usage examples

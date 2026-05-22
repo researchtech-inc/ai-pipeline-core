@@ -104,12 +104,16 @@ def import_by_path(path: str) -> Any:
     """Import an object from ``module:QualName``."""
     module_path, separator, qualname = path.partition(":")
     if not separator or not module_path or not qualname:
-        raise CodecImportError(f"Invalid codec import path {path!r}. Use the form 'package.module:ClassName' or 'package.module:Outer.Inner'.")
+        raise CodecImportError(
+            f"Invalid codec import path {path!r}. "
+            "Use the form 'package.module:ClassName' or 'package.module:Outer.Inner'."
+        )
     try:
         module = importlib.import_module(module_path)
     except ModuleNotFoundError as exc:
         raise CodecImportError(
-            f"Codec could not import module '{module_path}' from path {path!r}. Import the module before decoding, or replay with --import {module_path}."
+            f"Codec could not import module '{module_path}' from path {path!r}. "
+            f"Import the module before decoding, or replay with --import {module_path}."
         ) from exc
     obj: Any = module
     try:
@@ -133,7 +137,9 @@ class _EncodeContext:
     active_paths: dict[int, str]
 
     def child(self, path: str) -> _EncodeContext:
-        return _EncodeContext(path=path, document_shas=self.document_shas, blob_shas=self.blob_shas, active_paths=self.active_paths)
+        return _EncodeContext(
+            path=path, document_shas=self.document_shas, blob_shas=self.blob_shas, active_paths=self.active_paths
+        )
 
 
 @dataclass(slots=True)
@@ -149,7 +155,9 @@ class UniversalCodec:
         """Encode a supported value into a JSON-safe payload."""
         ctx = _EncodeContext(path="$", document_shas=set(), blob_shas=set(), active_paths={})
         encoded = self._encode_value(value, ctx)
-        return EncodeResult(value=encoded, document_shas=frozenset(ctx.document_shas), blob_shas=frozenset(ctx.blob_shas))
+        return EncodeResult(
+            value=encoded, document_shas=frozenset(ctx.document_shas), blob_shas=frozenset(ctx.blob_shas)
+        )
 
     def decode(self, encoded: Any, db: DatabaseReader | None = None) -> Any:
         """Decode a previously encoded payload (sync wrapper around async decode)."""
@@ -158,7 +166,9 @@ class UniversalCodec:
         except RuntimeError:
             return asyncio.run(self.decode_async(encoded, db=db))
         raise CodecError(
-            "Codec.decode() was called from an active event loop. Use await codec.decode_async(...) in async code, or call decode() from synchronous code."
+            "Codec.decode() was called from an active event loop. "
+            "Use await codec.decode_async(...) in async code, "
+            "or call decode() from synchronous code."
         )
 
     async def decode_async(self, encoded: Any, db: DatabaseReader | None = None) -> Any:
@@ -184,8 +194,10 @@ class UniversalCodec:
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
             return self._encode_dataclass(value, ctx)
         raise CodecError(
-            f"Codec cannot encode value at {ctx.path} with type {type(value).__module__}:{type(value).__qualname__}. "
-            "Use JSON primitives, bytes, Document, BaseModel, dataclass, UUID, datetime, Enum, type, list, tuple, frozenset, or dict."
+            f"Codec cannot encode value at {ctx.path} with type "
+            f"{type(value).__module__}:{type(value).__qualname__}. "
+            "Use JSON primitives, bytes, Document, BaseModel, dataclass, UUID, "
+            "datetime, Enum, type, list, tuple, frozenset, or dict."
         )
 
     def _encode_simple(self, value: Any, ctx: _EncodeContext) -> Any:
@@ -197,7 +209,10 @@ class UniversalCodec:
             return {TYPE_KEY: UUID_TYPE, "value": str(value)}
         if isinstance(value, datetime):
             if value.tzinfo is None or value.utcoffset() is None:
-                raise CodecError(f"Codec cannot encode naive datetime at {ctx.path}. Use an aware datetime with an explicit UTC offset like +00:00.")
+                raise CodecError(
+                    f"Codec cannot encode naive datetime at {ctx.path}. "
+                    "Use an aware datetime with an explicit UTC offset like +00:00."
+                )
             return {TYPE_KEY: DATETIME_TYPE, "value": value.isoformat()}
         if isinstance(value, PurePath):
             return {TYPE_KEY: PATH_TYPE, "value": str(value)}
@@ -218,16 +233,29 @@ class UniversalCodec:
 
     def _encode_tuple(self, value: tuple[Any, ...], ctx: _EncodeContext) -> dict[str, Any]:
         with _cycle_guard(value, ctx):
-            return {TYPE_KEY: TUPLE_TYPE, "items": [self._encode_value(item, ctx.child(_index_path(ctx.path, i))) for i, item in enumerate(value)]}
+            return {
+                TYPE_KEY: TUPLE_TYPE,
+                "items": [
+                    self._encode_value(item, ctx.child(_index_path(ctx.path, i))) for i, item in enumerate(value)
+                ],
+            }
 
     def _encode_frozenset(self, value: frozenset[Any], ctx: _EncodeContext) -> dict[str, Any]:
         with _cycle_guard(value, ctx):
             items = sorted(value, key=repr)
-            return {TYPE_KEY: FROZENSET_TYPE, "items": [self._encode_value(item, ctx.child(_index_path(ctx.path, i))) for i, item in enumerate(items)]}
+            return {
+                TYPE_KEY: FROZENSET_TYPE,
+                "items": [
+                    self._encode_value(item, ctx.child(_index_path(ctx.path, i))) for i, item in enumerate(items)
+                ],
+            }
 
     def _encode_dict(self, value: dict[Any, Any], ctx: _EncodeContext) -> dict[str, Any]:
         with _cycle_guard(value, ctx):
-            return {_escape_user_key(k, path=ctx.path): self._encode_value(v, ctx.child(_dict_path(ctx.path, k))) for k, v in value.items()}
+            return {
+                _escape_user_key(k, path=ctx.path): self._encode_value(v, ctx.child(_dict_path(ctx.path, k)))
+                for k, v in value.items()
+            }
 
     def _encode_enum(self, value: Enum, ctx: _EncodeContext) -> dict[str, Any]:
         return {
@@ -243,7 +271,10 @@ class UniversalCodec:
             if callable(codec_state):
                 state = codec_state()
                 if not isinstance(state, dict):
-                    raise CodecError(f"{_class_path(type(value))}.codec_state() must return dict[str, Any]. Got {type(state).__name__} instead.")
+                    raise CodecError(
+                        f"{_class_path(type(value))}.codec_state() must return dict[str, Any]. "
+                        f"Got {type(state).__name__} instead."
+                    )
                 data = self._encode_value(state, ctx.child(f"{ctx.path}.state"))
             else:
                 model_data = {field_name: getattr(value, field_name) for field_name in type(value).model_fields}
@@ -275,7 +306,9 @@ class UniversalCodec:
             return await self._decode_envelope(type_name, encoded, db=db, memo=memo)
         return {_unescape_user_key(k): await self._decode_value(v, db=db, memo=memo) for k, v in encoded.items()}
 
-    async def _decode_envelope(self, type_name: str, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> Any:
+    async def _decode_envelope(
+        self, type_name: str, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo
+    ) -> Any:
         if type_name == DOCUMENT_REF_TYPE:
             return await self._decode_document_ref(payload, db=db, memo=memo)
         if type_name == BLOB_REF_TYPE:
@@ -300,13 +333,19 @@ class UniversalCodec:
             return Path(_require_string(payload, "value", type_name=PATH_TYPE))
         raise CodecError(
             f"Codec encountered unsupported envelope type {type_name!r}. "
-            "Only document_ref, blob_ref, pydantic, dataclass, tuple, frozenset, type_ref, uuid, datetime, path, and enum are supported."
+            "Only document_ref, blob_ref, pydantic, dataclass, tuple, frozenset, "
+            "type_ref, uuid, datetime, path, and enum are supported."
         )
 
     @staticmethod
-    async def _decode_document_ref(payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> Document:
+    async def _decode_document_ref(
+        payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo
+    ) -> Document:
         if db is None:
-            raise CodecError("Codec cannot decode a document_ref without a DatabaseReader. Pass db=... when decoding payloads that reference stored documents.")
+            raise CodecError(
+                "Codec cannot decode a document_ref without a DatabaseReader. "
+                "Pass db=... when decoding payloads that reference stored documents."
+            )
         sha256 = _require_string(payload, "sha256", type_name=DOCUMENT_REF_TYPE)
         if sha256 in memo.documents:
             return memo.documents[sha256]
@@ -314,7 +353,8 @@ class UniversalCodec:
         hydrated = await db.get_document_with_content(sha256)
         if hydrated is None:
             raise CodecError(
-                f"Codec could not load document {sha256[:12]}... from the database. Persist the document record and its blobs before decoding this payload."
+                f"Codec could not load document {sha256[:12]}... from the database. "
+                "Persist the document record and its blobs before decoding this payload."
             )
         document = _document_from_hydrated_record(hydrated, class_path)
         memo.documents[sha256] = document
@@ -323,17 +363,25 @@ class UniversalCodec:
     @staticmethod
     async def _decode_blob_ref(payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> bytes:
         if db is None:
-            raise CodecError("Codec cannot decode a blob_ref without a DatabaseReader. Pass db=... when decoding payloads that reference stored blobs.")
+            raise CodecError(
+                "Codec cannot decode a blob_ref without a DatabaseReader. "
+                "Pass db=... when decoding payloads that reference stored blobs."
+            )
         sha256 = _require_string(payload, "sha256", type_name=BLOB_REF_TYPE)
         if sha256 in memo.blobs:
             return memo.blobs[sha256]
         blob = await db.get_blob(sha256)
         if blob is None:
-            raise CodecError(f"Codec could not load blob {sha256[:12]}... from the database. Persist the blob before decoding this payload.")
+            raise CodecError(
+                f"Codec could not load blob {sha256[:12]}... from the database. "
+                "Persist the blob before decoding this payload."
+            )
         memo.blobs[sha256] = blob.content
         return blob.content
 
-    async def _decode_pydantic(self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> BaseModel:
+    async def _decode_pydantic(
+        self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo
+    ) -> BaseModel:
         class_path = _require_string(payload, "class_path", type_name=PYDANTIC_TYPE)
         model_cls = import_by_path(class_path)
         if not isinstance(model_cls, type) or not issubclass(model_cls, BaseModel):
@@ -345,7 +393,10 @@ class UniversalCodec:
         codec_load = getattr(model_cls, "codec_load", None)
         if callable(codec_load):
             if not isinstance(data, dict):
-                raise CodecError(f"Codec stateful model {class_path!r} requires 'data' to decode into a JSON object. Return dict[str, Any] from codec_state().")
+                raise CodecError(
+                    f"Codec stateful model {class_path!r} requires 'data' to decode "
+                    "into a JSON object. Return dict[str, Any] from codec_state()."
+                )
             try:
                 return cast(BaseModel, codec_load(data))
             except CodecError:
@@ -380,7 +431,8 @@ class UniversalCodec:
         enum_cls = import_by_path(class_path)
         if not isinstance(enum_cls, type) or not issubclass(enum_cls, Enum):
             raise CodecError(
-                f"Codec enum path {class_path!r} resolved to {type(enum_cls).__name__}, not an Enum subclass. Store enum values with the enum envelope."
+                f"Codec enum path {class_path!r} resolved to {type(enum_cls).__name__}, "
+                "not an Enum subclass. Store enum values with the enum envelope."
             )
         name = _require_string(payload, "name", type_name=ENUM_TYPE)
         try:
@@ -392,21 +444,31 @@ class UniversalCodec:
             if member.value == decoded_value:
                 return cast(Enum, member)
         raise EnumDecodeError(
-            f"Codec could not decode enum {class_path!r}: no member named {name!r} and no member with value {decoded_value!r}. "
+            f"Codec could not decode enum {class_path!r}: no member named {name!r} "
+            f"and no member with value {decoded_value!r}. "
             "Persist both enum name and value and keep at least one stable across refactors."
         )
 
-    async def _decode_tuple(self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> tuple[Any, ...]:
+    async def _decode_tuple(
+        self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo
+    ) -> tuple[Any, ...]:
         items = payload.get("items")
         if not isinstance(items, list):
-            raise CodecError("Codec tuple payloads require a JSON array under 'items'. Use {'$type': 'tuple', 'items': [...]}.")
+            raise CodecError(
+                "Codec tuple payloads require a JSON array under 'items'. Use {'$type': 'tuple', 'items': [...]}."
+            )
         decoded = [await self._decode_value(item, db=db, memo=memo) for item in items]
         return tuple(decoded)
 
-    async def _decode_frozenset(self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo) -> frozenset[Any]:
+    async def _decode_frozenset(
+        self, payload: dict[str, Any], *, db: DatabaseReader | None, memo: _DecodeMemo
+    ) -> frozenset[Any]:
         items = payload.get("items")
         if not isinstance(items, list):
-            raise CodecError("Codec frozenset payloads require a JSON array under 'items'. Use {'$type': 'frozenset', 'items': [...]}.")
+            raise CodecError(
+                "Codec frozenset payloads require a JSON array under 'items'. "
+                "Use {'$type': 'frozenset', 'items': [...]}."
+            )
         decoded = [await self._decode_value(item, db=db, memo=memo) for item in items]
         return frozenset(decoded)
 
@@ -462,7 +524,10 @@ def _codec_origin_type(value_type: type[Any]) -> type[Any]:
 
 def _escape_user_key(key: Any, *, path: str) -> str:
     if not isinstance(key, str):
-        raise CodecError(f"Codec cannot encode dict key at {path}: expected str, got {type(key).__name__}. Convert mapping keys to strings before encoding.")
+        raise CodecError(
+            f"Codec cannot encode dict key at {path}: expected str, got {type(key).__name__}. "
+            "Convert mapping keys to strings before encoding."
+        )
     if _is_type_marker_key(key):
         return f"${key}"
     return key
@@ -503,7 +568,8 @@ def _decode_type_ref(payload: dict[str, Any]) -> type[Any]:
     loaded = import_by_path(path)
     if not isinstance(loaded, type):
         raise CodecError(
-            f"Codec type_ref path {path!r} resolved to {type(loaded).__name__}, not a Python type. Encode only real type objects with the type_ref envelope."
+            f"Codec type_ref path {path!r} resolved to {type(loaded).__name__}, "
+            "not a Python type. Encode only real type objects with the type_ref envelope."
         )
     return loaded
 
@@ -511,7 +577,9 @@ def _decode_type_ref(payload: dict[str, Any]) -> type[Any]:
 def _decode_datetime(payload: dict[str, Any]) -> datetime:
     value = datetime.fromisoformat(_require_string(payload, "value", type_name=DATETIME_TYPE))
     if value.tzinfo is None or value.utcoffset() is None:
-        raise CodecError("Codec datetime payloads require an explicit UTC offset. Store datetimes like '2026-03-12T10:00:00+00:00'.")
+        raise CodecError(
+            "Codec datetime payloads require an explicit UTC offset. Store datetimes like '2026-03-12T10:00:00+00:00'."
+        )
     return value
 
 

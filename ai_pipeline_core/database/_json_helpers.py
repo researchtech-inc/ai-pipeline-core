@@ -14,9 +14,15 @@ def parse_json_object(payload_json: str, *, context: str, field_name: str = "JSO
     try:
         value = json.loads(payload_json or "{}")
     except json.JSONDecodeError as exc:
-        raise ValueError(f"{context} has invalid {field_name}. Store a valid JSON object string in {field_name} before reading this record.") from exc
+        raise ValueError(
+            f"{context} has invalid {field_name}. "
+            f"Store a valid JSON object string in {field_name} before reading this record."
+        ) from exc
     if not isinstance(value, dict):
-        raise TypeError(f"{context} {field_name} must decode to a JSON object. Store an object like {{}} instead of {type(value).__name__}.")
+        raise TypeError(
+            f"{context} {field_name} must decode to a JSON object. "
+            f"Store an object like {{}} instead of {type(value).__name__}."
+        )
     return value
 
 

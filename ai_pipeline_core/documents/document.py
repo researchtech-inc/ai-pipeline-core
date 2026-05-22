@@ -35,7 +35,12 @@ from pydantic import (
 )
 from ruamel.yaml import YAML
 
-from ai_pipeline_core._token_estimates import estimate_binary_tokens, estimate_image_tokens, estimate_pdf_tokens, estimate_text_tokens
+from ai_pipeline_core._token_estimates import (
+    estimate_binary_tokens,
+    estimate_image_tokens,
+    estimate_pdf_tokens,
+    estimate_text_tokens,
+)
 from ai_pipeline_core.documents._context import DocumentSha256
 from ai_pipeline_core.documents._hashing import compute_content_sha256, compute_document_sha256
 from ai_pipeline_core.documents.exceptions import DocumentNameError, DocumentSizeError
@@ -74,7 +79,7 @@ MAX_TOTAL_DERIVED_FROM_BYTES = 200 * 1024
 
 # Registry of class __name__ -> Document subclass for collision detection.
 # Only non-test classes are registered. Test modules (tests.*, conftest, etc.) are skipped.
-_class_name_registry: dict[str, type[Document]] = {}  # nosemgrep: no-mutable-module-globals  # import-time registry per CLAUDE.md §1.2 category 3
+_class_name_registry: dict[str, type[Document]] = {}  # nosemgrep: no-mutable-module-globals - import-time registry
 
 # Metadata keys added by serialize_model() that should be stripped before validation.
 _DOCUMENT_SERIALIZE_METADATA_KEYS: frozenset[str] = frozenset({
@@ -214,7 +219,8 @@ def _parse_list_bytes(content_bytes: bytes, name: str, item_type: type[BaseModel
         raw = json.loads(content_bytes)
     else:
         raise TypeError(
-            f"Document[list[{item_type.__name__}]] requires .json or .yaml extension for list content, got: '{name}'. Use a structured file extension."
+            f"Document[list[{item_type.__name__}]] requires .json or .yaml extension "
+            f"for list content, got: '{name}'. Use a structured file extension."
         )
     if not isinstance(raw, list):
         raise TypeError(f"Expected list content for Document[list[{item_type.__name__}]], got {type(raw).__name__}")
@@ -252,14 +258,18 @@ def _extract_content_type(cls: type) -> None:
             if not list_args or not isinstance(list_args[0], type) or not issubclass(list_args[0], BaseModel):
                 inner = repr(list_args[0]) if list_args else "?"
                 raise TypeError(
-                    f"Document subclass '{cls.__name__}' generic parameter list[T] requires T to be a BaseModel subclass, got list[{inner}]. "
-                    f"Use Document[list[MyModel]] where MyModel is a BaseModel subclass."
+                    f"Document subclass '{cls.__name__}' generic parameter list[T] requires "
+                    f"T to be a BaseModel subclass, got list[{inner}]. "
+                    "Use Document[list[MyModel]] where MyModel is a BaseModel subclass."
                 )
             cls._content_type = list_args[0]
             cls._content_is_list = True
             return
         if not isinstance(ct, type) or not issubclass(ct, BaseModel):
-            raise TypeError(f"Document subclass '{cls.__name__}' generic parameter must be a BaseModel subclass or list[BaseModel], got {ct!r}")
+            raise TypeError(
+                f"Document subclass '{cls.__name__}' generic parameter must be a "
+                f"BaseModel subclass or list[BaseModel], got {ct!r}"
+            )
         cls._content_type = ct
         cls._content_is_list = False
         return
@@ -304,7 +314,8 @@ class Document[TContent: BaseModel = Any](BaseModel):
     """Maximum allowed total size in bytes (default 25MB)."""
 
     _content_type: ClassVar[type[BaseModel] | None] = None
-    """Content schema declared via generic parameter (Document[ModelType] or Document[list[ModelType]]). None for untyped documents."""
+    """Content schema declared via generic parameter
+    (Document[ModelType] or Document[list[ModelType]]). None for untyped documents."""
 
     _content_is_list: ClassVar[bool] = False
     """True when declared as Document[list[ModelType]] — content is validated/parsed as a list of items."""
@@ -332,15 +343,22 @@ class Document[TContent: BaseModel = Any](BaseModel):
         # This prevents AI agents from creating bypass hierarchies like PreviousLoopDocument(LoopDocument)
         # to circumvent return discipline checks. Every document type must inherit directly from Document.
         concrete_doc_parents = [
-            base for base in cls.__bases__ if base is not Document and isinstance(base, type) and issubclass(base, Document) and "[" not in base.__name__
+            base
+            for base in cls.__bases__
+            if base is not Document
+            and isinstance(base, type)
+            and issubclass(base, Document)
+            and "[" not in base.__name__
         ]
         if concrete_doc_parents:
             parent_name = concrete_doc_parents[0].__name__
             raise TypeError(
-                f"Document subclass '{cls.__name__}' inherits from '{parent_name}', which is already a Document subclass. "
-                f"Document allows only one level of inheritance. "
+                f"Document subclass '{cls.__name__}' inherits from '{parent_name}', "
+                "which is already a Document subclass. "
+                "Document allows only one level of inheritance. "
                 f"Define '{cls.__name__}' as a direct Document subclass instead: "
-                f"class {cls.__name__}(Document): ... or class {cls.__name__}(Document[MyModel]): ..."
+                f"class {cls.__name__}(Document): ... or "
+                f"class {cls.__name__}(Document[MyModel]): ..."
             )
 
         if cls.__name__.startswith("Test"):
@@ -620,7 +638,8 @@ class Document[TContent: BaseModel = Any](BaseModel):
         byte_len = len(v.encode("utf-8"))
         if byte_len > MAX_SUMMARY_BYTES:
             raise ValueError(
-                f"Document summary is {byte_len} bytes, exceeds {MAX_SUMMARY_BYTES}-byte limit. Summaries are short overviews, not full document content."
+                f"Document summary is {byte_len} bytes, exceeds {MAX_SUMMARY_BYTES}-byte limit. "
+                "Summaries are short overviews, not full document content."
             )
         return v
 
@@ -675,7 +694,9 @@ class Document[TContent: BaseModel = Any](BaseModel):
             name = info.data.get("name", "") if hasattr(info, "data") else ""
             v = _convert_content(name, v)
         if len(v) > cls.MAX_CONTENT_SIZE:
-            raise DocumentSizeError(f"Document size ({len(v)} bytes) exceeds maximum allowed size ({cls.MAX_CONTENT_SIZE} bytes)")
+            raise DocumentSizeError(
+                f"Document size ({len(v)} bytes) exceeds maximum allowed size ({cls.MAX_CONTENT_SIZE} bytes)"
+            )
         return v
 
     @field_validator("derived_from")
@@ -686,7 +707,9 @@ class Document[TContent: BaseModel = Any](BaseModel):
             if _is_document_sha256(src):
                 continue
             if "://" not in src:
-                raise ValueError(f"derived_from entry must be a document SHA256 hash or a URL (containing '://'), got: {src!r}")
+                raise ValueError(
+                    f"derived_from entry must be a document SHA256 hash or a URL (containing '://'), got: {src!r}"
+                )
             byte_len = len(src.encode("utf-8"))
             if byte_len > MAX_EXTERNAL_SOURCE_URI_BYTES:
                 raise ValueError(
@@ -737,7 +760,10 @@ class Document[TContent: BaseModel = Any](BaseModel):
         """Validate that total document size (content + attachments) is within limits."""
         total = self.size
         if total > self.MAX_CONTENT_SIZE:
-            raise DocumentSizeError(f"Total document size ({total} bytes) including attachments exceeds maximum allowed size ({self.MAX_CONTENT_SIZE} bytes)")
+            raise DocumentSizeError(
+                f"Total document size ({total} bytes) including attachments "
+                f"exceeds maximum allowed size ({self.MAX_CONTENT_SIZE} bytes)"
+            )
         return self
 
     @model_validator(mode="before")
@@ -908,7 +934,9 @@ class Document[TContent: BaseModel = Any](BaseModel):
         """
         content_type = self.__class__._content_type
         if content_type is None:
-            raise TypeError(f"{self.__class__.__name__} has no declared content type. Use parse(ModelType) for explicit parsing.")
+            raise TypeError(
+                f"{self.__class__.__name__} has no declared content type. Use parse(ModelType) for explicit parsing."
+            )
         if self.__class__._content_is_list:
             return cast(TContent, self.as_pydantic_model(list[content_type]))
         return cast(TContent, self.as_pydantic_model(content_type))
@@ -980,7 +1008,9 @@ class Document[TContent: BaseModel = Any](BaseModel):
         # Get base serialization from Pydantic (uses field_serializer for content)
         result = self.model_dump(mode="json")
 
-        # Add metadata not present in standard model_dump (keys must match _DOCUMENT_SERIALIZE_METADATA_KEYS, used by model_validate() to strip them)
+        # Add metadata not present in standard model_dump
+        # (keys must match _DOCUMENT_SERIALIZE_METADATA_KEYS,
+        # used by model_validate() to strip them)
         result["id"] = self.id
         result["sha256"] = self.sha256
         result["content_sha256"] = self.content_sha256
@@ -1004,16 +1034,24 @@ class Document[TContent: BaseModel = Any](BaseModel):
 
     def __reduce__(self) -> Any:
         """Blocked: pickle serialization is not supported for Documents."""
-        raise TypeError("Document pickle serialization is not supported. Use JSON serialization (model_dump/model_validate).")
+        raise TypeError(
+            "Document pickle serialization is not supported. Use JSON serialization (model_dump/model_validate)."
+        )
 
     def __reduce_ex__(self, _protocol: object) -> Any:
         """Blocked: pickle serialization is not supported for Documents."""
-        raise TypeError("Document pickle serialization is not supported. Use JSON serialization (model_dump/model_validate).")
+        raise TypeError(
+            "Document pickle serialization is not supported. Use JSON serialization (model_dump/model_validate)."
+        )
 
     def __copy__(self) -> Self:
         """Blocked: copy.copy() is not supported for Documents."""
-        raise TypeError("Document copying is not supported. Use derive() for content transformations or create() for new documents.")
+        raise TypeError(
+            "Document copying is not supported. Use derive() for content transformations or create() for new documents."
+        )
 
     def __deepcopy__(self, _memo: dict[int, Any] | None = None) -> Self:
         """Blocked: copy.deepcopy() is not supported for Documents."""
-        raise TypeError("Document copying is not supported. Use derive() for content transformations or create() for new documents.")
+        raise TypeError(
+            "Document copying is not supported. Use derive() for content transformations or create() for new documents."
+        )

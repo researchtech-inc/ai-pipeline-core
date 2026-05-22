@@ -71,7 +71,9 @@ async def maybe_send(model: AIModel) -> str | None:
         return None
 
     conv = Conversation(model=model)
-    conv = await conv.send("Reply with one short sentence explaining AIModel fallback chains.", purpose="aimodel-showcase")
+    conv = await conv.send(
+        "Reply with one short sentence explaining AIModel fallback chains.", purpose="aimodel-showcase"
+    )
     print("\nLive response:")
     print(conv.content)
     return conv.content

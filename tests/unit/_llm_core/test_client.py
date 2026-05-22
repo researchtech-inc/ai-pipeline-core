@@ -74,7 +74,11 @@ def _make_completion(
     )
     return StreamCompletion(
         response=response,
-        usage={"prompt_tokens": prompt, "completion_tokens": completion_tokens, "total_tokens": prompt + completion_tokens},
+        usage={
+            "prompt_tokens": prompt,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt + completion_tokens,
+        },
         raw_headers={},
         aipl_headers=AIPLResponseHeaders(response_cost=response_cost),
         timing=TimingData(started_at=0.0, first_token_at=0.25, finished_at=1.0),
@@ -82,7 +86,9 @@ def _make_completion(
     )
 
 
-def _make_attempt(*, response_format: type[BaseModel] | None = None, attempt_index: int = 0, cache: CacheSpec | None = None) -> AttemptRequest:
+def _make_attempt(
+    *, response_format: type[BaseModel] | None = None, attempt_index: int = 0, cache: CacheSpec | None = None
+) -> AttemptRequest:
     request = LLMRequest(
         model=DEFAULT_TEST_MODEL,
         messages=(CoreMessage(role=Role.USER, content="hi"),),
@@ -103,7 +109,12 @@ class TestContentToApiParts:
         png_data = _make_png()
         result = _content_to_api_parts(ImageContent(data=base64.b64encode(png_data), mime_type="image/png"))
 
-        assert result == [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64.b64encode(png_data).decode()}", "detail": "high"}}]
+        assert result == [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{base64.b64encode(png_data).decode()}", "detail": "high"},
+            }
+        ]
 
     def test_image_invalid(self) -> None:
         result = _content_to_api_parts(ImageContent(data=base64.b64encode(b"not-an-image"), mime_type="image/png"))
@@ -208,7 +219,9 @@ class TestCacheHelpers:
         messages = [{"role": "user", "content": [{"type": "text", "text": "test"}]}]
 
         assert compute_cache_key(messages) == compute_cache_key(messages)
-        assert compute_cache_key(messages) != compute_cache_key([{"role": "user", "content": [{"type": "text", "text": "changed"}]}])
+        assert compute_cache_key(messages) != compute_cache_key([
+            {"role": "user", "content": [{"type": "text", "text": "changed"}]}
+        ])
         assert len(compute_cache_key(messages)) == 64
 
     def test_build_extra_body_disables_cache_on_retry(self) -> None:
@@ -302,10 +315,12 @@ class TestBuildModelResponse:
 
     def test_content_filter_raises_policy_error(self) -> None:
         with pytest.raises(ContentPolicyError):
-            _build_model_response(_make_completion(content="", finish_reason="content_filter"), _make_attempt(), prompt_cache_key=None)
+            _build_model_response(
+                _make_completion(content="", finish_reason="content_filter"), _make_attempt(), prompt_cache_key=None
+            )
 
     def test_refusal_field_no_longer_raises_policy_error(self) -> None:
-        """The refusal field is no longer extracted; only ``finish_reason == 'content_filter'`` raises ContentPolicyError.
+        """The refusal field is not extracted; only ``finish_reason='content_filter'`` raises.
 
         Round05 verified LiteLLM has no ``refusal`` field on its Message/Delta models;
         refusal-style finish reasons normalize to ``content_filter``.
@@ -321,7 +336,9 @@ class TestBuildModelResponse:
         class MyModel(BaseModel):
             value: int
 
-        response = _build_model_response(_make_completion(content='{"value": 42}'), _make_attempt(response_format=MyModel), prompt_cache_key=None)
+        response = _build_model_response(
+            _make_completion(content='{"value": 42}'), _make_attempt(response_format=MyModel), prompt_cache_key=None
+        )
 
         assert isinstance(response.parsed, MyModel)
         assert response.parsed.value == 42
@@ -343,7 +360,9 @@ class TestBuildModelResponse:
 
         payload = '{"child": {"a": 1, "extra": 2}}'
         with pytest.raises(StrictModeViolationError, match="extra"):
-            _build_model_response(_make_completion(content=payload), _make_attempt(response_format=Parent), prompt_cache_key=None)
+            _build_model_response(
+                _make_completion(content=payload), _make_attempt(response_format=Parent), prompt_cache_key=None
+            )
 
     def test_strict_mode_null_value_on_optional_passes(self) -> None:
         """``Optional[Child]`` with ``null`` matches the null branch cleanly."""
@@ -368,13 +387,17 @@ class TestBuildModelResponse:
             url_citation=SimpleNamespace(title="Source", url="https://example.com", start_index=0, end_index=5),
         )
 
-        response = _build_model_response(_make_completion(content="Answer", annotations=[citation]), _make_attempt(), prompt_cache_key=None)
+        response = _build_model_response(
+            _make_completion(content="Answer", annotations=[citation]), _make_attempt(), prompt_cache_key=None
+        )
 
         assert len(response.citations) == 1
         assert response.citations[0].title == "Source"
 
     def test_cost_from_header(self) -> None:
-        response = _build_model_response(_make_completion(content="ok", response_cost=0.05), _make_attempt(), prompt_cache_key=None)
+        response = _build_model_response(
+            _make_completion(content="ok", response_cost=0.05), _make_attempt(), prompt_cache_key=None
+        )
 
         assert response.cost == 0.05
         assert response.transport.litellm.response_cost == 0.05

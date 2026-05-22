@@ -41,7 +41,8 @@ def evaluate_field_gate(
             parsed = latest_match.parsed
         except (TypeError, ValueError) as exc:  # fmt: skip
             logger.warning(
-                "FieldGate could not parse '%s' (%s) for %s.%s with op=%s. Treating the document as missing because .parsed failed: %s",
+                "FieldGate could not parse '%s' (%s) for %s.%s with op=%s. "
+                "Treating the document as missing because .parsed failed: %s",
                 latest_match.name,
                 type(latest_match).__name__,
                 gate.document_type.__name__,
@@ -80,13 +81,19 @@ def warn_on_unused_flow_outputs(deployment_name: str, plan: DeploymentPlan) -> N
         if not produced_types:
             continue
         later_consumed = _later_consumed_document_types(plan, index)
-        unused_types = [document_type for document_type in produced_types if not any(issubclass(document_type, consumed) for consumed in later_consumed)]
+        unused_types = [
+            document_type
+            for document_type in produced_types
+            if not any(issubclass(document_type, consumed) for consumed in later_consumed)
+        ]
         if not unused_types:
             continue
         unused_names = ", ".join(document_type.__name__ for document_type in unused_types)
         logger.warning(
-            "PipelineDeployment '%s' flow '%s' (step %d/%d) returns document type(s) that no downstream flow or gate consumes: %s. "
-            "Flows should return only phase handoff artifacts. Remove the unused type, keep it task-local, or consume it in a later flow or gate.",
+            "PipelineDeployment '%s' flow '%s' (step %d/%d) returns document type(s) "
+            "that no downstream flow or gate consumes: %s. "
+            "Flows should return only phase handoff artifacts. Remove the unused type, "
+            "keep it task-local, or consume it in a later flow or gate.",
             deployment_name,
             flow_step.flow.name,
             index + 1,

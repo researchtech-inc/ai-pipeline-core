@@ -11,7 +11,14 @@ from ai_pipeline_core._llm_core._aipl import AIPLResponseHeaders
 from ai_pipeline_core._llm_core._response_builder import _build_model_response
 from ai_pipeline_core._llm_core.client import _response_format
 from ai_pipeline_core._llm_core.model_response import StreamCompletion, TimingData
-from ai_pipeline_core._llm_core.request import AttemptRequest, LLMRequest, ListOf, ResponseSpec, get_list_item_type, is_list_output_type
+from ai_pipeline_core._llm_core.request import (
+    AttemptRequest,
+    LLMRequest,
+    ListOf,
+    ResponseSpec,
+    get_list_item_type,
+    is_list_output_type,
+)
 from ai_pipeline_core._llm_core.types import TokenUsage
 from tests.support.model_catalog import DEFAULT_TEST_MODEL
 

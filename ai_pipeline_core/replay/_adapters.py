@@ -52,7 +52,9 @@ async def _invoke_callable(callable_obj: Callable[..., Any], arguments: Any) -> 
     elif isinstance(arguments, tuple | list):
         result = callable_obj(*arguments)
     else:
-        raise TypeError(f"Replay arguments must decode to dict, tuple, list, or be omitted. Got {type(arguments).__name__}.")
+        raise TypeError(
+            f"Replay arguments must decode to dict, tuple, list, or be omitted. Got {type(arguments).__name__}."
+        )
     if inspect.isawaitable(result):
         return await result
     return result
@@ -75,7 +77,10 @@ def _construct_instance(class_path: str, receiver: Any) -> Any:
         return cls(*constructor_args)
     if isinstance(constructor_args, list):
         return cls(*constructor_args)
-    raise TypeError(f"Replay constructor args for {class_path} must decode to dict, tuple, list, or be omitted. Got {type(constructor_args).__name__}.")
+    raise TypeError(
+        f"Replay constructor args for {class_path} must decode to dict, tuple, list, "
+        f"or be omitted. Got {type(constructor_args).__name__}."
+    )
 
 
 def _load_class(class_path: str) -> type[Any]:
@@ -113,9 +118,13 @@ def _resolve_instance_method_callable(target: str, receiver: Any) -> Callable[..
     return _require_callable(target, getattr(instance, method_name), context="instance method")
 
 
-def _bind_instance_method(target: str, cls: type[Any], instance: Any, method_name: str, *, context: str) -> Callable[..., Any]:
+def _bind_instance_method(
+    target: str, cls: type[Any], instance: Any, method_name: str, *, context: str
+) -> Callable[..., Any]:
     if not isinstance(instance, cls):
-        raise TypeError(f"Replay receiver for {target!r} reconstructed {type(instance).__name__}, expected {cls.__name__}.")
+        raise TypeError(
+            f"Replay receiver for {target!r} reconstructed {type(instance).__name__}, expected {cls.__name__}."
+        )
     return _require_callable(target, getattr(instance, method_name), context=context)
 
 
@@ -170,5 +179,6 @@ def resolve_callable(target: str, receiver: Any) -> Callable[..., Any]:
             return _resolve_promptcontract_receiver_callable(target, receiver)
         case _:
             raise ValueError(
-                f"Replay target {target!r} is not supported. Use function, classmethod, instance_method, decoded_method, or decoded_promptcontract."
+                f"Replay target {target!r} is not supported. Use function, classmethod, "
+                "instance_method, decoded_method, or decoded_promptcontract."
             )

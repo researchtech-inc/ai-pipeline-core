@@ -31,39 +31,19 @@ repos:
       - id: mixed-line-ending
         stages:
           - pre-commit
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.6
+  - repo: local
     hooks:
-      - id: ruff
-        args:
-          - '--fix'
-          - '--exit-non-zero-on-fix'
-        exclude: ^(.*\.md|dependencies_docs/)
-        stages:
-          - pre-commit
-      - id: ruff-format
-        exclude: ^(.*\.md|dependencies_docs/)
-        stages:
-          - pre-commit
-  - repo: https://github.com/econchick/interrogate
-    rev: 1.7.0
-    hooks:
-      - id: interrogate
-        args:
-          - '--fail-under=100'
-          - '-v'
-          - 'ai_pipeline_core'
+      - id: dev-format
+        name: dev format
+        entry: dev format
+        language: system
         pass_filenames: false
         stages:
           - pre-commit
-  - repo: local
-    hooks:
       - id: dev-check
         name: dev check (full pipeline)
         entry: dev check
         language: system
-        types:
-          - python
         pass_filenames: false
         fail_fast: true
         stages:

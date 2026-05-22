@@ -128,7 +128,10 @@ class StreamAccumulator:
     def _absorb_reasoning(self, delta: Any) -> None:
         details = getattr(delta, "reasoning_details", None)
         if details:
-            extracted = "".join(str(getattr(item, "text", "") or (item.get("text") if isinstance(item, Mapping) else "") or "") for item in details)
+            extracted = "".join(
+                str(getattr(item, "text", "") or (item.get("text") if isinstance(item, Mapping) else "") or "")
+                for item in details
+            )
             self.provider_specific_fields.setdefault("reasoning_details", [])
             existing = self.provider_specific_fields["reasoning_details"]
             if isinstance(existing, list):
@@ -272,8 +275,9 @@ class StreamSession:
             raise
         except Exception as exc:
             if self.accumulator.saw_content_chunk:
+                deployment_id = self._aipl_headers.deployment_id or "unknown"
                 raise MidStreamProviderError(
-                    f"Provider stream failed after partial output from deployment={self._aipl_headers.deployment_id or 'unknown'}: {exc}",
+                    f"Provider stream failed after partial output from deployment={deployment_id}: {exc}",
                     original=exc,
                     deployment_id=self._aipl_headers.deployment_id,
                     response_headers=dict(self._raw_headers),

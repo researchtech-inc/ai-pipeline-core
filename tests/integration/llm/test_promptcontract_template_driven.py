@@ -128,7 +128,9 @@ class TestStaticBodyRendersAsInstructionsSection:
         test_model_choice: AIModel,
     ) -> None:
         """The static body's sentinel phrase appears verbatim in the response."""
-        result = await _StaticBodyContract(question="What is the color of the sky on a clear day? Answer briefly.").execute(test_model_choice)
+        result = await _StaticBodyContract(
+            question="What is the color of the sky on a clear day? Answer briefly."
+        ).execute(test_model_choice)
         assert "STATIC-PHRASE-OMEGA" in result.response.answer
 
 
@@ -515,10 +517,13 @@ class TestCitedTextCitations:
         assert isinstance(result.citations, tuple)
         body_citations = [c for c in result.response.body.citations if isinstance(c, DocumentCitation)]
         assert body_citations, f"expected at least one body citation, got {result.response.body.citations!r}"
-        assert any(c.document_id for c in body_citations), f"expected at least one citation with a populated document_id, got {body_citations!r}"
+        assert any(c.document_id for c in body_citations), (
+            f"expected at least one citation with a populated document_id, got {body_citations!r}"
+        )
         supplied_ids = {doc.id for doc in docs}
         assert any(c.document_id in supplied_ids for c in body_citations), (
-            f"expected at least one citation to match a supplied document id; supplied={supplied_ids}, got {body_citations!r}"
+            "expected at least one citation to match a supplied document id; "
+            f"supplied={supplied_ids}, got {body_citations!r}"
         )
 
 
@@ -573,7 +578,9 @@ class TestSupportsUrlSubstitutionDisabled:
         # When substitution is disabled the original URL string passes through unchanged.
         # The model echoes one of the URLs — assert it is one of the originals (not a placeholder).
         assert "://" in result.response.echoed_url
-        assert "@@" not in result.response.echoed_url, f"echoed URL contains a substitutor placeholder: {result.response.echoed_url!r}"
+        assert "@@" not in result.response.echoed_url, (
+            f"echoed URL contains a substitutor placeholder: {result.response.echoed_url!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -636,7 +643,9 @@ class TestJinjaTemplateFeaturesEndToEnd:
             reason="jinja-feature-test",
         )
         config = JinjaFeatureConfig(nonce="jf-001", repeat=1)
-        result = await _JinjaFeatureFullContract(topic="the Andes mountains", config=config, document=doc).execute(default_test_model)
+        result = await _JinjaFeatureFullContract(topic="the Andes mountains", config=config, document=doc).execute(
+            default_test_model
+        )
         assert isinstance(result.response, JinjaFeatureOutput)
         assert result.response.summary.strip()
         assert result.response.document_count >= 0

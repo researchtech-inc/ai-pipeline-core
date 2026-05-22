@@ -149,7 +149,9 @@ def test_main_run_with_force_deployment_id_override(tmp_path: Path, monkeypatch:
 
 
 @pytest.mark.ai_docs
-def test_main_batch_uses_find_and_experiment_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_batch_uses_find_and_experiment_helpers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _database, span = _conversation_span(tmp_path)
     deployment_id = span.root_deployment_id
 
@@ -216,7 +218,9 @@ def test_main_batch_uses_find_and_experiment_helpers(tmp_path: Path, monkeypatch
     assert "Ran 1 replay experiments" in capsys.readouterr().out
 
 
-def test_main_batch_with_force_deployment_id_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_batch_with_force_deployment_id_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     _database, span = _conversation_span(tmp_path)
     deployment_id = span.root_deployment_id
 

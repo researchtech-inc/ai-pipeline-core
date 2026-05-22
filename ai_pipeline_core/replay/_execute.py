@@ -45,7 +45,9 @@ def _parse_json_field(payload_json: str, *, field_name: str, span_id: UUID) -> A
     try:
         return json.loads(payload_json)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Span {span_id} has invalid {field_name}. Store valid JSON in spans.{field_name} before replaying.") from exc
+        raise ValueError(
+            f"Span {span_id} has invalid {field_name}. Store valid JSON in spans.{field_name} before replaying."
+        ) from exc
 
 
 def _merge_model_options(base: ModelOptions | None, overrides: dict[str, Any] | None) -> ModelOptions | None:
@@ -61,7 +63,9 @@ def _coerce_model_override(value: Any) -> AIModel:
         return value
     if isinstance(value, dict):
         return AIModel.model_validate(value)
-    raise TypeError(f"Replay model overrides must be AIModel or an AIModel-compatible dict, got {type(value).__name__}.")
+    raise TypeError(
+        f"Replay model overrides must be AIModel or an AIModel-compatible dict, got {type(value).__name__}."
+    )
 
 
 def _override_tools_in_recorded_order(value: Any, override_tools: dict[str, Tool]) -> list[Tool]:
@@ -102,7 +106,9 @@ def _override_receiver(receiver: Any, overrides: Any) -> Any:
         if getattr(overrides, "model", None) is not None and "model" in updated_value:
             updated_value["model"] = _coerce_model_override(overrides.model)
         if "model_options" in updated_value:
-            updated_value["model_options"] = _merge_model_options(updated_value.get("model_options"), getattr(overrides, "model_options", None))
+            updated_value["model_options"] = _merge_model_options(
+                updated_value.get("model_options"), getattr(overrides, "model_options", None)
+            )
         return {"mode": "constructor_args", "value": updated_value}
     return receiver
 
@@ -134,7 +140,9 @@ def _override_conversation_arguments(result: dict[str, Any], overrides: Any) -> 
     if getattr(overrides, "model", None) is not None:
         result["model"] = _coerce_model_override(overrides.model)
     if "model_options" in result:
-        result["model_options"] = _merge_model_options(result.get("model_options"), getattr(overrides, "model_options", None))
+        result["model_options"] = _merge_model_options(
+            result.get("model_options"), getattr(overrides, "model_options", None)
+        )
     return result
 
 
@@ -188,14 +196,20 @@ def _apply_overrides(
 async def _copy_blob(blob_sha: str, *, source_db: DatabaseReader, sink_db: DatabaseWriter) -> None:
     blob = await source_db.get_blob(blob_sha)
     if blob is None:
-        raise FileNotFoundError(f"Replay could not copy blob {blob_sha[:12]}... into the sink database because it is missing from the source database.")
+        raise FileNotFoundError(
+            f"Replay could not copy blob {blob_sha[:12]}... into the sink database "
+            "because it is missing from the source database."
+        )
     await sink_db.save_blob(blob)
 
 
 async def _copy_document(document_sha: str, *, source_db: DatabaseReader, sink_db: DatabaseWriter) -> None:
     document = await source_db.get_document(document_sha)
     if document is None:
-        raise FileNotFoundError(f"Replay could not copy document {document_sha[:12]}... into the sink database because it is missing from the source database.")
+        raise FileNotFoundError(
+            f"Replay could not copy document {document_sha[:12]}... into the sink database "
+            "because it is missing from the source database."
+        )
     hydrated = await source_db.get_document_with_content(document_sha)
     if hydrated is None:
         raise FileNotFoundError(
@@ -237,8 +251,16 @@ async def _execute_span_internal(
     replay_target = _resolve_replay_target(span.kind, span.target, span_id=span.span_id)
 
     codec = UniversalCodec()
-    raw_receiver = _parse_json_field(span.receiver_json, field_name="receiver_json", span_id=span.span_id) if span.receiver_json else None
-    raw_input = _parse_json_field(span.input_json, field_name="input_json", span_id=span.span_id) if span.input_json else _MISSING
+    raw_receiver = (
+        _parse_json_field(span.receiver_json, field_name="receiver_json", span_id=span.span_id)
+        if span.receiver_json
+        else None
+    )
+    raw_input = (
+        _parse_json_field(span.input_json, field_name="input_json", span_id=span.span_id)
+        if span.input_json
+        else _MISSING
+    )
 
     await _copy_input_artifacts(
         input_document_shas=span.input_document_shas,
@@ -304,7 +326,9 @@ def _replace_llm_request_routing(decoded_input: Any, deployment_id: str) -> Any:
         llm_request = decoded_input.get("llm_request")
         if isinstance(llm_request, LLMRequest) and not llm_request.routing.force_deployment_id:
             decoded_input = dict(decoded_input)
-            decoded_input["llm_request"] = replace(llm_request, routing=replace(llm_request.routing, force_deployment_id=deployment_id))
+            decoded_input["llm_request"] = replace(
+                llm_request, routing=replace(llm_request.routing, force_deployment_id=deployment_id)
+            )
     return decoded_input
 
 

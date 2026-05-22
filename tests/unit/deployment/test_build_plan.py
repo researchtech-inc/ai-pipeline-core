@@ -79,7 +79,11 @@ class _PlanResult(DeploymentResult):
 class _FirstFlow(PipelineFlow):
     async def run(self, input_docs: tuple[_PlanInputDoc, ...], options: FlowOptions) -> tuple[_GateStateDoc, ...]:
         _ = options
-        return (_GateStateDoc.derive(derived_from=input_docs, name="state.json", content=_GateStateModel(should_run=True, status="ready")),)
+        return (
+            _GateStateDoc.derive(
+                derived_from=input_docs, name="state.json", content=_GateStateModel(should_run=True, status="ready")
+            ),
+        )
 
 
 class _SecondFlow(PipelineFlow):
@@ -91,7 +95,13 @@ class _SecondFlow(PipelineFlow):
 class _FalseLoopDecisionFlow(PipelineFlow):
     async def run(self, input_docs: tuple[_PlanInputDoc, ...], options: FlowOptions) -> tuple[_GateStateDoc, ...]:
         _ = options
-        return (_GateStateDoc.derive(derived_from=input_docs, name="loop-state.json", content=_GateStateModel(should_run=False, status="stop")),)
+        return (
+            _GateStateDoc.derive(
+                derived_from=input_docs,
+                name="loop-state.json",
+                content=_GateStateModel(should_run=False, status="stop"),
+            ),
+        )
 
 
 class _LoopBodyFlow(PipelineFlow):
@@ -122,7 +132,9 @@ class _ResolutionFlow(PipelineFlow):
 
 
 class _ProducesUnusedFlow(PipelineFlow):
-    async def run(self, input_docs: tuple[_PlanInputDoc, ...], options: FlowOptions) -> tuple[_UnusedIntermediateDoc, ...]:
+    async def run(
+        self, input_docs: tuple[_PlanInputDoc, ...], options: FlowOptions
+    ) -> tuple[_UnusedIntermediateDoc, ...]:
         _ = options
         return (_UnusedIntermediateDoc.derive(derived_from=input_docs, name="unused.txt", content="unused"),)
 

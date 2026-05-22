@@ -92,7 +92,9 @@ def render_index_markdown(
         for flow_span in trace.flow_spans
         if flow_span.span_id in selected_flow_ids
     )
-    failed_tasks = [task for task in trace.tasks.values() if task.span.status == "failed" and task.span.span_id in selected_task_ids]
+    failed_tasks = [
+        task for task in trace.tasks.values() if task.span.status == "failed" and task.span.span_id in selected_task_ids
+    ]
     lines = [
         f"# Run: {trace.root_span.deployment_name or trace.root_span.name}",
         "",
@@ -104,7 +106,14 @@ def render_index_markdown(
         f"- Tasks rendered: `{len(selected_task_ids)}`",
         f"- Documents loaded: `{len(trace.documents)}`",
         f"- Total cost: `${float(totals['cost_usd']):.4f}`",
-        f"- Tokens: `{int(totals['tokens_input']) + int(totals['tokens_output']) + int(totals['tokens_cache_read']) + int(totals['tokens_reasoning'])}`",
+        (
+            f"- Tokens: `{
+                int(totals['tokens_input'])
+                + int(totals['tokens_output'])
+                + int(totals['tokens_cache_read'])
+                + int(totals['tokens_reasoning'])
+            }`"
+        ),
         "",
         "## Failures",
         "",
@@ -116,9 +125,9 @@ def render_index_markdown(
         lines.extend(["| Flow | Task | Error | Link |", "| --- | --- | --- | --- |"])
         for task in failed_tasks:
             error_text = task.span.error_message or task.span.error_type or "failed"
-            lines.append(
-                f"| {display_flow_name(trace, task.parent_flow_span)} | {task.span.name} | {error_text} | [task]({task_file_map[task.span.span_id]}) |"
-            )
+            flow_name = display_flow_name(trace, task.parent_flow_span)
+            task_link = task_file_map[task.span.span_id]
+            lines.append(f"| {flow_name} | {task.span.name} | {error_text} | [task]({task_link}) |")
         lines.append("")
 
     lines.extend([
@@ -130,7 +139,9 @@ def render_index_markdown(
     for flow_span in trace.flow_spans:
         if flow_span.span_id not in selected_flow_ids:
             continue
-        task_count = sum(1 for task_id in trace.tasks_by_flow.get(flow_span.span_id, ()) if task_id in selected_task_ids)
+        task_count = sum(
+            1 for task_id in trace.tasks_by_flow.get(flow_span.span_id, ()) if task_id in selected_task_ids
+        )
         flow_dur = format_duration_seconds(duration_seconds(flow_span))
         fc = flow_cost(trace, flow_span.span_id, selected_task_ids)
         lines.append(
@@ -144,13 +155,20 @@ def render_index_markdown(
         "All canonical documents live in `docs/`. Task pages reference them by short filename only.",
     ])
     if collapsed_task_row_count > MAX_INDEX_TASK_ROWS:
-        lines.extend(["", "## Task Map", "", "Omitted here because the run is large. Use each `flow.md` file for the detailed task table."])
+        lines.extend([
+            "",
+            "## Task Map",
+            "",
+            "Omitted here because the run is large. Use each `flow.md` file for the detailed task table.",
+        ])
         return "\n".join(lines).strip() + "\n"
     lines.extend(["", "## Task Map", ""])
     for flow_span in trace.flow_spans:
         if flow_span.span_id not in selected_flow_ids:
             continue
-        lines.extend(_index_flow_task_table(trace, flow_span.span_id, selected_task_ids, task_file_map, batch_threshold))
+        lines.extend(
+            _index_flow_task_table(trace, flow_span.span_id, selected_task_ids, task_file_map, batch_threshold)
+        )
     return "\n".join(lines).strip() + "\n"
 
 
@@ -199,7 +217,17 @@ def render_task_markdown(
 ) -> str:
     """Render one task markdown file."""
     lines = [f"# Task: {task.span.name}", "", *_task_metadata_lines(trace, task)]
-    lines.extend(_task_body_lines(trace, task, provenance, task_file_map=task_file_map, flow_file_map=flow_file_map, config=config, include_related_files=True))
+    lines.extend(
+        _task_body_lines(
+            trace,
+            task,
+            provenance,
+            task_file_map=task_file_map,
+            flow_file_map=flow_file_map,
+            config=config,
+            include_related_files=True,
+        )
+    )
     return "\n".join(lines).strip() + "\n"
 
 
@@ -235,12 +263,19 @@ def render_batch_markdown(
     for instance_index, task in enumerate(tasks, start=1):
         lines.append(
             f"| {instance_index} | `{task.span.span_id}` | `{task.span.status}` | "
-            f"{format_duration_seconds(task.duration_seconds)} | ${task.descendant_cost_usd:.4f} | {task_token_summary(task)} |"
+            f"{format_duration_seconds(task.duration_seconds)} | "
+            f"${task.descendant_cost_usd:.4f} | {task_token_summary(task)} |"
         )
     lines.append("")
     lines.extend(
         _batch_task_section(
-            trace, tasks[0], provenance, task_file_map=task_file_map, flow_file_map=flow_file_map, config=config, heading="Representative Instance"
+            trace,
+            tasks[0],
+            provenance,
+            task_file_map=task_file_map,
+            flow_file_map=flow_file_map,
+            config=config,
+            heading="Representative Instance",
         )
     )
     for instance_index, task in enumerate(tasks[1:], start=2):
@@ -248,7 +283,13 @@ def render_batch_markdown(
             continue
         lines.extend(
             _batch_task_section(
-                trace, task, provenance, task_file_map=task_file_map, flow_file_map=flow_file_map, config=config, heading=f"Failed Instance {instance_index}"
+                trace,
+                task,
+                provenance,
+                task_file_map=task_file_map,
+                flow_file_map=flow_file_map,
+                config=config,
+                heading=f"Failed Instance {instance_index}",
             )
         )
     return "\n".join(lines).strip() + "\n"
@@ -283,8 +324,16 @@ def render_comparison_markdown(
     config: RenderConfig,
 ) -> str:
     """Render one task comparison markdown file."""
-    left_documents = {left_trace.documents[sha].output_filename for sha in left_task.input_document_shas if sha in left_trace.documents}
-    right_documents = {right_trace.documents[sha].output_filename for sha in right_task.input_document_shas if sha in right_trace.documents}
+    left_documents = {
+        left_trace.documents[sha].output_filename
+        for sha in left_task.input_document_shas
+        if sha in left_trace.documents
+    }
+    right_documents = {
+        right_trace.documents[sha].output_filename
+        for sha in right_task.input_document_shas
+        if sha in right_trace.documents
+    }
     left_transcript = _comparison_transcript(left_task, left_trace, config)
     right_transcript = _comparison_transcript(right_task, right_trace, config)
     lines = [
@@ -369,12 +418,22 @@ def _batch_task_section(
 ) -> list[str]:
     lines = [f"## {heading}", "", *_task_metadata_lines(trace, task)]
     lines.extend(
-        _task_body_lines(trace, task, provenance, task_file_map=task_file_map, flow_file_map=flow_file_map, config=config, include_related_files=False)
+        _task_body_lines(
+            trace,
+            task,
+            provenance,
+            task_file_map=task_file_map,
+            flow_file_map=flow_file_map,
+            config=config,
+            include_related_files=False,
+        )
     )
     return lines
 
 
-def _task_documents(trace: LoadedTrace, task: LoadedTask, config: RenderConfig) -> tuple[list[LoadedDocument], list[LoadedDocument], int, int]:
+def _task_documents(
+    trace: LoadedTrace, task: LoadedTask, config: RenderConfig
+) -> tuple[list[LoadedDocument], list[LoadedDocument], int, int]:
     from trace_inspector._truncation import truncation_profile_for_task
 
     input_documents = [trace.documents[sha] for sha in task.input_document_shas if sha in trace.documents]
@@ -397,7 +456,9 @@ def _task_information_flow(
         for document in input_documents:
             produced_by = provenance.get(document.record.document_sha256)
             label = produced_by.produced_by_label if produced_by is not None else "unknown"
-            lines.append(f"| {doc_link(document)} | {document.record.document_type} | {document.record.size_bytes} | {label} |")
+            lines.append(
+                f"| {doc_link(document)} | {document.record.document_type} | {document.record.size_bytes} | {label} |"
+            )
         lines.append("")
     lines.extend(["### Outputs", ""])
     if not output_documents:
@@ -406,8 +467,15 @@ def _task_information_flow(
         lines.extend(["| Document | Type | Size | Consumed By |", "| --- | --- | ---: | --- |"])
         for document in output_documents:
             entry = provenance.get(document.record.document_sha256)
-            consumed_by = format_label_summary(entry.consumed_by_labels) if entry is not None and entry.consumed_by_labels else "not consumed in-run"
-            lines.append(f"| {doc_link(document)} | {document.record.document_type} | {document.record.size_bytes} | {consumed_by} |")
+            consumed_by = (
+                format_label_summary(entry.consumed_by_labels)
+                if entry is not None and entry.consumed_by_labels
+                else "not consumed in-run"
+            )
+            lines.append(
+                f"| {doc_link(document)} | {document.record.document_type} | "
+                f"{document.record.size_bytes} | {consumed_by} |"
+            )
         lines.append("")
     return lines
 
@@ -424,12 +492,20 @@ def _task_source_documents(
         return [*lines, "No source documents.", ""]
     for document in input_documents:
         lines.extend(
-            render_task_document_block(document, provenance.get(document.record.document_sha256), head_chars=head_chars, tail_chars=tail_chars, config=config)
+            render_task_document_block(
+                document,
+                provenance.get(document.record.document_sha256),
+                head_chars=head_chars,
+                tail_chars=tail_chars,
+                config=config,
+            )
         )
     return lines
 
 
-def _task_conversations(task: LoadedTask, documents_by_short_id: dict[str, LoadedDocument], config: RenderConfig) -> list[str]:
+def _task_conversations(
+    task: LoadedTask, documents_by_short_id: dict[str, LoadedDocument], config: RenderConfig
+) -> list[str]:
     lines = ["## Conversations", ""]
     if not task.conversation_spans:
         return [*lines, "No recorded conversations.", ""]
@@ -449,11 +525,13 @@ def _task_subtasks(trace: LoadedTrace, task: LoadedTask, task_file_map: dict[UUI
     lines = ["## Sub-Tasks", ""]
     child_task_groups = _group_linked_subtasks(trace, task.child_task_ids, task_file_map)
     for child_task_ids in child_task_groups:
-        child_task = trace.tasks[child_task_ids[0]]
+        first_child_id = child_task_ids[0]
+        child_task = trace.tasks[first_child_id]
         label = child_task.span.name
         if len(child_task_ids) > 1:
             label = f"{label} (x{len(child_task_ids)})"
-        lines.append(f"- [{label}]({relative_link(task_file_map[task.span.span_id], task_file_map[child_task_ids[0]])})")  # pyright: ignore[reportGeneralTypeIssues] — groups are non-empty by construction
+        link = relative_link(task_file_map[task.span.span_id], task_file_map[first_child_id])
+        lines.append(f"- [{label}]({link})")
     lines.append("")
     return lines
 
@@ -470,7 +548,13 @@ def _task_output_documents(
         return [*lines, "No output documents.", ""]
     for document in output_documents:
         lines.extend(
-            render_task_document_block(document, provenance.get(document.record.document_sha256), head_chars=head_chars, tail_chars=tail_chars, config=config)
+            render_task_document_block(
+                document,
+                provenance.get(document.record.document_sha256),
+                head_chars=head_chars,
+                tail_chars=tail_chars,
+                config=config,
+            )
         )
     return lines
 
@@ -478,7 +562,14 @@ def _task_output_documents(
 def _task_diagnosis(task: LoadedTask) -> list[str]:
     if task.span.status != "failed":
         return []
-    return ["## Diagnosis", "", task.span.error_message or task.span.error_type or "Task failed without an error message in the stored span record.", ""]
+    return [
+        "## Diagnosis",
+        "",
+        task.span.error_message
+        or task.span.error_type
+        or "Task failed without an error message in the stored span record.",
+        "",
+    ]
 
 
 def _task_related_files(
@@ -491,7 +582,9 @@ def _task_related_files(
     related_paths: list[str] = []
     if task.parent_task_id is not None and task.parent_task_id in task_file_map:
         parent_path = task_file_map[task.parent_task_id]
-        related_paths.append(f"- Parent task: [{trace.tasks[task.parent_task_id].span.name}]({relative_link(current_task_path, parent_path)})")
+        parent_name = trace.tasks[task.parent_task_id].span.name
+        parent_link = relative_link(current_task_path, parent_path)
+        related_paths.append(f"- Parent task: [{parent_name}]({parent_link})")
     sibling_lines = _sibling_navigation_lines(trace, task, task_file_map)
     return [
         "## Related Files",
@@ -541,7 +634,12 @@ def _document_content_lines(document: LoadedDocument) -> list[str]:
     if document.text_content is not None:
         lines.extend([f"```{fence_language(document.record.name)}", document.text_content, "```", ""])
         return lines
-    lines.extend([binary_notice(name=document.record.name, mime_type=document.record.mime_type, size_bytes=document.record.size_bytes), ""])
+    lines.extend([
+        binary_notice(
+            name=document.record.name, mime_type=document.record.mime_type, size_bytes=document.record.size_bytes
+        ),
+        "",
+    ])
     return lines
 
 
@@ -552,7 +650,10 @@ def _document_attachment_lines(document: LoadedDocument, config: RenderConfig) -
         if attachment.text_content is None:
             lines.append(
                 binary_notice(
-                    name=attachment.name, mime_type=attachment.mime_type, size_bytes=attachment.size_bytes, filename=f"{document.output_filename} attachments"
+                    name=attachment.name,
+                    mime_type=attachment.mime_type,
+                    size_bytes=attachment.size_bytes,
+                    filename=f"{document.output_filename} attachments",
                 )
             )
             lines.append("")
@@ -570,7 +671,9 @@ def _document_attachment_lines(document: LoadedDocument, config: RenderConfig) -
     return lines
 
 
-def _group_linked_subtasks(trace: LoadedTrace, child_task_ids: tuple[UUID, ...], task_file_map: dict[UUID, str]) -> list[tuple[UUID, ...]]:
+def _group_linked_subtasks(
+    trace: LoadedTrace, child_task_ids: tuple[UUID, ...], task_file_map: dict[UUID, str]
+) -> list[tuple[UUID, ...]]:
     groups: list[tuple[UUID, ...]] = []
     index = 0
     while index < len(child_task_ids):
@@ -599,7 +702,12 @@ def _index_flow_task_table(
     batch_threshold: int,
 ) -> list[str]:
     flow_span = trace.spans_by_id[flow_id]
-    lines = [f"### {display_flow_name(trace, flow_span)}", "", "| # | Task | Status | Duration | Cost | Link |", "| ---: | --- | --- | --- | ---: | --- |"]
+    lines = [
+        f"### {display_flow_name(trace, flow_span)}",
+        "",
+        "| # | Task | Status | Duration | Cost | Link |",
+        "| ---: | --- | --- | --- | ---: | --- |",
+    ]
     for row_index, depth, task_ids in _flow_task_rows(trace, flow_id, selected_task_ids, batch_threshold):
         label = task_row_label(trace, task_ids, depth)
         lines.append(
@@ -611,7 +719,9 @@ def _index_flow_task_table(
     return lines
 
 
-def _flow_task_rows(trace: LoadedTrace, flow_id: UUID, selected_task_ids: set[UUID], batch_threshold: int) -> list[FlowTaskRow]:
+def _flow_task_rows(
+    trace: LoadedTrace, flow_id: UUID, selected_task_ids: set[UUID], batch_threshold: int
+) -> list[FlowTaskRow]:
     rows: list[FlowTaskRow] = []
     _append_task_rows(
         trace=trace,
@@ -636,12 +746,16 @@ def _append_task_rows(
     depth: int,
 ) -> int:
     next_index = row_index
-    for _, grouped_task_ids in build_batch_groups(trace, task_ids, selected_task_ids=selected_task_ids, batch_threshold=batch_threshold):
+    for _, grouped_task_ids in build_batch_groups(
+        trace, task_ids, selected_task_ids=selected_task_ids, batch_threshold=batch_threshold
+    ):
         rows.append((next_index, depth, grouped_task_ids))
         next_index += 1
         if len(grouped_task_ids) != 1:
             continue
-        child_task_ids = tuple(child_id for child_id in trace.tasks[grouped_task_ids[0]].child_task_ids if child_id in selected_task_ids)
+        child_task_ids = tuple(
+            child_id for child_id in trace.tasks[grouped_task_ids[0]].child_task_ids if child_id in selected_task_ids
+        )
         if not child_task_ids:
             continue
         next_index = _append_task_rows(
@@ -667,16 +781,24 @@ def _sibling_navigation_lines(trace: LoadedTrace, task: LoadedTask, task_file_ma
         previous_task_id = sibling_task_ids[current_index - 1]
         previous_path = task_file_map[previous_task_id]
         if previous_path != current_task_path:
-            lines.append(f"- Previous task: [{trace.tasks[previous_task_id].span.name}]({relative_link(current_task_path, previous_path)})")
+            previous_name = trace.tasks[previous_task_id].span.name
+            previous_link = relative_link(current_task_path, previous_path)
+            lines.append(f"- Previous task: [{previous_name}]({previous_link})")
     if current_index < len(sibling_task_ids) - 1:
         next_task_id = sibling_task_ids[current_index + 1]
         next_path = task_file_map[next_task_id]
         if next_path != current_task_path:
-            lines.append(f"- Next task: [{trace.tasks[next_task_id].span.name}]({relative_link(current_task_path, next_path)})")
+            next_name = trace.tasks[next_task_id].span.name
+            next_link = relative_link(current_task_path, next_path)
+            lines.append(f"- Next task: [{next_name}]({next_link})")
     return lines
 
 
 def _sibling_task_ids(trace: LoadedTrace, task: LoadedTask) -> list[UUID]:
     if task.parent_task_id is not None and task.parent_task_id in trace.tasks:
         return list(trace.tasks[task.parent_task_id].child_task_ids)
-    return [candidate_id for candidate_id in trace.tasks_by_flow.get(task.parent_flow_span.span_id, ()) if trace.tasks[candidate_id].parent_task_id is None]
+    return [
+        candidate_id
+        for candidate_id in trace.tasks_by_flow.get(task.parent_flow_span.span_id, ())
+        if trace.tasks[candidate_id].parent_task_id is None
+    ]

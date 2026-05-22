@@ -397,11 +397,16 @@ class TestTailWindow:
     @staticmethod
     def _diverse_text(length: int) -> str:
         """Generate diverse non-repeating text of approximately the given length."""
+        period_words = ["quarterly", "annual", "interim", "special"]
+        month_words = ["January", "March", "June", "September", "November"]
+        metric_words = ["revenue", "growth", "margin", "cost"]
         lines = [
-            f"In paragraph {i}, we examine finding #{i * 7 + 3} from the {['quarterly', 'annual', 'interim', 'special'][i % 4]} "
-            f"report dated {['January', 'March', 'June', 'September', 'November'][i % 5]} {2020 + (i % 6)}. "
-            f"The data shows a {i * 2.3:.1f}% variance from the projected {['revenue', 'growth', 'margin', 'cost'][i % 4]} target, "
-            f"which {'exceeds' if i % 3 == 0 else 'falls below'} the threshold set by the board in resolution #{1000 + i}.\n"
+            f"In paragraph {i}, we examine finding #{i * 7 + 3} from the "
+            f"{period_words[i % 4]} report dated {month_words[i % 5]} "
+            f"{2020 + (i % 6)}. The data shows a {i * 2.3:.1f}% variance "
+            f"from the projected {metric_words[i % 4]} target, "
+            f"which {'exceeds' if i % 3 == 0 else 'falls below'} the threshold "
+            f"set by the board in resolution #{1000 + i}.\n"
             for i in range(length // 200 + 5)
         ]
         return "".join(lines)[:length]

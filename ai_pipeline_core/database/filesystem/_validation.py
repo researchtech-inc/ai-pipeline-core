@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ai_pipeline_core.database.filesystem._backend import BLOBS_DIRNAME, DOCUMENTS_DIRNAME, LOGS_FILENAME, RUNS_DIRNAME, FilesystemDatabase
+from ai_pipeline_core.database.filesystem._backend import (
+    BLOBS_DIRNAME,
+    DOCUMENTS_DIRNAME,
+    LOGS_FILENAME,
+    RUNS_DIRNAME,
+    FilesystemDatabase,
+)
 
 __all__ = ["validate_bundle"]
 
@@ -39,12 +45,18 @@ def validate_bundle(bundle_path: Path) -> dict[str, Any]:
 
     missing_documents = sorted(referenced_document_shas - set(snapshot.loaded_documents))
     if missing_documents:
-        raise ValueError("Snapshot validation failed because some referenced documents are missing from documents/: " + ", ".join(missing_documents))
+        raise ValueError(
+            "Snapshot validation failed because some referenced documents are missing from documents/: "
+            + ", ".join(missing_documents)
+        )
 
     stored_blob_shas = {path.name for path in (bundle_path / BLOBS_DIRNAME).iterdir() if path.is_file()}
     missing_content_blobs = sorted(referenced_blob_shas - stored_blob_shas)
     if missing_content_blobs:
-        raise ValueError("Snapshot validation failed because some referenced blobs are missing from blobs/: " + ", ".join(missing_content_blobs))
+        raise ValueError(
+            "Snapshot validation failed because some referenced blobs are missing from blobs/: "
+            + ", ".join(missing_content_blobs)
+        )
 
     return {
         "valid": True,
@@ -67,7 +79,10 @@ def _require_path(path: Path, *, is_dir: bool, label: str) -> None:
             "Recreate the bundle so the snapshot layout matches runs/, documents/, and blobs/ directories."
         )
     if not is_dir and not path.is_file():
-        raise ValueError(f"Snapshot validation expected {label} at {path} to be a file. Recreate the bundle so logs.jsonl is written before publication.")
+        raise ValueError(
+            f"Snapshot validation expected {label} at {path} to be a file. "
+            "Recreate the bundle so logs.jsonl is written before publication."
+        )
 
 
 def _count_log_lines(logs_path: Path) -> int:
@@ -85,7 +100,8 @@ def _count_log_lines(logs_path: Path) -> int:
                 ) from exc
             if not isinstance(parsed, dict):
                 raise TypeError(
-                    f"Snapshot validation expected each logs.jsonl line to be a JSON object, got {type(parsed).__name__} on line {line_number}. "
+                    f"Snapshot validation expected each logs.jsonl line to be a JSON object, "
+                    f"got {type(parsed).__name__} on line {line_number}. "
                     "Rewrite the snapshot log file as JSON Lines with one object per line."
                 )
             count += 1

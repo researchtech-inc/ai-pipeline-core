@@ -72,12 +72,16 @@ async def test_forced_final_failure_preserves_tool_records(monkeypatch) -> None:
         _ = (request, messages, round_index, runtime)
         round_count += 1
         if round_count == 1:
-            return make_response(content="", tool_calls=(make_tool_call("c1", "search_tool", '{"query": "deep research"}'),))
+            return make_response(
+                content="", tool_calls=(make_tool_call("c1", "search_tool", '{"query": "deep research"}'),)
+            )
         raise LLMError("Empty response content")
 
     monkeypatch.setattr(_engine, "_single_call", fake_single_call)
 
-    response, records, accumulated, _rounds = await _tool_loop(_request(max_rounds=1), [CoreMessage(role=Role.USER, content="research")])
+    response, records, accumulated, _rounds = await _tool_loop(
+        _request(max_rounds=1), [CoreMessage(role=Role.USER, content="research")]
+    )
 
     assert len(records) == 1
     assert records[0].tool is SearchTool
@@ -94,12 +98,16 @@ async def test_forced_final_failure_preserves_accumulated_messages(monkeypatch) 
         _ = (request, messages, round_index, runtime)
         round_count += 1
         if round_count <= 2:
-            return make_response(content="", tool_calls=(make_tool_call(f"c{round_count}", "search_tool", '{"query": "q"}'),))
+            return make_response(
+                content="", tool_calls=(make_tool_call(f"c{round_count}", "search_tool", '{"query": "q"}'),)
+            )
         raise LLMError("Forced final failed")
 
     monkeypatch.setattr(_engine, "_single_call", fake_single_call)
 
-    _response, records, accumulated, _rounds = await _tool_loop(_request(max_rounds=2), [CoreMessage(role=Role.USER, content="multi-round")])
+    _response, records, accumulated, _rounds = await _tool_loop(
+        _request(max_rounds=2), [CoreMessage(role=Role.USER, content="multi-round")]
+    )
 
     assert len(records) == 2
     assert sum(1 for item in accumulated if isinstance(item, ToolResultMessage)) == 2
@@ -140,7 +148,9 @@ async def test_forced_final_has_steering_user_message(monkeypatch) -> None:
 
     monkeypatch.setattr(_engine, "_single_call", fake_single_call)
 
-    _response, _records, accumulated, _rounds = await _tool_loop(_request(max_rounds=1), [CoreMessage(role=Role.USER, content="search for test")])
+    _response, _records, accumulated, _rounds = await _tool_loop(
+        _request(max_rounds=1), [CoreMessage(role=Role.USER, content="search for test")]
+    )
 
     forced_final_messages = recorded_messages[-1]
     assert forced_final_messages[-1].role == Role.USER
@@ -166,7 +176,9 @@ async def test_unknown_tool_counter_resets_on_valid_call(monkeypatch) -> None:
 
     monkeypatch.setattr(_engine, "_single_call", fake_single_call)
 
-    response, records, _accumulated, _rounds = await _tool_loop(_request(max_rounds=10), [CoreMessage(role=Role.USER, content="test")])
+    response, records, _accumulated, _rounds = await _tool_loop(
+        _request(max_rounds=10), [CoreMessage(role=Role.USER, content="test")]
+    )
 
     assert round_count == 6
     assert len(records) == 1

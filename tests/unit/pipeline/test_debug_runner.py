@@ -28,7 +28,10 @@ class _SimpleTask(PipelineTask):
 
     @classmethod
     async def run(cls, input_docs: tuple[_DebugInputDoc, ...]) -> tuple[_DebugOutputDoc, ...]:
-        return tuple(_DebugOutputDoc.derive(name=f"out-{i}.md", content="result", derived_from=(doc,)) for i, doc in enumerate(input_docs))
+        return tuple(
+            _DebugOutputDoc.derive(name=f"out-{i}.md", content="result", derived_from=(doc,))
+            for i, doc in enumerate(input_docs)
+        )
 
 
 class _FailingTask(PipelineTask):
@@ -79,7 +82,9 @@ class TestRunTaskDebug:
 
     @pytest.mark.asyncio
     async def test_custom_run_id(self, tmp_path) -> None:
-        result = await run_task_debug(_SimpleTask, (_make_input(),), output_dir=tmp_path / "debug", run_id="my-test-run")
+        result = await run_task_debug(
+            _SimpleTask, (_make_input(),), output_dir=tmp_path / "debug", run_id="my-test-run"
+        )
         assert result.run_id == "my-test-run"
 
     @pytest.mark.asyncio

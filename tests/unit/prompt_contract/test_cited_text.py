@@ -39,7 +39,9 @@ class TestDocumentCitation:
         assert issubclass(DocumentCitation, FrozenBaseModel)
 
     def test_json_round_trip(self) -> None:
-        citation = DocumentCitation(document_id="ev-001", url="https://x.com", title="t", start_index=1, end_index=5, field="body")
+        citation = DocumentCitation(
+            document_id="ev-001", url="https://x.com", title="t", start_index=1, end_index=5, field="body"
+        )
         restored = DocumentCitation.model_validate_json(citation.model_dump_json())
         assert restored == citation
 

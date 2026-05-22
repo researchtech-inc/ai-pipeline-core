@@ -146,7 +146,11 @@ PREFECT_API_URL=http://localhost:4200
         """DOC_SUMMARY_MODEL accepts a model name from environment configuration."""
         with patch.dict(
             os.environ,
-            {"OPENAI_BASE_URL": "http://localhost:4000", "OPENAI_API_KEY": "test-key", "DOC_SUMMARY_MODEL": DEFAULT_TEST_MODEL.name},
+            {
+                "OPENAI_BASE_URL": "http://localhost:4000",
+                "OPENAI_API_KEY": "test-key",
+                "DOC_SUMMARY_MODEL": DEFAULT_TEST_MODEL.name,
+            },
             clear=True,
         ):
             s = Settings(_env_file=None)
@@ -168,7 +172,9 @@ PREFECT_API_URL=http://localhost:4200
 
     def test_doc_summary_disable_checks_credentials_and_model_after_validation(self) -> None:
         """Summary disabling uses final settings values rather than field order."""
-        s = Settings(openai_base_url="", openai_api_key="test-key", doc_summary_model=DEFAULT_TEST_MODEL, _env_file=None)
+        s = Settings(
+            openai_base_url="", openai_api_key="test-key", doc_summary_model=DEFAULT_TEST_MODEL, _env_file=None
+        )
 
         assert s.doc_summary_model == DEFAULT_TEST_MODEL
         assert s.doc_summary_enabled is False
