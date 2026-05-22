@@ -71,8 +71,6 @@ class Settings(BaseSettings):
     pubsub_project_id: str = ""
     pubsub_topic_id: str = ""
 
-    # Laminar tracing (set LMNR_PROJECT_API_KEY to enable)
-    lmnr_project_api_key: str = ""
     sentry_dsn: str = ""
     log_format: str = "text"
     orphan_reap_require_prefect_client: bool = True

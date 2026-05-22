@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from ai_pipeline_core.database._protocol import DatabaseWriter
-from ai_pipeline_core.observability._laminar_sink import LaminarSpanSink
 from ai_pipeline_core.observability._sentry_init import ensure_sentry_initialized
 from ai_pipeline_core.observability._sentry_sink import SentrySpanSink
 from ai_pipeline_core.pipeline._log_sink import DatabaseLogSink
@@ -36,6 +35,4 @@ def build_runtime_sinks(
     if database is not None:
         span_sinks.insert(0, DatabaseSpanSink(database))
         log_sinks.insert(0, DatabaseLogSink(database))
-    if settings_obj.lmnr_project_api_key:
-        span_sinks.append(LaminarSpanSink(settings_obj))
     return RuntimeSinks(span_sinks=tuple(span_sinks), log_sinks=tuple(log_sinks))

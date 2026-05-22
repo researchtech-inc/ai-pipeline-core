@@ -116,14 +116,14 @@ This was the best evidence that adding `PromptSpec[list[T]]` or `Document[list[T
 
 ## 2.3 Observability and tracing bugs
 
-### Laminar spans did not show failures correctly
+### Trace spans did not show failures correctly
 Initial assumption:
 - The problem was logger severity.
 
 Actual root problem:
 - The framework did not set OpenTelemetry error status on spans.
 - Exceptions were not being recorded to the span.
-- The Laminar backend also ignored status in some paths, so even correctly-set status could be dropped.
+- The external trace backend also ignored status in some paths, so even correctly-set status could be dropped.
 
 This produced an important lesson:
 - “The UI does not show an error” may be a cross-system propagation bug, not a logging bug.

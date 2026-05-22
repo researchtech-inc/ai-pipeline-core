@@ -26,7 +26,6 @@ __all__ = [
     "_build_attachment_content",
     "_build_attachment_parts",
     "_core_messages_to_db_span_input",
-    "_core_messages_to_span_input",
     "_document_to_content_parts",
     "_document_to_xml_header",
     "_escape_xml_content",
@@ -227,27 +226,6 @@ def _normalize_content(content: ConversationContent) -> tuple[Document | UserMes
     if isinstance(content, Document):
         return (content,)
     return tuple(content)
-
-
-def _core_messages_to_span_input(messages: list[CoreMessage]) -> list[dict[str, Any]]:
-    """Convert CoreMessages to Laminar-compatible input, replacing binary parts with placeholders."""
-    result: list[dict[str, Any]] = []
-    for message in messages:
-        role = message.role.value
-        if isinstance(message.content, str):
-            result.append({"role": role, "content": message.content})
-            continue
-        if isinstance(message.content, tuple):
-            parts: list[dict[str, str]] = []
-            for part in message.content:
-                if isinstance(part, TextContent):
-                    parts.append({"type": "text", "text": part.text})
-                elif isinstance(part, ImageContent):
-                    parts.append({"type": "text", "text": "[image]"})
-                elif isinstance(part, PDFContent):
-                    parts.append({"type": "text", "text": "[pdf]"})
-            result.append({"role": role, "content": parts})
-    return result
 
 
 def _core_messages_to_db_span_input(messages: list[CoreMessage]) -> list[dict[str, Any]]:

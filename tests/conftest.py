@@ -1,11 +1,7 @@
 """Common test fixtures for pipeline projects."""
 
-import os
-
-# Disable Laminar before any ai_pipeline_core imports — prevents Settings from picking up the key
-os.environ.pop("LMNR_PROJECT_API_KEY", None)
-
 import logging
+import os
 import shutil
 import subprocess
 import warnings
@@ -100,20 +96,6 @@ def disable_doc_summary_generation():
         yield
     finally:
         object.__setattr__(settings, "doc_summary_enabled", True)  # noqa: PLC2801 — frozen Pydantic model
-
-
-@pytest.fixture(autouse=True, scope="session")
-def disable_laminar_tracing():
-    """Disable Laminar tracing in tests — prevents SDK initialization and network calls."""
-    from ai_pipeline_core.observability._laminar_sink import _reset_for_testing
-    from ai_pipeline_core.settings import settings
-
-    _reset_for_testing()
-    original = settings.lmnr_project_api_key
-    object.__setattr__(settings, "lmnr_project_api_key", "")  # noqa: PLC2801 — frozen Pydantic model
-    yield
-    object.__setattr__(settings, "lmnr_project_api_key", original)  # noqa: PLC2801 — frozen Pydantic model
-    _reset_for_testing()
 
 
 @pytest.fixture(autouse=True, scope="session")

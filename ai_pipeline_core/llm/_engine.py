@@ -30,7 +30,6 @@ from ai_pipeline_core.llm._conversation_messages import (
     AnyMessage,
     ToolResultMessage,
     _core_messages_to_db_span_input,
-    _core_messages_to_span_input,
     _response_format_path,
     _serialize_response_tool_calls,
 )
@@ -336,7 +335,6 @@ async def _single_call(
         sinks=get_sinks(),
         encode_input={"llm_request": llm_request, "round_index": round_index + 1},
         db=execution_ctx.database if execution_ctx is not None else None,
-        input_preview=_core_messages_to_span_input(list(messages)),
     ) as span_ctx:
         response = await generate(llm_request)
         _record_round_meta(span_ctx, response, llm_request)

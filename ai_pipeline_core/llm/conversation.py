@@ -26,7 +26,6 @@ from ._conversation_messages import (
     ConversationContent,
     ToolResultMessage,
     UserMessage,
-    _core_messages_to_span_input,
     _normalize_content,
     _prompt_parts,
     _response_format_path,
@@ -404,7 +403,6 @@ class Conversation(BaseModel, Generic[T]):
             encode_receiver={"mode": "decoded_state", "value": self},
             encode_input=span_input,
             db=execution_ctx.database if execution_ctx is not None else None,
-            input_preview=_core_messages_to_span_input(list(core_messages)),
         ) as span_ctx:
             result = await execute_interaction(request)
             response = result.response

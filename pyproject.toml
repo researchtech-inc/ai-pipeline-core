@@ -1,6 +1,6 @@
 [project]
 name = "ai-pipeline-core"
-version = "0.23.0"
+version = "0.23.1"
 description = "Core utilities for AI-powered processing pipelines using prefect"
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,7 +32,6 @@ dependencies = [
     "ruamel.yaml>=0.19.1",
     "sentry-sdk>=2.0",
     "tiktoken>=0.12.0",
-    "lmnr>=0.7.0",
     "clickhouse-connect>=0.14.1",
     "prefect-gcp>=0.6.15",
     "google-cloud-pubsub>=2.0",

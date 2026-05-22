@@ -17,7 +17,6 @@ from ai_pipeline_core.documents import Document
 from ai_pipeline_core.llm._conversation_messages import (
     UserMessage,
     _core_messages_to_db_span_input,
-    _core_messages_to_span_input,
     _response_format_path,
     _serialize_response_tool_calls,
 )
@@ -311,7 +310,6 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
             encode_receiver=receiver_payload,
             encode_input=span_input,
             db=execution_ctx.database if execution_ctx is not None else None,
-            input_preview=_core_messages_to_span_input(list(core_messages)),
         ) as span_ctx:
             result: EngineResult = await execute_interaction(request)
             response = result.response

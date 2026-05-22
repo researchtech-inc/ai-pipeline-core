@@ -79,10 +79,10 @@ dev = [
 ]
 ```
 
-To pin to a specific version, append `@v0.23.0` (or a commit hash) before `#subdirectory`:
+To pin to a specific version, append `@v0.23.1` (or a commit hash) before `#subdirectory`:
 
 ```toml
-    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.23.0#subdirectory=tools/dev-cli"
+    "dev-cli @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.23.1#subdirectory=tools/dev-cli"
 ```
 
 This installs two additional CLI commands:
@@ -1385,9 +1385,6 @@ CONVERSATION_RETRIES=2
 CONVERSATION_RETRY_DELAY_SECONDS=30
 CONVERSATION_RETRY_BACKOFF_MULTIPLIER=3
 CONVERSATION_RETRY_MAX_DELAY_SECONDS=300
-
-# Optional: Laminar Tracing
-LMNR_PROJECT_API_KEY=your-laminar-key
 
 # Optional: Document Summaries (store-level, LLM-generated)
 DOC_SUMMARY_ENABLED=true
