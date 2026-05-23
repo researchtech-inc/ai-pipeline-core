@@ -246,7 +246,8 @@ class StreamSession:
         self._ticker: asyncio.Task[None] | None = None
 
     async def __aenter__(self) -> StreamSession:
-        """Start the background watchdog ticker."""
+        """Anchor the watchdog clock and start the background ticker."""
+        self.watchdog.start()
         if self.watchdog.enabled:
             self._ticker = asyncio.create_task(self._tick_loop())
         return self

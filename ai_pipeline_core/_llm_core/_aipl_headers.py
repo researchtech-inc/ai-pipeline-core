@@ -41,6 +41,8 @@ class AIPLResponseHeaders:
     cost_optimized_skipped: bool = False
     cc_dedup: str | None = None
     cc_stale: bool = False
+    failure_class: str | None = None
+    workload_kind: str | None = None
     litellm_call_id: str | None = None
     litellm_attempted_retries: int | None = None
     litellm_attempted_fallbacks: int | None = None
@@ -78,6 +80,8 @@ class AIPLResponseHeaders:
             ),
             cc_dedup=lower.get("x-aipl-cc-dedup"),
             cc_stale=_parse_bool_flag(lower.get("x-aipl-cc-stale"), "x-aipl-cc-stale"),
+            failure_class=lower.get("x-aipl-failure-class"),
+            workload_kind=lower.get("x-aipl-workload-kind"),
             litellm_call_id=lower.get("x-litellm-call-id"),
             litellm_attempted_retries=_parse_int(
                 lower.get("x-litellm-attempted-retries"), "x-litellm-attempted-retries"

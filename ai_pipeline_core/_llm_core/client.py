@@ -2,7 +2,6 @@
 
 import asyncio
 import re
-from collections.abc import Mapping
 from dataclasses import replace
 from secrets import SystemRandom
 from typing import Any, overload
@@ -17,7 +16,7 @@ from ._response_builder import _build_model_response
 from ._routing import _CallContext
 from ._stream import StreamSession
 from ._strict_schema import schema_for_list, schema_for_model
-from ._watchdog import DEFAULT_MIN_TPS_FALLBACK, StreamWatchdog
+from ._watchdog import StreamWatchdog
 from .exceptions import (
     ContentPolicyError,
     EmptyResponseError,
@@ -182,7 +181,7 @@ async def _execute_attempt(req: AttemptRequest) -> AttemptOutcome:
             raise
         await _aipl.maybe_fetch_trace(exc, call_id=req.call_id)
         if _is_signature_replay_error(exc):
-            headers = _headers_from_exception(exc)
+            headers = _aipl.headers_from_exception(exc)
             deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
             replay_exc = ProviderReasoningReplayError(
                 f"Upstream rejected replayed thought_signature for model={req.model.name}: {exc}",
@@ -190,6 +189,20 @@ async def _execute_attempt(req: AttemptRequest) -> AttemptOutcome:
                 deployment_id=deployment_id,
             )
             return AttemptOutcome(error=replay_exc, headers=headers, failed_deployment_id=deployment_id)
+        # The AIPL proxy can stamp ``x-aipl-failure-class`` on a 400 to mark it
+        # as terminal for the current model (context_limit / capability_mismatch
+        # / refusal) without making it terminal for the whole call. Honor that
+        # by advancing the AIModel chain instead of raising TerminalError.
+        headers = _aipl.headers_from_exception(exc)
+        action = _aipl.route(_aipl.classify(exc, headers=headers))
+        if action.terminal_for_model or (headers is not None and _aipl.is_group_exhausted(headers)):
+            deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
+            return AttemptOutcome(
+                error=exc,
+                headers=headers,
+                failed_deployment_id=deployment_id,
+                advance_to_fallback=True,
+            )
         raise TerminalError(f"Terminal LLM provider error for model={req.model.name}: {exc}") from exc
     except _TRANSPORT_FAILURES + _SEMANTIC_FAILURES as exc:
         await _aipl.maybe_fetch_trace(exc, call_id=req.call_id)
@@ -369,12 +382,11 @@ def _response_format(spec: ResponseSpec) -> dict[str, Any]:
 def _make_watchdog(req: AttemptRequest) -> StreamWatchdog:
     if req.call.debug.disable_watchdog:
         return StreamWatchdog(enabled=False)
-    floor = req.call.retry.min_output_tps or req.model.min_output_tps or DEFAULT_MIN_TPS_FALLBACK
-    return StreamWatchdog(min_output_tps=floor, deployment_id=req.call.routing.force_deployment_id)
+    return StreamWatchdog(deployment_id=req.call.routing.force_deployment_id)
 
 
 def _classify_failure(exc: BaseException) -> AttemptOutcome:
-    headers = _headers_from_exception(exc)
+    headers = _aipl.headers_from_exception(exc)
     failure_class = _aipl.classify(exc, headers=headers)
     action = _aipl.route(failure_class)
     deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
@@ -385,7 +397,7 @@ def _classify_failure(exc: BaseException) -> AttemptOutcome:
         new_skip_ids=skip,
         failed_deployment_id=deployment_id,
         demote_workload=action.backoff_workload,
-        advance_to_fallback=headers is not None and _aipl.is_group_exhausted(headers),
+        advance_to_fallback=action.terminal_for_model or (headers is not None and _aipl.is_group_exhausted(headers)),
     )
 
 
@@ -396,19 +408,6 @@ def _is_signature_replay_error(exc: BaseException) -> bool:
     response = getattr(exc, "response", None)
     body = getattr(response, "text", None) if response is not None else None
     return isinstance(body, str) and bool(_SIGNATURE_REPLAY_PATTERN.search(body))
-
-
-def _headers_from_exception(exc: BaseException) -> _aipl.AIPLResponseHeaders | None:
-    response_headers = getattr(exc, "response_headers", None)
-    if isinstance(response_headers, Mapping):
-        return _aipl.AIPLResponseHeaders.from_response_headers({
-            str(key): str(value) for key, value in response_headers.items()
-        })
-    response = getattr(exc, "response", None)
-    headers = getattr(response, "headers", None) if response is not None else None
-    if isinstance(headers, Mapping):
-        return _aipl.AIPLResponseHeaders.from_response_headers({str(key): str(value) for key, value in headers.items()})
-    return None
 
 
 async def _sleep_retry(attempt_index: int, retry_delay_seconds: float | None) -> None:

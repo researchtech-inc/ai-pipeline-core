@@ -13,14 +13,18 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 _MIN_IMAGE_DIMENSION = 1
-_MAX_IMAGE_DIMENSION = 10_000
+_MAX_IMAGE_PIXELS = 100_000_000
+
+Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS + 1
 
 
 def validate_image_content(data: bytes) -> str | None:
     """Return an error message if ``data`` is not a usable image, else None.
 
     Rejects empty bytes, non-image bytes, zero-pixel images, and images whose
-    width or height exceeds 10,000 px.
+    total pixel count exceeds 100M. The cap is on total pixels (not per
+    dimension) so legitimately tall screenshots and panoramas pass while the
+    decompression-bomb attack surface stays bounded.
     """
     if not data:
         return "empty image content"
@@ -32,8 +36,9 @@ def validate_image_content(data: bytes) -> str | None:
         return f"invalid image: {exc}"
     if width < _MIN_IMAGE_DIMENSION or height < _MIN_IMAGE_DIMENSION:
         return f"zero-pixel image ({width}x{height})"
-    if width > _MAX_IMAGE_DIMENSION or height > _MAX_IMAGE_DIMENSION:
-        return f"image dimensions {width}x{height} exceed {_MAX_IMAGE_DIMENSION}x{_MAX_IMAGE_DIMENSION} cap"
+    total_pixels = width * height
+    if total_pixels > _MAX_IMAGE_PIXELS:
+        return f"image total pixels {total_pixels:,} ({width}x{height}) exceed {_MAX_IMAGE_PIXELS:,} cap"
     return None
 
 

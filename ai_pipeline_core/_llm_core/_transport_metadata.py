@@ -60,8 +60,20 @@ class AIPLInfo:
     reasoning_replay_stripped: bool = False
     cc_dedup: str | None = None
     cc_stale: bool = False
+    failure_class: str | None = None
+    workload_kind: str | None = None
     openrouter: OpenRouterInfo = field(default_factory=OpenRouterInfo)
     trace: dict[str, Any] | None = None
+
+    @property
+    def explicit_cache_created(self) -> bool:
+        """True when this request created and published a new explicit cachedContents resource."""
+        return self.cc_dedup == "owner_published"
+
+    @property
+    def explicit_cache_used(self) -> bool:
+        """True when this request reused an existing explicit cachedContents resource via proxy dedup."""
+        return self.cc_dedup == "redis_done_hit"
 
 
 @dataclass(frozen=True, slots=True)

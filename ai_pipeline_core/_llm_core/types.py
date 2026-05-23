@@ -93,7 +93,6 @@ class AIModel(BaseModel):
     supports_url_substitution: bool = True
     cache_ttl: int = DEFAULT_CACHE_TTL_MINUTES
     skip_cost_optimized: bool = False
-    min_output_tps: float | None = None
     max_inline_file_total_bytes: int = 50_000_000
     """Raw-byte cap on inline image+PDF payloads per request before base64 expansion."""
     fallback: AIModel | None = None
@@ -269,7 +268,6 @@ class ModelOptions(BaseModel):
     max_completion_tokens: int | None = Field(default=None, gt=0)  # Defaults to provider behavior (~30K typical)
     stop: tuple[str, ...] | None = None
     verbosity: Literal["low", "medium", "high"] | None = None
-    min_output_tps: float | None = Field(default=None, gt=0)
 
     @field_validator("cache_ttl", mode="before")
     @classmethod

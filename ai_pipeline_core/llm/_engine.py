@@ -9,8 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from ai_pipeline_core._llm_core import _aipl
 from ai_pipeline_core._llm_core.client import generate
-from ai_pipeline_core._llm_core.exceptions import TerminalError
+from ai_pipeline_core._llm_core.exceptions import LLMError, TerminalError
 from ai_pipeline_core._llm_core.model_response import ModelResponse
 from ai_pipeline_core._llm_core.request import (
     CacheSpec,
@@ -360,7 +361,11 @@ async def _single_call(
         encode_input={"llm_request": llm_request, "round_index": round_index + 1},
         db=execution_ctx.database if execution_ctx is not None else None,
     ) as span_ctx:
-        response = await generate(llm_request)
+        try:
+            response = await generate(llm_request)
+        except LLMError as exc:
+            _record_failed_round_meta(span_ctx, exc, llm_request)
+            raise
         _record_round_meta(span_ctx, response, llm_request)
         span_ctx.set_output_preview(
             [response.reasoning_content, response.content] if response.reasoning_content else response.content
@@ -417,7 +422,6 @@ def _build_llm_request(
             retries=retry_override.retries if retry_override else None,
             retry_delay_seconds=retry_override.retry_delay_seconds if retry_override else None,
             timeout_s=_pick(retry_override.timeout_s if retry_override else None, model.timeout_s),
-            min_output_tps=_pick(retry_override.min_output_tps if retry_override else None, model.min_output_tps),
         ),
         debug=DebugSpec(
             capture_trace=debug_override.capture_trace if debug_override else False,
@@ -532,6 +536,22 @@ def _record_round_meta(span_ctx: SpanContext, response: ModelResponse[Any], llm_
         cost_usd=response.cost or 0.0,
         first_token_ms=int((transport.timing.first_token_s or 0) * 1000),
     )
+
+
+def _record_failed_round_meta(span_ctx: SpanContext, exc: BaseException, llm_request: LLMRequest) -> None:
+    """Stamp a failed LLM round span with model identity and any AIPL attribution."""
+    meta: dict[str, Any] = {
+        "model": llm_request.model.name,
+        "requested_model": llm_request.model.name,
+        "tool_schemas": list(llm_request.tools.schemas),
+        "request_messages": _core_messages_to_db_span_input(list(llm_request.messages)),
+        "response_format_path": _response_format_path(llm_request.response.format),
+        "tool_choice": llm_request.tools.choice,
+    }
+    attribution = _aipl.aipl_attribution_from_exception(exc)
+    if attribution is not None:
+        meta["aipl"] = attribution
+    span_ctx.set_meta(**meta)
 
 
 async def _replay_llm_round(

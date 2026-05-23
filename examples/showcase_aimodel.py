@@ -50,7 +50,6 @@ def build_models() -> dict[str, AIModel]:
     )
     watchdog_tuned = AIModel(
         name="gemini-3-flash",
-        min_output_tps=20.0,
         timeout_s=120.0,
     )
     return {

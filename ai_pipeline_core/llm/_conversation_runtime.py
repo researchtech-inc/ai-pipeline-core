@@ -192,7 +192,6 @@ def retry_overrides(options: ModelOptions | None) -> RetrySpec | None:
         retries=options.retries,
         retry_delay_seconds=options.retry_delay_seconds,
         timeout_s=options.timeout,
-        min_output_tps=options.min_output_tps,
     )
 
 

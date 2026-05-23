@@ -123,7 +123,6 @@ class RetrySpec:
     retries: int | None = None
     retry_delay_seconds: float | None = None
     timeout_s: float | None = None
-    min_output_tps: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

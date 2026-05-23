@@ -92,11 +92,16 @@ class LLMValidationError(LLMError):
 
 
 class StreamWatchdogError(LLMError):
-    """Streaming response violated the configured watchdog policy."""
+    """Streaming response violated the configured watchdog policy.
+
+    ``reason`` identifies which gate tripped: ``ttft`` (no first chunk within
+    the time-to-first-token budget), ``stall`` (no chunk within the
+    inter-chunk inactivity budget), or ``total`` (overall wall-clock budget).
+    """
 
     def __init__(
         self,
-        reason: Literal["tps", "total"],
+        reason: Literal["ttft", "stall", "total"],
         deployment_id: str | None,
         observed_tps: float | None,
     ) -> None:
@@ -111,7 +116,23 @@ class OutputDegenerationError(LLMError):
 
 
 class EmptyResponseError(LLMError):
-    """Model returned empty content (no text and no tool calls). Retried with LiteLLM cache disabled."""
+    """Model returned empty content (no text, tool calls, or reasoning signal).
+
+    Carries ``deployment_id`` and ``response_headers`` so ``_classify_failure``
+    can append the failed deployment to the request-scoped skip list and
+    prevent HRW affinity from re-pinning the same empty-returning lane.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        deployment_id: str | None = None,
+        response_headers: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.deployment_id = deployment_id
+        self.response_headers = response_headers or {}
 
 
 class AIPLHeaderParseError(LLMError):

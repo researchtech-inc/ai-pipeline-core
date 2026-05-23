@@ -4,7 +4,7 @@ import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast, get_args
 
 import httpx
 
@@ -20,7 +20,13 @@ from ._transport_metadata import (
     TransportTiming,
     WarmupInfo,
 )
-from .exceptions import ContentPolicyError, StreamWatchdogError
+from .exceptions import (
+    ContentPolicyError,
+    EmptyResponseError,
+    MidStreamProviderError,
+    PartialToolCallStreamError,
+    StreamWatchdogError,
+)
 from .model_response import StreamCompletion
 from .request import AttemptRequest
 
@@ -28,11 +34,13 @@ __all__ = [
     "AIPLResponseHeaders",
     "FailureAction",
     "FailureClass",
+    "aipl_attribution_from_exception",
     "build_aipl_metadata",
     "build_transport_metadata",
     "classify",
     "deployment_id_from",
     "fetch_trace",
+    "headers_from_exception",
     "is_group_exhausted",
     "maybe_fetch_trace",
     "route",
@@ -41,15 +49,31 @@ __all__ = [
 logger = logging.getLogger(__name__)
 _TRACE_ERROR_BODY_PREVIEW_CHARS = 200
 
-type FailureClass = Literal["auth", "policy", "server", "rate", "timeout", "limiter"]
+type FailureClass = Literal[
+    "auth",
+    "policy",
+    "server",
+    "rate",
+    "timeout",
+    "limiter",
+    "watchdog",
+    "context_limit",
+    "capability_mismatch",
+    "refusal",
+    "client_aborted_stream",
+    "upstream_empty_stream",
+    "midstream_failure",
+]
+_KNOWN_FAILURE_CLASSES: frozenset[str] = frozenset(get_args(FailureClass.__value__))
 
 
 @dataclass(frozen=True, slots=True)
 class FailureAction:
     """Routing action for one classified failure."""
 
-    skip_deployment: bool
-    backoff_workload: bool
+    skip_deployment: bool = False
+    backoff_workload: bool = False
+    terminal_for_model: bool = False
 
 
 def build_aipl_metadata(req: AttemptRequest) -> dict[str, Any]:
@@ -68,28 +92,51 @@ def build_aipl_metadata(req: AttemptRequest) -> dict[str, Any]:
     return metadata
 
 
+_EXCEPTION_FAILURE_CLASSES: tuple[tuple[type[BaseException], FailureClass], ...] = (
+    (ContentPolicyError, "refusal"),
+    (StreamWatchdogError, "watchdog"),
+    (EmptyResponseError, "upstream_empty_stream"),
+    (MidStreamProviderError, "midstream_failure"),
+    (PartialToolCallStreamError, "midstream_failure"),
+)
+
+_STATUS_FAILURE_CLASSES: dict[int, FailureClass] = {
+    401: "auth",
+    403: "policy",
+    404: "auth",
+    408: "timeout",
+    429: "rate",
+    500: "server",
+    502: "server",
+    503: "server",
+    504: "timeout",
+    529: "server",
+}
+
+
 def classify(exc: BaseException, *, headers: AIPLResponseHeaders | None = None) -> FailureClass | None:
-    """Classify an attempt failure using AIPL headers and exception hints."""
+    """Classify an attempt failure using AIPL headers and exception hints.
+
+    Prefers the proxy-stamped ``x-aipl-failure-class`` header when the value
+    is one we know how to route. Falls back to exception-based classification
+    so failures without a header (network errors, framework-side aborts) still
+    classify correctly.
+    """
+    if headers is not None and headers.failure_class:
+        if headers.failure_class in _KNOWN_FAILURE_CLASSES:
+            return cast(FailureClass, headers.failure_class)
+        logger.warning(
+            "Unknown AIPL failure_class %r from proxy; falling back to exception-based classification. "
+            "Add the new class to FailureClass in _llm_core/_aipl.py or upgrade the framework to match.",
+            headers.failure_class,
+        )
     if headers is not None and headers.limit_denied:
         return "limiter"
-    if isinstance(exc, ContentPolicyError):
-        return "policy"
-    if isinstance(exc, StreamWatchdogError):
-        return "timeout"
+    for exception_type, failure_class in _EXCEPTION_FAILURE_CLASSES:
+        if isinstance(exc, exception_type):
+            return failure_class
     status = _extract_status(exc)
-    status_map: dict[int, FailureClass] = {
-        401: "auth",
-        403: "policy",
-        404: "auth",
-        408: "timeout",
-        429: "rate",
-        500: "server",
-        502: "server",
-        503: "server",
-        504: "timeout",
-        529: "server",
-    }
-    return status_map.get(status) if status is not None else None
+    return _STATUS_FAILURE_CLASSES.get(status) if status is not None else None
 
 
 def route(failure_class: FailureClass | None) -> FailureAction:
@@ -97,10 +144,14 @@ def route(failure_class: FailureClass | None) -> FailureAction:
     if failure_class == "limiter":
         return FailureAction(skip_deployment=True, backoff_workload=True)
     if failure_class in {"auth", "policy"}:
-        return FailureAction(skip_deployment=True, backoff_workload=False)
+        return FailureAction(skip_deployment=True)
+    if failure_class in {"watchdog", "client_aborted_stream", "upstream_empty_stream", "midstream_failure"}:
+        return FailureAction(skip_deployment=True, backoff_workload=True)
+    if failure_class in {"context_limit", "capability_mismatch", "refusal"}:
+        return FailureAction(terminal_for_model=True)
     if failure_class in {"server", "rate", "timeout"}:
-        return FailureAction(skip_deployment=False, backoff_workload=failure_class == "timeout")
-    return FailureAction(skip_deployment=False, backoff_workload=False)
+        return FailureAction(backoff_workload=failure_class == "timeout")
+    return FailureAction()
 
 
 def deployment_id_from(value: Any) -> str | None:
@@ -149,6 +200,8 @@ def build_transport_metadata(
             cost_optimized_skipped=h.cost_optimized_skipped,
             cc_dedup=h.cc_dedup,
             cc_stale=h.cc_stale,
+            failure_class=h.failure_class,
+            workload_kind=h.workload_kind,
             openrouter=OpenRouterInfo(
                 provider=h.openrouter_provider,
                 upstream=h.openrouter_upstream,
@@ -177,18 +230,88 @@ def build_transport_metadata(
 
 
 async def maybe_fetch_trace(exc: BaseException, *, call_id: str) -> None:
-    """Fetch and log the AIPL trace blob on failures."""
+    """Fetch and log the AIPL trace blob on failures.
+
+    Suppresses the warning when the proxy considers the call recovered
+    (``trace.result == "success"``) so retry-then-success paths stay quiet.
+    Labels the log with the proxy-reported ``attempts[-1].exception_class``
+    when available, falling back to the framework-side exception name.
+    """
     if not call_id:
         return
     trace = await fetch_trace(call_id)
     if trace is None:
         return
+    if trace.get("result") == "success":
+        return
     logger.warning(
         "AIPL trace for failed call %s (%s): %s",
         call_id,
-        type(exc).__name__,
+        _trace_failure_label(trace) or type(exc).__name__,
         json.dumps(trace, default=str, sort_keys=True),
     )
+
+
+def _trace_failure_label(trace: Mapping[str, Any]) -> str | None:
+    """Return the most informative failure label from an AIPL trace.
+
+    Walks ``attempts`` from newest to oldest, skipping successful attempts,
+    and returns the first ``exception_class`` (or ``failure_class``) found.
+    Last-attempt-only would miss useful data when the final attempt lacks a
+    class but an earlier failed attempt has one.
+    """
+    attempts = trace.get("attempts")
+    if not isinstance(attempts, list):
+        return None
+    for attempt in reversed(attempts):
+        if not isinstance(attempt, Mapping) or attempt.get("result") == "success":
+            continue
+        for key in ("exception_class", "failure_class"):
+            value = attempt.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def headers_from_exception(exc: BaseException) -> AIPLResponseHeaders | None:
+    """Extract AIPL response headers from an exception, walking the cause chain.
+
+    Empty header mappings are skipped: a bare attribute of ``{}`` must not
+    shadow real headers further up the chain, and must not mask the
+    exception's own ``deployment_id`` during failure attribution.
+    """
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        direct = getattr(current, "response_headers", None)
+        if isinstance(direct, Mapping) and direct:
+            return AIPLResponseHeaders.from_response_headers({str(key): str(value) for key, value in direct.items()})
+        response = getattr(current, "response", None)
+        indirect = getattr(response, "headers", None) if response is not None else None
+        if isinstance(indirect, Mapping) and indirect:
+            return AIPLResponseHeaders.from_response_headers({str(key): str(value) for key, value in indirect.items()})
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def aipl_attribution_from_exception(exc: BaseException) -> dict[str, Any] | None:
+    """Build span-meta AIPL attribution from an exception, or ``None`` when none is available."""
+    headers = headers_from_exception(exc)
+    if headers is not None:
+        return {
+            "call_id": headers.call_id,
+            "deployment_id": headers.deployment_id,
+            "provider": headers.provider,
+            "group_status": headers.group_status,
+            "failure_class": headers.failure_class,
+            "tried_deployments": list(headers.tried_deployments),
+            "failed_deployments": list(headers.failed_deployments),
+        }
+    deployment_id = getattr(exc, "deployment_id", None)
+    if isinstance(deployment_id, str) and deployment_id:
+        return {"deployment_id": deployment_id}
+    return None
 
 
 async def fetch_trace(call_id: str | None) -> dict[str, Any] | None:

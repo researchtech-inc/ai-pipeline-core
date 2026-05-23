@@ -230,7 +230,7 @@ Model identity is always an `AIModel`, never a raw string downstream of Settings
 `AIModel` owns four capability groups:
 - **Vision and URL behavior** — `vision_preset` controls image processing, and `preserve_input_urls` keeps URLs intact for search-style models.
 - **Caching and routing preference** — `cache_ttl` controls prompt cache TTL, and `skip_cost_optimized` asks the AIPL proxy to avoid cost-optimized deployments.
-- **Reliability** — `fallback` defines the next model on group exhaustion, while `timeout_s` and `min_output_tps` define wall-clock and stream watchdog limits.
+- **Reliability** — `fallback` defines the next model on group exhaustion, and `timeout_s` defines the per-hop wall-clock budget. Stream liveness (time-to-first-token, inter-chunk inactivity, total wall) is enforced by the framework's internal three-gate watchdog.
 - **Generation parameters** — `temperature`, `reasoning_effort`, `verbosity`, `max_completion_tokens`, and `supports_stop_sequences` travel with model identity.
 
 Production LLM execution assumes an AIPL-compatible LiteLLM proxy for deployment IDs, group exhaustion, trace fetch, workload routing, warmup/cache metadata, and limiter headers. Plain LiteLLM-compatible endpoints may handle basic calls but do not provide the full framework behavior.

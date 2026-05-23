@@ -24,7 +24,7 @@ __all__ = ["execute_span"]
 
 _MISSING = object()
 _GENERATION_OPTION_KEYS = frozenset({"temperature", "reasoning_effort", "verbosity", "max_completion_tokens", "stop"})
-_RETRY_OPTION_KEYS = frozenset({"retries", "retry_delay_seconds", "min_output_tps"})
+_RETRY_OPTION_KEYS = frozenset({"retries", "retry_delay_seconds"})
 
 
 @dataclass(frozen=True, slots=True)

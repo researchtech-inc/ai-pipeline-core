@@ -35,7 +35,31 @@ def _build_model_response(
     *,
     prompt_cache_key: str | None,
 ) -> ModelResponse[Any]:
-    """Normalize provider output and build one ModelResponse."""
+    """Normalize provider output and build one ModelResponse.
+
+    Wraps the body so any ``EmptyResponseError`` raised by a helper without
+    direct access to ``completion`` (e.g. ``_load_json_payload``) gets the
+    deployment id and response headers attached on its way out. The skip-list
+    routing then sees the failed deployment and avoids re-pinning it.
+    """
+    try:
+        return _build_model_response_impl(completion, req, prompt_cache_key=prompt_cache_key)
+    except EmptyResponseError as exc:
+        if exc.deployment_id or exc.response_headers:
+            raise
+        raise EmptyResponseError(
+            str(exc),
+            deployment_id=completion.aipl_headers.deployment_id,
+            response_headers={str(key): str(value) for key, value in completion.raw_headers.items()},
+        ) from exc
+
+
+def _build_model_response_impl(
+    completion: StreamCompletion,
+    req: AttemptRequest,
+    *,
+    prompt_cache_key: str | None,
+) -> ModelResponse[Any]:
     response = completion.response
     choice = _extract_choice(response, req)
     message = _extract_message(choice, req)
@@ -47,10 +71,9 @@ def _build_model_response(
 
     if finish_reason == "content_filter":
         headers = {str(key): str(value) for key, value in completion.raw_headers.items()}
-        deployment_id = _aipl.deployment_id_from(completion.aipl_headers)
         raise ContentPolicyError(
             f"Provider blocked response for model={req.model.name} due to content policy.",
-            deployment_id=deployment_id,
+            deployment_id=completion.aipl_headers.deployment_id,
             response_headers=headers,
         )
 
@@ -167,10 +190,21 @@ def _load_json_payload(content: str, *, allow_bare_array: bool) -> tuple[Any, st
     Strips a single markdown fence if present, then requires a clean JSON
     payload. Prose/example contamination raises ``ProseContaminationError``,
     which surfaces to the retry path so the repair prompt can correct the
-    model on the next attempt.
+    model on the next attempt. Blank content raises ``EmptyResponseError``
+    so retry logic does not invoke the JSON-repair prompt for missing JSON.
     """
     stripped = content.strip()
+    if not stripped:
+        raise EmptyResponseError(
+            "Structured output was empty (no JSON to parse). The upstream stream returned "
+            "no visible content for a structured request; retry on a sibling deployment."
+        )
     candidate = _strip_code_fence(stripped)
+    if not candidate:
+        raise EmptyResponseError(
+            "Structured output contained only an empty code fence (e.g. ```json\n```). "
+            "The upstream returned no JSON body; retry on a sibling deployment."
+        )
     try:
         payload = json.loads(candidate)
     except json.JSONDecodeError as exc:

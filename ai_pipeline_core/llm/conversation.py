@@ -8,7 +8,8 @@ from typing import Any, Generic, Literal, Self, TypeVar, cast, overload
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, field_validator, model_validator
 
-from ai_pipeline_core._llm_core import ListOf, TokenUsage
+from ai_pipeline_core._llm_core import ListOf, TokenUsage, _aipl
+from ai_pipeline_core._llm_core.exceptions import LLMError
 from ai_pipeline_core._llm_core.model_response import Citation, ModelResponse
 from ai_pipeline_core._llm_core.request import get_list_item_type, is_list_output_type
 from ai_pipeline_core._llm_core.types import AIModel, ModelOptions
@@ -419,7 +420,11 @@ class Conversation(BaseModel, Generic[T]):
             encode_input=span_input,
             db=execution_ctx.database if execution_ctx is not None else None,
         ) as span_ctx:
-            result = await execute_interaction(request)
+            try:
+                result = await execute_interaction(request)
+            except LLMError as exc:
+                _stamp_failed_conversation_meta(span_ctx, exc, request)
+                raise
             response = result.response
             accumulated = list(result.accumulated_messages)
             if substitutor is not None:
@@ -558,6 +563,15 @@ class Conversation(BaseModel, Generic[T]):
         ttl_override = self.model_options.cache_ttl if self.model_options is not None else None
         effective_ttl = ttl_override if ttl_override is not None else self.model.cache_ttl
         return effective_ttl > 0
+
+
+def _stamp_failed_conversation_meta(span_ctx: Any, exc: BaseException, request: InteractionRequest) -> None:
+    """Stamp a failed Conversation span with model identity and AIPL attribution."""
+    meta: dict[str, Any] = {"model": request.model.name, "purpose": request.purpose}
+    attribution = _aipl.aipl_attribution_from_exception(exc)
+    if attribution is not None:
+        meta["aipl"] = attribution
+    span_ctx.set_meta(**meta)
 
 
 def _unique(values: Any) -> tuple[str, ...]:

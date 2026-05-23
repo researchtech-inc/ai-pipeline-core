@@ -23,7 +23,6 @@ class TestModelOptions:
         assert options.cache_ttl is None
         assert options.stop is None
         assert options.verbosity is None
-        assert options.min_output_tps is None
 
     def test_generation_overrides(self) -> None:
         options = ModelOptions(
@@ -42,7 +41,7 @@ class TestModelOptions:
         assert spec.stop == ("STOP",)
 
     def test_retry_overrides(self) -> None:
-        options = ModelOptions(retries=5, retry_delay_seconds=15, timeout=120, min_output_tps=2.5)
+        options = ModelOptions(retries=5, retry_delay_seconds=15, timeout=120)
 
         spec = retry_overrides(options)
 
@@ -50,7 +49,6 @@ class TestModelOptions:
         assert spec.retries == 5
         assert spec.retry_delay_seconds == 15
         assert spec.timeout_s == 120
-        assert spec.min_output_tps == pytest.approx(2.5)
 
     def test_cache_overrides_default_none(self) -> None:
         assert cache_overrides(ModelOptions()) is None
@@ -90,8 +88,6 @@ class TestModelOptions:
     def test_positive_numeric_validation(self) -> None:
         with pytest.raises(ValidationError):
             ModelOptions(timeout=0)
-        with pytest.raises(ValidationError):
-            ModelOptions(min_output_tps=0)
 
 
 class TestRetryDefaults:

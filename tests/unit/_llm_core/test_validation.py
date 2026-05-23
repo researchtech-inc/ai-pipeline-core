@@ -1,10 +1,21 @@
 """Unit tests for ai_pipeline_core._llm_core._validation."""
 
+from io import BytesIO
+
+from PIL import Image
+
 from ai_pipeline_core._llm_core._validation import (
+    _MAX_IMAGE_PIXELS,
     validate_image_content,
     validate_pdf_content,
 )
 from ai_pipeline_core.llm._conversation_messages import validate_text
+
+
+def _encode_png(width: int, height: int) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), color=(127, 127, 127)).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 class TestValidateImageContent:
@@ -25,6 +36,25 @@ class TestValidateImageContent:
         result = validate_image_content(b"not an image")
         assert result is not None
         assert "invalid" in result
+
+    def test_long_screenshot_under_total_pixel_cap_accepted(self):
+        """A 1280x16383 mobile screenshot (~21M px) fits well within the 100M total-pixel cap."""
+        png = _encode_png(1280, 16383)
+        assert validate_image_content(png) is None
+
+    def test_very_wide_image_under_total_pixel_cap_accepted(self):
+        """A 16383x1280 image (mirror of the screenshot case) is accepted on the wide axis too."""
+        png = _encode_png(16383, 1280)
+        assert validate_image_content(png) is None
+
+    def test_total_pixel_cap_rejected(self):
+        """An image whose total pixels exceed the cap is rejected with a total-pixel message."""
+        side = int(_MAX_IMAGE_PIXELS**0.5) + 50  # ~10,050 — total slightly exceeds 100M
+        png = _encode_png(side, side)
+        result = validate_image_content(png)
+        assert result is not None
+        assert "total pixels" in result
+        assert f"{side}x{side}" in result
 
 
 class TestValidatePdfContent:

@@ -283,6 +283,39 @@ class TestCacheTtlWireShape:
         )
 
 
+class TestFailureClassHeaderRoundTrip:
+    """Successful proxy responses do not populate ``transport.aipl.failure_class``."""
+
+    @pytest.mark.asyncio
+    async def test_success_response_has_no_failure_class(
+        self,
+        default_test_model: AIModel,
+        cost_budget: Any,
+    ) -> None:
+        """The proxy must not stamp ``x-aipl-failure-class`` on healthy completions.
+
+        The framework parses ``x-aipl-failure-class`` into ``AIPLInfo`` and
+        routes terminal-for-model classes (``context_limit`` /
+        ``capability_mismatch`` / ``refusal``) into ``AIModel`` fallback
+        advancement; a spurious ``failure_class`` on success would advance
+        the chain unnecessarily.
+        """
+        conv = await Conversation(model=default_test_model, enable_substitutor=False).send(
+            "Reply with exactly the word 'ok'.",
+            purpose="phase2-failure-class-roundtrip",
+        )
+        cost_budget.add(conv)
+
+        response = last_model_response(conv)
+        aipl = response.transport.aipl
+        assert aipl.failure_class is None, (
+            f"expected no failure_class on success; got {aipl.failure_class!r}. "
+            "If non-None, the proxy is stamping x-aipl-failure-class on healthy 200s."
+        )
+        assert aipl.explicit_cache_created is False
+        assert aipl.explicit_cache_used is False
+
+
 class TestInvalidImageDropAndWarn:
     """Random bytes labeled as an image attachment must be dropped with a WARNING."""
 

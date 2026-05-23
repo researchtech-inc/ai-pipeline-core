@@ -646,7 +646,6 @@ primary = AIModel(
         fallback=AIModel(name="gpt-5.4-mini"),
     ),
     cache_ttl=5,
-    min_output_tps=20.0,
     timeout_s=600.0,
 )
 ```
@@ -654,7 +653,7 @@ primary = AIModel(
 Key fields:
 - `name`: Model name recognized by the AIPL/LiteLLM proxy
 - `fallback`: Next `AIModel` when the proxy reports group exhaustion
-- `timeout_s`, `min_output_tps`: Per-hop timeout and stream watchdog floor
+- `timeout_s`: Per-hop wall-clock timeout in seconds
 - `temperature`, `reasoning_effort`, `verbosity`, `max_completion_tokens`: Generation options carried with the model. `reasoning_effort` defaults to `"medium"`.
 - `supports_stop_sequences`: Whether the model accepts stop sequences
 - `supports_structured_output`: Whether the model accepts a native `response_format` (declared, never inferred). Default `True`. When `False`, a request that carries a response format raises `TerminalError` at preflight.
