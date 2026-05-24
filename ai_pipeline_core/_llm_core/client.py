@@ -1,6 +1,7 @@
 """Streaming-first internal LLM client."""
 
 import asyncio
+import logging
 import re
 from dataclasses import replace
 from secrets import SystemRandom
@@ -15,7 +16,7 @@ from ._config import get_config
 from ._response_builder import _build_model_response
 from ._routing import _CallContext
 from ._stream import StreamSession
-from ._strict_schema import schema_for_list, schema_for_model
+from ._strict_schema import describe_schema_for_prompt, schema_for_list, schema_for_model
 from ._watchdog import StreamWatchdog
 from .exceptions import (
     ContentPolicyError,
@@ -28,13 +29,16 @@ from .exceptions import (
     PayloadTooLargeError,
     ProviderReasoningReplayError,
     StreamWatchdogError,
+    StructuredRepairExhaustedError,
     TerminalError,
 )
 from .model_response import AttemptOutcome, ModelResponse
 from .request import AttemptRequest, ListOf, LLMRequest, ResponseSpec
-from .types import AIModel, CoreMessage, ImageContent, PDFContent, Role
+from .types import AIModel, CoreMessage, ImageContent, PDFContent, Role, TextContent
 
 __all__ = ["generate"]
+
+logger = logging.getLogger(__name__)
 
 _TRANSPORT_FAILURES = (
     openai.RateLimitError,
@@ -103,6 +107,11 @@ async def _try_one_model(ctx: _CallContext, model: AIModel) -> AttemptOutcome:
     if retries is None:
         retries = get_config().conversation_retries
 
+    preflight = _preflight_capability_outcome(ctx, model)
+    if preflight is not None:
+        ctx.absorb(preflight)
+        return preflight
+
     last_outcome = AttemptOutcome(error=ctx.last_error)
     strip_signatures = False
     stripped_deployment_id: str | None = None
@@ -132,7 +141,75 @@ async def _try_one_model(ctx: _CallContext, model: AIModel) -> AttemptOutcome:
             return outcome
         if attempt_index < retries:
             await _sleep_retry(attempt_index, ctx.request.retry.retry_delay_seconds)
-    return last_outcome
+    wrapped = _maybe_wrap_repair_exhausted(last_outcome, model)
+    if wrapped is not last_outcome and wrapped.error is not None:
+        # Promote the wrapped terminal exception so chain-exhaustion in generate()
+        # surfaces ``StructuredRepairExhaustedError`` instead of the raw inner
+        # validation error. Bypassing ``ctx.absorb`` here avoids re-running the
+        # headers / skip-list / demotion bookkeeping the inner attempt already did.
+        ctx.last_error = wrapped.error
+    return wrapped
+
+
+def _preflight_capability_outcome(ctx: _CallContext, model: AIModel) -> AttemptOutcome | None:
+    """Run the per-model capability gate before any HTTP attempt.
+
+    Returns an outcome with ``advance_to_fallback=True`` when the request needs a
+    capability the model does not declare, so the outer generate loop can move
+    to the next fallback hop transparently instead of raising mid-chain. Returns
+    ``None`` when the gate passes.
+    """
+    probe = ctx.build_attempt(model, 0)
+    try:
+        _check_capabilities(probe)
+    except TerminalError as exc:
+        return AttemptOutcome(error=exc, advance_to_fallback=True)
+    return None
+
+
+def _maybe_wrap_repair_exhausted(outcome: AttemptOutcome, model: AIModel) -> AttemptOutcome:
+    """Wrap a final validation error as ``StructuredRepairExhaustedError``.
+
+    Triggered when the per-model retry loop has exhausted all attempts and the
+    final error is a structured-output validation failure. Sets
+    ``advance_to_fallback=True`` so the outer ``generate`` loop tries the next
+    AIModel in the fallback chain instead of returning a half-formed result.
+    Emits a one-shot warning when ``model.supports_json_schema=True`` flagged
+    the model as schema-native but the model could not deliver conformant JSON
+    even after framework retries — the actionable fix is to flip the flag to
+    False so future calls inject the prose schema description automatically.
+    """
+    error = outcome.error
+    if not isinstance(error, LLMValidationError) or isinstance(error, ProviderReasoningReplayError):
+        return outcome
+    if isinstance(error, StructuredRepairExhaustedError):
+        return replace(outcome, advance_to_fallback=True)
+    wrapped = StructuredRepairExhaustedError(
+        f"Structured-output repair loop exhausted for model={model.name!r}: {error}",
+        original=error,
+    )
+    if model.supports_json_schema:
+        _maybe_warn_misset_flag(model, outcome.failed_deployment_id)
+    return replace(outcome, error=wrapped, advance_to_fallback=True)
+
+
+def _maybe_warn_misset_flag(model: AIModel, deployment_id: str | None) -> None:
+    """Emit a WARNING when a strict-flagged model keeps producing invalid JSON.
+
+    Fires on the repair-exhausted code path only (per-call frequency: at most
+    one per failed structured generation), so logging unconditionally here is
+    safe — operators get the actionable message every time the misconfiguration
+    consumes a fallback hop.
+    """
+    logger.warning(
+        "AIModel(name=%r, supports_json_schema=True) deployment=%s repeatedly produced "
+        "invalid JSON despite native-schema framing. Either the deployment does not honor "
+        "strict json_schema (the AIPL proxy may have downgraded it), or the model itself "
+        "ignores the schema. Set supports_json_schema=False on this AIModel so the framework "
+        "appends the prose schema description to the last USER message automatically.",
+        model.name,
+        deployment_id or "<unknown>",
+    )
 
 
 def _with_stripped_reasoning(req: AttemptRequest, deployment_id: str | None) -> AttemptRequest:
@@ -248,7 +325,6 @@ def _iter_content_parts(content: Any) -> Any:
 
 
 def _prepare_api_kwargs(req: AttemptRequest) -> tuple[dict[str, Any], str | None]:
-    _check_capabilities(req)
     generation = req.call.generation
     messages = _messages_for_transport(req)
     api_messages = _transport.core_messages_to_api(
@@ -322,14 +398,61 @@ def _with_structured_retry_prompt(req: AttemptRequest) -> AttemptRequest:
 
 def _messages_for_transport(req: AttemptRequest) -> tuple[CoreMessage, ...]:
     messages = req.call.messages
-    if req.call.response.format is None or _forced_tool_call_requested(req):
+    response_format = req.call.response.format
+    if response_format is None or _forced_tool_call_requested(req):
         return messages
+    messages = _ensure_structured_system_prompt(messages)
+    if not req.model.supports_json_schema:
+        messages = _append_schema_to_last_user(messages, response_format)
+    return messages
+
+
+def _ensure_structured_system_prompt(messages: tuple[CoreMessage, ...]) -> tuple[CoreMessage, ...]:
+    """Merge or prepend the structured-output base SYSTEM prompt."""
     leading = messages[0] if messages else None
     if leading is None or leading.role != Role.SYSTEM or not isinstance(leading.content, str):
         return _with_structured_system_instruction(messages, _STRUCTURED_BASE_SYSTEM_PROMPT)
     if _STRUCTURED_RETRY_SYSTEM_PROMPT in leading.content:
         return messages
     return _with_structured_system_instruction(messages, _STRUCTURED_BASE_SYSTEM_PROMPT)
+
+
+def _append_schema_to_last_user(
+    messages: tuple[CoreMessage, ...],
+    response_format: type[BaseModel] | ListOf,
+) -> tuple[CoreMessage, ...]:
+    """Append a prose schema description to the last USER message.
+
+    Used when ``AIModel.supports_json_schema=False`` so models that do not
+    honor strict ``json_schema`` (or that the AIPL proxy has downgraded to
+    ``json_object``) still produce conformant JSON. The schema description
+    lives only at the transport boundary — ``req.call.messages`` stays frozen,
+    so retries and repair attempts rebuild the prompt fresh each time without
+    stacking earlier injections.
+    """
+    if not messages:
+        return messages
+    schema_text = describe_schema_for_prompt(response_format)
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role != Role.USER:
+            continue
+        new_content = _content_with_appended_text(message.content, schema_text)
+        new_message = message.model_copy(update={"content": new_content})
+        return (*messages[:index], new_message, *messages[index + 1 :])
+    return (*messages, CoreMessage(role=Role.USER, content=schema_text))
+
+
+def _content_with_appended_text(
+    content: str | TextContent | ImageContent | PDFContent | tuple[TextContent | ImageContent | PDFContent, ...],
+    text: str,
+) -> str | tuple[TextContent | ImageContent | PDFContent, ...]:
+    """Append text to a CoreMessage.content body without disturbing image/PDF parts."""
+    if isinstance(content, str):
+        return f"{content}\n\n{text}"
+    if isinstance(content, tuple):
+        return (*content, TextContent(text=text))
+    return (content, TextContent(text=text))
 
 
 def _with_structured_system_instruction(

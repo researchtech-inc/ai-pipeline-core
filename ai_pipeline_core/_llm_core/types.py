@@ -71,6 +71,22 @@ class AIModel(BaseModel):
     PDFs, URL preservation) are declared explicitly on the AIModel; the
     framework never infers them from the model name.
 
+    Capability flags fall into two semantic groups:
+
+    * ``supports_structured_output``, ``supports_tools``, ``supports_images``,
+      ``supports_pdfs`` — pre-flight gates. When a request asks for a feature
+      the model declares as ``False``, the framework advances to the
+      ``fallback`` chain (if any) without spending an attempt. When no
+      fallback is set, the call fails fast with ``TerminalError``.
+    * ``supports_json_schema`` — opt-in optimization. ``False`` (default,
+      safe) appends a human-readable description of the response schema
+      (field names, types, one-line example) to the last USER message so
+      models that do not honor strict ``json_schema`` still produce
+      conformant JSON. ``True`` skips injection on the assumption the
+      provider/deployment honors the wire-level schema; if structured
+      validation then fails repeatedly, the framework warns once and
+      advances the fallback chain via ``StructuredRepairExhaustedError``.
+
     ``cache_ttl`` is integer minutes: ``0`` disables explicit cache markers,
     and ``1..1440`` map to the seconds wire format on the request.
     """
@@ -88,6 +104,10 @@ class AIModel(BaseModel):
     supports_tools: bool = True
     supports_images: bool = True
     supports_pdfs: bool = True
+    supports_json_schema: bool = False
+    """When False (safe default), append a prose schema description to the
+    last USER message for structured-output requests. Set True only for
+    (model, provider) pairs that natively honor strict ``json_schema``."""
     vision_preset: ImagePreset = ImagePreset.DEFAULT
     preserve_input_urls: bool = False
     supports_url_substitution: bool = True

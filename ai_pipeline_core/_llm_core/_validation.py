@@ -46,7 +46,10 @@ def validate_pdf_content(data: bytes) -> str | None:
     """Return an error message if ``data`` is not a usable PDF, else None.
 
     Rejects empty bytes, missing ``%PDF-`` header, password-protected PDFs,
-    and PDFs with zero pages.
+    and PDFs with zero pages. ``PdfReader`` parses the header eagerly but
+    resolves page/stream objects lazily, so ``len(reader.pages)`` must live
+    inside the same try block — a malformed content stream raises during
+    page resolution, not during construction.
     """
     if not data:
         return "empty PDF content"
@@ -54,10 +57,10 @@ def validate_pdf_content(data: bytes) -> str | None:
         return "missing %PDF- header"
     try:
         reader = PdfReader(BytesIO(data))
+        if reader.is_encrypted:
+            return "password-protected PDF"
+        if len(reader.pages) == 0:
+            return "PDF has no pages"
     except (PdfReadError, OSError, ValueError) as exc:  # fmt: skip
         return f"corrupted PDF: {exc}"
-    if reader.is_encrypted:
-        return "password-protected PDF"
-    if len(reader.pages) == 0:
-        return "PDF has no pages"
     return None

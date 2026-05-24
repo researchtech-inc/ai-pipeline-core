@@ -143,7 +143,13 @@ PREFECT_API_URL=http://localhost:4200
         assert s.doc_summary_enabled is False
 
     def test_doc_summary_model_string_coerces_to_aimodel(self) -> None:
-        """DOC_SUMMARY_MODEL accepts a model name from environment configuration."""
+        """DOC_SUMMARY_MODEL accepts a model name from environment configuration.
+
+        Env coercion uses ``AIModel.model_validate(name)`` which produces an AIModel
+        with all capability flags at their defaults — the catalog model declares
+        ``supports_json_schema=True`` explicitly, so the comparison must reset that
+        flag to the env-coerced default before checking.
+        """
         with patch.dict(
             os.environ,
             {
@@ -155,7 +161,7 @@ PREFECT_API_URL=http://localhost:4200
         ):
             s = Settings(_env_file=None)
 
-        assert s.doc_summary_model == DEFAULT_TEST_MODEL
+        assert s.doc_summary_model == DEFAULT_TEST_MODEL.model_copy(update={"supports_json_schema": False})
         assert s.doc_summary_enabled is True
 
     def test_doc_summary_model_mapping_coerces_to_aimodel(self) -> None:
@@ -167,7 +173,9 @@ PREFECT_API_URL=http://localhost:4200
             _env_file=None,
         )
 
-        assert s.doc_summary_model == DEFAULT_TEST_MODEL.model_copy(update={"cache_ttl": 1})
+        assert s.doc_summary_model == DEFAULT_TEST_MODEL.model_copy(
+            update={"cache_ttl": 1, "supports_json_schema": False}
+        )
         assert s.doc_summary_enabled is True
 
     def test_doc_summary_disable_checks_credentials_and_model_after_validation(self) -> None:

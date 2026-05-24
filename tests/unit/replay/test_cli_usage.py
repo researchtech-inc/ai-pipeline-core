@@ -89,7 +89,7 @@ def test_main_run_with_overrides_uses_experiment_span(tmp_path: Path, monkeypatc
         _ = (source_db, sink_db)
         assert span_id == span.span_id
         assert overrides is not None
-        assert overrides.model == DEFAULT_TEST_MODEL
+        assert overrides.model == DEFAULT_TEST_MODEL.model_copy(update={"supports_json_schema": False})
         assert overrides.model_options == {"reasoning_effort": "low"}
         return SimpleNamespace(result=_MockResult("override response"))
 
@@ -181,7 +181,7 @@ def test_main_batch_uses_find_and_experiment_helpers(
         _ = (source_db, sink_db)
         assert span_ids == [span.span_id]
         assert overrides is not None
-        assert overrides.model == DEFAULT_TEST_MODEL
+        assert overrides.model == DEFAULT_TEST_MODEL.model_copy(update={"supports_json_schema": False})
         assert overrides.model_options == {"reasoning_effort": "low"}
         assert concurrency == 3
         return [

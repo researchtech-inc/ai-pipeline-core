@@ -32,6 +32,7 @@ __all__ = [
     "ProviderReasoningReplayError",
     "StreamWatchdogError",
     "StrictModeViolationError",
+    "StructuredRepairExhaustedError",
     "StructuredSchemaError",
     "TerminalError",
 ]
@@ -201,6 +202,15 @@ class ProseContaminationError(LLMValidationError):
 
 class StructuredSchemaError(LLMValidationError):
     """Structured output parsed as JSON but violated the declared Pydantic schema."""
+
+
+class StructuredRepairExhaustedError(LLMValidationError):
+    """Structured-output repair loop exhausted all attempts for one model hop.
+
+    Distinct from ``StructuredSchemaError``: raised after the per-model retry
+    budget is spent so ``_aipl`` routes it as terminal-for-model and advances
+    the fallback chain instead of consuming another retry slot.
+    """
 
 
 class StrictModeViolationError(LLMValidationError):

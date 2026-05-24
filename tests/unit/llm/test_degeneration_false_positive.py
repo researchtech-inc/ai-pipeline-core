@@ -56,10 +56,10 @@ class TestStructuredOutputSkipsDegeneration:
     """Verify the call site skips degeneration for structured output."""
 
     def test_call_site_has_response_format_guard(self) -> None:
-        """_build_model_response skips degeneration check when response_format is set."""
-        from ai_pipeline_core._llm_core._response_builder import _build_model_response
+        """_build_model_response_impl skips degeneration check when response_format is set."""
+        from ai_pipeline_core._llm_core._response_builder import _build_model_response_impl
 
-        source = inspect.getsource(_build_model_response)
+        source = inspect.getsource(_build_model_response_impl)
 
         assert "detect_output_degeneration" in source
         assert "tool_calls" in source

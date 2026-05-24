@@ -26,6 +26,7 @@ from .exceptions import (
     MidStreamProviderError,
     PartialToolCallStreamError,
     StreamWatchdogError,
+    StructuredRepairExhaustedError,
 )
 from .model_response import StreamCompletion
 from .request import AttemptRequest
@@ -98,6 +99,7 @@ _EXCEPTION_FAILURE_CLASSES: tuple[tuple[type[BaseException], FailureClass], ...]
     (EmptyResponseError, "upstream_empty_stream"),
     (MidStreamProviderError, "midstream_failure"),
     (PartialToolCallStreamError, "midstream_failure"),
+    (StructuredRepairExhaustedError, "capability_mismatch"),
 )
 
 _STATUS_FAILURE_CLASSES: dict[int, FailureClass] = {
