@@ -1,12 +1,13 @@
 """ClickHouse backend for the redesigned span/document/blob/log schema."""
 
+import asyncio
 import logging
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from clickhouse_connect.driver.asyncclient import AsyncClient
+from clickhouse_connect.driver import AsyncClient
 from clickhouse_connect.driver.exceptions import DatabaseError as ClickHouseDatabaseError
 
 from ai_pipeline_core.database._documents import _attachment_contents_for_record
@@ -146,26 +147,32 @@ class ClickHouseDatabase:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or Settings()
         self._client: AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
         self._consecutive_failures = 0
         self._circuit_open = False
         self._last_reconnect_attempt = 0.0
 
     async def _ensure_client(self) -> AsyncClient:
-        now = time.monotonic()
         if self._client is not None:
             return self._client
-        if self._circuit_open and now - self._last_reconnect_attempt < _RECONNECT_INTERVAL_SEC:
-            raise ConnectionError(
-                "ClickHouse circuit breaker is open. Wait before retrying or restore ClickHouse connectivity."
-            )
-        self._last_reconnect_attempt = now
-        try:
-            self._client = await get_async_clickhouse_client(self._settings)
-        except (ClickHouseDatabaseError, ConnectionError, OSError):  # fmt: skip
-            await self._record_failure()
-            raise
-        self._record_success()
-        return self._client
+
+        async with self._client_lock:
+            if self._client is not None:
+                return self._client
+
+            now = time.monotonic()
+            if self._circuit_open and now - self._last_reconnect_attempt < _RECONNECT_INTERVAL_SEC:
+                raise ConnectionError(
+                    "ClickHouse circuit breaker is open. Wait before retrying or restore ClickHouse connectivity."
+                )
+            self._last_reconnect_attempt = now
+            try:
+                self._client = await get_async_clickhouse_client(self._settings)
+            except (ClickHouseDatabaseError, ConnectionError, OSError):  # fmt: skip
+                await self._record_failure()
+                raise
+            self._record_success()
+            return self._client
 
     def _record_success(self) -> None:
         self._consecutive_failures = 0

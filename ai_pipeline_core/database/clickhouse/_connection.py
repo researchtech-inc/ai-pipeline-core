@@ -1,23 +1,13 @@
-# ruff: noqa: E402  # clickhouse_connect imports must follow the warnings.filterwarnings() calls below
 """Shared ClickHouse async client helpers."""
 
 import asyncio
-import warnings
+import logging
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 
-# clickhouse-connect 0.14+ warns that the thread-pool async wrapper will be replaced
-# by a native async client in 1.0. Suppress before importing the library so the filter
-# is active even if the warning fires at import time. Two filters for robustness:
-# module-based catches the normal emission path, message-based catches stacklevel shifts.
-warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_connect")
-warnings.filterwarnings("ignore", category=FutureWarning, message=r".*async.*client.*")
-
-import logging
-
 from clickhouse_connect import get_async_client
-from clickhouse_connect.driver.asyncclient import AsyncClient
+from clickhouse_connect.driver import AsyncClient
 from clickhouse_connect.driver.exceptions import OperationalError as ClickHouseOperationalError
 
 from ai_pipeline_core.database.clickhouse._ddl import DDL_STATEMENTS, SCHEMA_META_TABLE, SCHEMA_VERSION
@@ -153,6 +143,7 @@ async def _create_client(active_settings: Settings) -> AsyncClient:
                 secure=active_settings.clickhouse_secure,
                 connect_timeout=active_settings.clickhouse_connect_timeout,
                 send_receive_timeout=active_settings.clickhouse_send_receive_timeout,
+                autogenerate_session_id=False,
             )
         except _RETRYABLE_EXCEPTIONS as exc:
             if attempt >= max_attempts:

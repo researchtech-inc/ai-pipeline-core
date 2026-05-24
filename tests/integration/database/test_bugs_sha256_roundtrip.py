@@ -59,10 +59,15 @@ def _reset_schema():
 
 
 @pytest.fixture
-def ch_database(clickhouse_settings):
+async def ch_database(clickhouse_settings):
     from ai_pipeline_core.database.clickhouse._backend import ClickHouseDatabase
 
-    return ClickHouseDatabase(settings=clickhouse_settings)
+    db = ClickHouseDatabase(settings=clickhouse_settings)
+    try:
+        yield db
+    finally:
+        # 1.0.x native aiohttp sessions leak loudly if not explicitly closed.
+        await db.shutdown()
 
 
 class TestClickHouseBlobRoundtrip:

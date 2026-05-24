@@ -42,9 +42,6 @@ def prefect_test_fixture():
     aiosqlite_logger.addFilter(filter_instance)
     warnings.filterwarnings("ignore", message=".*CancelledError.*", category=Warning)
     warnings.filterwarnings("ignore", message=".*unclosed.*", category=ResourceWarning)
-    # clickhouse-connect async client FutureWarning — suppress in tests too (see _connection.py)
-    warnings.filterwarnings("ignore", category=FutureWarning, module=r"clickhouse_connect")
-    warnings.filterwarnings("ignore", category=FutureWarning, message=r".*async.*client.*")
     try:
         with prefect_test_harness():
             yield

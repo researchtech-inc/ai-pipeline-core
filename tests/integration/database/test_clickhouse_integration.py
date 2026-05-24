@@ -5,6 +5,7 @@ DatabaseWriter/DatabaseReader protocol — spans, documents, blobs, logs,
 and query methods — against the actual database engine.
 """
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -70,8 +71,13 @@ def _reset_schema():
 
 
 @pytest.fixture
-def database(clickhouse_settings: Settings) -> ClickHouseDatabase:
-    return ClickHouseDatabase(settings=clickhouse_settings)
+async def database(clickhouse_settings: Settings):
+    db = ClickHouseDatabase(settings=clickhouse_settings)
+    try:
+        yield db
+    finally:
+        # 1.0.x native aiohttp sessions leak loudly if not explicitly closed.
+        await db.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +170,20 @@ async def test_schema_auto_creates_tables(database: ClickHouseDatabase) -> None:
     # Trigger schema init by calling any query — succeeds without raising
     result = await database.list_deployments(1)
     assert isinstance(result, list)
+
+
+@pytest.mark.asyncio
+async def test_shared_async_client_handles_concurrent_queries(database: ClickHouseDatabase) -> None:
+    """Concurrent reads through one ClickHouseDatabase must not raise session-id or transport errors.
+
+    Under clickhouse-connect 1.0.x the AsyncClient holds a native aiohttp session.
+    With autogenerate_session_id=False and a single shared client, concurrent queries
+    must not raise QUERY_WITH_SAME_ID_IS_ALREADY_RUNNING, "Session is closed", or
+    transport disconnect errors.
+    """
+    await database.list_deployments(1)  # prime the client
+    results = await asyncio.gather(*(database.list_deployments(1) for _ in range(12)))
+    assert all(isinstance(result, list) for result in results)
 
 
 # ---------------------------------------------------------------------------

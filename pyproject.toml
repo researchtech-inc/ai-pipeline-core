@@ -1,6 +1,6 @@
 [project]
 name = "ai-pipeline-core"
-version = "0.23.5"
+version = "0.23.6"
 description = "Core utilities for AI-powered processing pipelines using prefect"
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,7 +32,7 @@ dependencies = [
     "ruamel.yaml>=0.19.1",
     "sentry-sdk>=2.0",
     "tiktoken>=0.12.0",
-    "clickhouse-connect>=0.14.1",
+    "clickhouse-connect[async]==1.0.1",
     "prefect-gcp>=0.6.15",
     "google-cloud-pubsub>=2.0",
 ]
@@ -80,7 +80,6 @@ markers = [
 ]
 filterwarnings = [
     "ignore:The 'u' type code is deprecated and will be removed in Python 3.16:DeprecationWarning",
-    "ignore::FutureWarning:clickhouse_connect",
     # testcontainers.clickhouse still uses the deprecated wait_container_is_ready decorator until upstream migrates to structured wait strategies.
     "ignore:The @wait_container_is_ready decorator is deprecated and will be removed in a future version.*:DeprecationWarning:testcontainers\\.clickhouse",
 ]
@@ -192,7 +191,7 @@ max-public-methods = 30
 "ai_pipeline_core/database/_factory.py" = ["F821", "PLC0415"]
 "ai_pipeline_core/_codec.py" = ["PLR0911"]
 "ai_pipeline_core/database/clickhouse/_backend.py" = ["S608", "BLE001", "PLR0904", "PLR0911", "PLR0912", "C901", "PLR6301", "PERF401"]
-"ai_pipeline_core/database/clickhouse/_connection.py" = ["S608", "TID251"]
+"ai_pipeline_core/database/clickhouse/_connection.py" = ["S608"]
 "ai_pipeline_core/database/filesystem/_backend.py" = ["PLR0904", "PLR6301", "PERF401"]
 "ai_pipeline_core/database/_memory.py" = ["PLR0904", "PLR6301", "RUF029", "PERF401"]
 "ai_pipeline_core/database/snapshot/_summary.py" = ["PLR6301", "PLR0912", "PLR0914", "PLR0917", "PERF401"]

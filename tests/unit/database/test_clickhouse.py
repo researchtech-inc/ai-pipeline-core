@@ -1,5 +1,6 @@
 """Tests for ClickHouseDatabase DDL, schema versioning, and basic availability checks."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -244,6 +245,9 @@ async def test_create_client_succeeds_on_first_attempt(mock_get_client: AsyncMoc
 
     assert result is mock_client
     assert mock_get_client.call_count == 1
+    # autogenerate_session_id=False is critical for concurrent reuse of a single
+    # AsyncClient — with a session id, queries serialize on `_active_session`.
+    assert mock_get_client.await_args.kwargs["autogenerate_session_id"] is False
 
 
 @pytest.mark.asyncio
@@ -383,3 +387,47 @@ async def test_get_async_clickhouse_client_closes_client_on_os_error(
         await get_async_clickhouse_client(_retry_settings())
 
     mock_client.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# ClickHouseDatabase._ensure_client — concurrent first-touch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@patch(
+    "ai_pipeline_core.database.clickhouse._backend.get_async_clickhouse_client",
+    new_callable=AsyncMock,
+)
+async def test_ensure_client_creates_single_client_under_concurrency(
+    mock_get_client: AsyncMock,
+) -> None:
+    """Native aiohttp sessions cannot leak: concurrent first-touch must serialize on the lock.
+
+    The factory side_effect awaits an asyncio.Event so every gathered coroutine reaches
+    the factory call before any of them completes assignment to self._client. Without the
+    backend lock, all 16 callers would invoke the factory; with the lock, exactly one does.
+    """
+    from ai_pipeline_core.database.clickhouse._backend import ClickHouseDatabase
+
+    sentinel_client = AsyncMock()
+    release = asyncio.Event()
+
+    async def blocking_factory(*_args: object, **_kwargs: object) -> AsyncMock:
+        await release.wait()
+        return sentinel_client
+
+    mock_get_client.side_effect = blocking_factory
+    db = ClickHouseDatabase(settings=_retry_settings())
+
+    gather_task = asyncio.gather(*(db._ensure_client() for _ in range(16)))
+    # Yield enough times for every gathered coroutine to enter _ensure_client and
+    # either grab the lock or queue on it. Without the lock all 16 would proceed
+    # past the None check before any assignment happens.
+    for _ in range(32):
+        await asyncio.sleep(0)
+    release.set()
+    clients = await gather_task
+
+    assert mock_get_client.await_count == 1
+    assert all(c is sentinel_client for c in clients)
