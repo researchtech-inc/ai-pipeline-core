@@ -17,7 +17,7 @@ from ._response_builder import _build_model_response
 from ._routing import _CallContext
 from ._stream import StreamSession
 from ._strict_schema import describe_schema_for_prompt, schema_for_list, schema_for_model
-from ._watchdog import StreamWatchdog
+from ._watchdog import StreamWatchdog, WatchdogConfig
 from .exceptions import (
     ContentPolicyError,
     EmptyResponseError,
@@ -505,7 +505,9 @@ def _response_format(spec: ResponseSpec) -> dict[str, Any]:
 def _make_watchdog(req: AttemptRequest) -> StreamWatchdog:
     if req.call.debug.disable_watchdog:
         return StreamWatchdog(enabled=False)
-    return StreamWatchdog(deployment_id=req.call.routing.force_deployment_id)
+    timeout_s = req.call.retry.timeout_s
+    config = WatchdogConfig(total_wall_seconds=timeout_s) if timeout_s is not None else WatchdogConfig()
+    return StreamWatchdog(deployment_id=req.call.routing.force_deployment_id, config=config)
 
 
 def _classify_failure(exc: BaseException) -> AttemptOutcome:

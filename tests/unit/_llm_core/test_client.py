@@ -13,6 +13,7 @@ from ai_pipeline_core._llm_core._aipl import AIPLResponseHeaders
 from ai_pipeline_core._llm_core.client import (
     _STRUCTURED_BASE_SYSTEM_PROMPT,
     _STRUCTURED_RETRY_SYSTEM_PROMPT,
+    _make_watchdog,
     _prepare_api_kwargs,
     _with_structured_retry_prompt,
 )
@@ -24,8 +25,17 @@ from ai_pipeline_core._llm_core._transport import (
     compute_cache_key,
     core_messages_to_api,
 )
+from ai_pipeline_core._llm_core._watchdog import WatchdogConfig
 from ai_pipeline_core._llm_core.model_response import StreamCompletion, TimingData
-from ai_pipeline_core._llm_core.request import AttemptRequest, CacheSpec, LLMRequest, ResponseSpec
+from ai_pipeline_core._llm_core.request import (
+    AttemptRequest,
+    CacheSpec,
+    DebugSpec,
+    LLMRequest,
+    ResponseSpec,
+    RetrySpec,
+    ToolSpec,
+)
 from ai_pipeline_core._llm_core.types import CoreMessage, ImageContent, PDFContent, RawToolCall, Role, TextContent
 from ai_pipeline_core.exceptions import ContentPolicyError, EmptyResponseError
 from tests.support.model_catalog import DEFAULT_TEST_MODEL
@@ -87,13 +97,22 @@ def _make_completion(
 
 
 def _make_attempt(
-    *, response_format: type[BaseModel] | None = None, attempt_index: int = 0, cache: CacheSpec | None = None
+    *,
+    response_format: type[BaseModel] | None = None,
+    attempt_index: int = 0,
+    cache: CacheSpec | None = None,
+    retry: RetrySpec | None = None,
+    debug: DebugSpec | None = None,
+    tools: ToolSpec | None = None,
 ) -> AttemptRequest:
     request = LLMRequest(
         model=DEFAULT_TEST_MODEL,
         messages=(CoreMessage(role=Role.USER, content="hi"),),
         response=ResponseSpec(format=response_format),
         cache=cache or CacheSpec(ttl=0),
+        retry=retry or RetrySpec(),
+        debug=debug or DebugSpec(),
+        tools=tools or ToolSpec(),
     )
     return AttemptRequest(call=request, model=request.model, attempt_index=attempt_index, call_id="call_1")
 
@@ -432,3 +451,122 @@ class TestBuildModelResponse:
         )
 
         assert response.provider_specific_fields == {"chain_of_thought": "hidden reasoning"}
+
+    def test_synthetic_tool_calls_without_user_tools_do_not_block_structured_parsing(self) -> None:
+        """Synthetic provider-built-in tool_calls (e.g. ``web_search`` lifecycle
+        events emitted by the LiteLLM bridge for OpenAI search models) must NOT
+        block JSON parsing. They are not a tool-execution signal when the
+        caller did not declare any tools.
+        """
+
+        class Result(BaseModel):
+            answer: str
+
+        raw_call = SimpleNamespace(id="ws_1", function=SimpleNamespace(name="web_search", arguments='{"q":"x"}'))
+        completion = _make_completion(content='{"answer": "yes"}', tool_calls=[raw_call])
+
+        response = _build_model_response(
+            completion,
+            _make_attempt(response_format=Result),
+            prompt_cache_key=None,
+        )
+
+        assert isinstance(response.parsed, Result)
+        assert response.parsed.answer == "yes"
+        # Tool calls remain visible for telemetry.
+        assert response.tool_calls and response.tool_calls[0].function_name == "web_search"
+
+    def test_synthetic_tool_calls_without_user_tools_still_check_degeneration(self) -> None:
+        """Synthetic tool_calls do not mark the response as tool-execution mode,
+        so degeneration detection MUST still run on the text. Regression guard
+        for the search-models bug where structured-output protection was
+        silently bypassed by lifecycle tool_calls.
+        """
+        from ai_pipeline_core.exceptions import OutputDegenerationError
+
+        raw_call = SimpleNamespace(id="ws_1", function=SimpleNamespace(name="web_search", arguments=""))
+        # 250 identical tokens — far past degeneration_detector's threshold.
+        degenerate = " ".join(["banana"] * 250)
+        completion = _make_completion(content=degenerate, completion_tokens=250, tool_calls=[raw_call])
+
+        with pytest.raises(OutputDegenerationError):
+            _build_model_response(completion, _make_attempt(), prompt_cache_key=None)
+
+    def test_user_declared_tool_calls_still_skip_structured_parsing(self) -> None:
+        """When the caller declared a tool AND the model emitted a tool_call,
+        the response is in tool-execution mode and JSON parsing must be skipped.
+        Regression guard for tool-calling models.
+        """
+
+        class Result(BaseModel):
+            answer: str
+
+        raw_call = SimpleNamespace(id="t1", function=SimpleNamespace(name="my_tool", arguments='{"x":1}'))
+        completion = _make_completion(content="", finish_reason="tool_calls", tool_calls=[raw_call])
+        user_tools = ToolSpec(schemas=({"type": "function", "function": {"name": "my_tool"}},))
+
+        response = _build_model_response(
+            completion,
+            _make_attempt(response_format=Result, tools=user_tools),
+            prompt_cache_key=None,
+        )
+
+        assert response.tool_calls and response.tool_calls[0].function_name == "my_tool"
+        # Content was empty; parsed stays as the raw string, no JSON-parse attempt.
+        assert response.parsed == ""
+
+    def test_synthetic_tool_calls_alongside_user_tools_still_parse_structured(self) -> None:
+        """Tool-execution mode requires at least one returned tool_call whose name
+        matches a caller-declared schema. A response that carries only synthetic
+        ``web_search`` calls (which the user did NOT declare) plus the final
+        structured text must still be parsed as JSON even though the caller
+        passed ``tools=[my_tool]``. This is the subtle gap where the previous
+        ``bool(tool_calls and schemas)`` gate silently bypassed parsing.
+        """
+
+        class Result(BaseModel):
+            answer: str
+
+        raw_call = SimpleNamespace(id="ws_1", function=SimpleNamespace(name="web_search", arguments='{"q":"x"}'))
+        completion = _make_completion(content='{"answer": "yes"}', tool_calls=[raw_call])
+        user_tools = ToolSpec(schemas=({"type": "function", "function": {"name": "my_tool"}},))
+
+        response = _build_model_response(
+            completion,
+            _make_attempt(response_format=Result, tools=user_tools),
+            prompt_cache_key=None,
+        )
+
+        assert isinstance(response.parsed, Result)
+        assert response.parsed.answer == "yes"
+        # The synthetic tool_call stays visible for telemetry.
+        assert response.tool_calls and response.tool_calls[0].function_name == "web_search"
+
+
+class TestMakeWatchdog:
+    def test_default_watchdog_uses_default_total_wall(self) -> None:
+        """No timeout_s override → standard 600s ceiling from WatchdogConfig defaults."""
+        watchdog = _make_watchdog(_make_attempt())
+        assert watchdog.enabled is True
+        assert watchdog.config.total_wall_seconds == WatchdogConfig().total_wall_seconds
+
+    def test_retry_timeout_s_overrides_total_wall(self) -> None:
+        """``AIModel.timeout_s`` flows into ``RetrySpec.timeout_s`` via the engine,
+        and the watchdog must honor it. Without this, ``AIModel(timeout_s=1200)``
+        is silently killed at 600s — search models that take 200-1200s end-to-end
+        would fail intermittently for users who explicitly opted in to a longer budget.
+        """
+        attempt = _make_attempt(retry=RetrySpec(timeout_s=1200.0))
+        watchdog = _make_watchdog(attempt)
+        assert watchdog.config.total_wall_seconds == 1200.0
+
+    def test_disable_watchdog_debug_flag_returns_disabled_watchdog(self) -> None:
+        attempt = _make_attempt(debug=DebugSpec(disable_watchdog=True))
+        watchdog = _make_watchdog(attempt)
+        assert watchdog.enabled is False
+
+    def test_tool_call_inactivity_default_is_relaxed(self) -> None:
+        """The default config has a relaxed inactivity gate for tool calls."""
+        watchdog = _make_watchdog(_make_attempt())
+        assert watchdog.config.tool_call_inactivity_seconds == 120.0
+        assert watchdog.config.inactivity_seconds == 30.0

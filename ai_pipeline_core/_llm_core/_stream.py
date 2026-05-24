@@ -43,6 +43,7 @@ class StreamAccumulator:
     tool_calls: dict[int, _ToolCallParts] = field(default_factory=dict)
     usage: Any = None
     last_content_tokens: int = 0
+    last_tool_call_tokens: int = 0
     last_reasoning_tokens: int = 0
     saw_content_chunk: bool = False
 
@@ -55,8 +56,13 @@ class StreamAccumulator:
         usable content; classifying a drop after those as
         ``MidStreamProviderError`` would mask retryable transport failures
         as terminal stream errors.
+
+        ``last_tool_call_tokens`` is the subset of ``last_content_tokens``
+        attributable to tool-call deltas, so the watchdog can apply its
+        relaxed inactivity gate while a tool call is in progress.
         """
         self.last_content_tokens = 0
+        self.last_tool_call_tokens = 0
         self.last_reasoning_tokens = 0
         chunk_id = getattr(chunk, "id", None)
         if chunk_id and not self.response_id:
@@ -171,6 +177,7 @@ class StreamAccumulator:
                 for key, value in fields.items():
                     StreamAccumulator._merge_value_into(slot.provider_specific_fields, str(key), value)
             self.last_content_tokens += 1
+            self.last_tool_call_tokens += 1
             self.saw_content_chunk = True
 
     def _absorb_provider_fields(self, delta: Any) -> None:
@@ -270,7 +277,9 @@ class StreamSession:
                 if self._first_token_at is None and self.accumulator.last_content_tokens > 0:
                     self._first_token_at = time.monotonic()
                 if self.accumulator.last_content_tokens > 0:
-                    self.watchdog.on_content(self.accumulator.last_content_tokens)
+                    tool_call_tokens = self.accumulator.last_tool_call_tokens
+                    text_tokens = self.accumulator.last_content_tokens - tool_call_tokens
+                    self.watchdog.on_content(text_tokens=text_tokens, tool_call_tokens=tool_call_tokens)
                 self.watchdog.check()
         except StreamWatchdogError:
             raise

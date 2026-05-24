@@ -88,7 +88,17 @@ def _build_model_response_impl(
             f"Empty response content from model={req.model.name} — no text, tool calls, or reasoning signal."
         )
 
-    if req.call.response.format is None and not tool_calls and (explanation := detect_output_degeneration(content)):
+    # Tool-execution mode requires at least one returned tool call whose name
+    # the caller actually declared. A response whose tool_calls are exclusively
+    # synthesized by the proxy for built-in tools (e.g. ``web_search`` lifecycle
+    # keepalives) carries final text and must still pass degeneration + JSON
+    # parsing. Tool calls remain visible in ``response.tool_calls`` either way.
+    tool_execution_mode = _is_tool_execution_mode(tool_calls, req.call.tools.schemas)
+    if (
+        req.call.response.format is None
+        and not tool_execution_mode
+        and (explanation := detect_output_degeneration(content))
+    ):
         raise OutputDegenerationError(
             f"model={req.model.name}, tokens={usage.completion_tokens}, content_length={len(content)}: {explanation}"
         )
@@ -97,7 +107,7 @@ def _build_model_response_impl(
     parsed_content, parsed = _parse_content(
         content,
         req,
-        tool_calls,
+        tool_execution_mode=tool_execution_mode,
         strict_schema=not completion.aipl_headers.response_format_downgraded,
     )
     return ModelResponse[Any](
@@ -119,15 +129,29 @@ def _build_model_response_impl(
     )
 
 
+def _is_tool_execution_mode(
+    tool_calls: tuple[RawToolCall, ...],
+    declared_schemas: tuple[dict[str, Any], ...],
+) -> bool:
+    """Return True only when at least one returned tool_call matches a declared schema."""
+    if not tool_calls or not declared_schemas:
+        return False
+    declared_names = {
+        str((schema.get("function") or {}).get("name") or schema.get("name") or "") for schema in declared_schemas
+    }
+    declared_names.discard("")
+    return any(call.function_name in declared_names for call in tool_calls)
+
+
 def _parse_content(
     content: str,
     req: AttemptRequest,
-    tool_calls: tuple[RawToolCall, ...],
     *,
+    tool_execution_mode: bool,
     strict_schema: bool = True,
 ) -> tuple[str, Any]:
     response_format = req.call.response.format
-    if response_format is None or tool_calls:
+    if response_format is None or tool_execution_mode:
         return content, content
     if isinstance(response_format, ListOf):
         return _parse_list_content(content, response_format.inner, strict_schema=strict_schema)

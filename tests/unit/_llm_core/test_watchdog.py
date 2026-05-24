@@ -35,7 +35,7 @@ def test_ttft_gate_fires_when_no_first_chunk_arrives() -> None:
 def test_stall_gate_fires_after_inactivity_post_first_content() -> None:
     watchdog = StreamWatchdog(deployment_id="dep-stall", config=_fast_config())
     watchdog.start()
-    watchdog.on_content(8)
+    watchdog.on_content(text_tokens=8)
 
     time.sleep(0.08)
 
@@ -51,7 +51,7 @@ def test_total_gate_fires_after_overall_wall_clock_budget() -> None:
         config=_fast_config(ttft_seconds=10.0, inactivity_seconds=10.0, total_wall_seconds=0.05),
     )
     watchdog.start()
-    watchdog.on_content(4)
+    watchdog.on_content(text_tokens=4)
 
     time.sleep(0.08)
 
@@ -73,10 +73,10 @@ def test_bursty_stream_with_gaps_below_inactivity_threshold_does_not_fire() -> N
     )
     watchdog.start()
     for _ in range(3):
-        watchdog.on_content(20)
+        watchdog.on_content(text_tokens=20)
         watchdog.check()
         time.sleep(0.05)
-    watchdog.on_content(20)
+    watchdog.on_content(text_tokens=20)
     watchdog.check()
 
 
@@ -106,14 +106,128 @@ def test_check_before_start_is_a_noop() -> None:
     watchdog = StreamWatchdog(config=_fast_config())
 
     watchdog.check()
-    watchdog.on_content(10)
+    watchdog.on_content(text_tokens=10)
     watchdog.check()
 
 
 def test_final_tps_reports_observed_throughput() -> None:
     watchdog = StreamWatchdog(config=_fast_config(total_wall_seconds=5.0))
     watchdog.start()
-    watchdog.on_content(100)
+    watchdog.on_content(text_tokens=100)
     time.sleep(0.02)
 
     assert watchdog.final_tps() > 0
+
+
+def test_tool_call_chunk_relaxes_inactivity_gate() -> None:
+    """A gap that exceeds ``inactivity_seconds`` but stays under the relaxed
+    ``tool_call_inactivity_seconds`` budget must NOT fire after a tool-call
+    delta. Models the search-models wire shape where lifecycle keepalive
+    deltas arrive 5-30s apart instead of the strict 30s text-burst cadence.
+    """
+    watchdog = StreamWatchdog(
+        deployment_id="dep-tool",
+        config=_fast_config(inactivity_seconds=0.05, tool_call_inactivity_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(tool_call_tokens=1)
+
+    time.sleep(0.1)
+
+    watchdog.check()  # no raise — tool-call gate is 5s
+
+
+def test_tool_call_inactivity_gate_fires_after_its_own_budget() -> None:
+    """Even with the relaxed gate, silence beyond ``tool_call_inactivity_seconds``
+    is still a stall. Worst-case bound preserved.
+    """
+    watchdog = StreamWatchdog(
+        deployment_id="dep-tool-stall",
+        config=_fast_config(inactivity_seconds=10.0, tool_call_inactivity_seconds=0.05),
+    )
+    watchdog.start()
+    watchdog.on_content(tool_call_tokens=1)
+
+    time.sleep(0.1)
+
+    with pytest.raises(StreamWatchdogError) as exc_info:
+        watchdog.check()
+    assert exc_info.value.reason == "stall"
+
+
+def test_text_chunk_after_tool_call_snaps_back_to_strict_gate() -> None:
+    """Once the model emits actual text, the strict inactivity gate applies
+    again. Prevents a model from coasting on a single tool-call delta and
+    then silently stalling forever.
+    """
+    watchdog = StreamWatchdog(
+        deployment_id="dep-snap",
+        config=_fast_config(inactivity_seconds=0.05, tool_call_inactivity_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(tool_call_tokens=1)
+    watchdog.on_content(text_tokens=4)
+
+    time.sleep(0.1)
+
+    with pytest.raises(StreamWatchdogError) as exc_info:
+        watchdog.check()
+    assert exc_info.value.reason == "stall"
+
+
+def test_mixed_chunk_with_text_classifies_as_strict_mode() -> None:
+    """A chunk carrying both text and tool_call tokens is text-dominant —
+    the strict inactivity gate applies on the next check.
+    """
+    watchdog = StreamWatchdog(
+        config=_fast_config(inactivity_seconds=0.05, tool_call_inactivity_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(text_tokens=3, tool_call_tokens=1)
+
+    time.sleep(0.1)
+
+    with pytest.raises(StreamWatchdogError):
+        watchdog.check()
+
+
+def test_text_then_tool_call_then_text_toggles_strict_mode() -> None:
+    """The relaxed gate flag toggles on every chunk. A `text → tool_call → text`
+    sequence ends in strict mode and a gap > strict inactivity raises.
+    """
+    watchdog = StreamWatchdog(
+        config=_fast_config(inactivity_seconds=0.05, tool_call_inactivity_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(text_tokens=4)
+    watchdog.on_content(tool_call_tokens=1)
+    watchdog.on_content(text_tokens=4)
+
+    time.sleep(0.1)
+
+    with pytest.raises(StreamWatchdogError) as exc_info:
+        watchdog.check()
+    assert exc_info.value.reason == "stall"
+
+
+def test_relaxed_inactivity_gate_does_not_extend_total_budget() -> None:
+    """The relaxed inactivity gate must NOT shadow the total-wall budget.
+    A stream that emits a tool_call every few seconds for longer than
+    ``total_wall_seconds`` is still killed by the total gate.
+    """
+    watchdog = StreamWatchdog(
+        config=_fast_config(
+            ttft_seconds=10.0,
+            inactivity_seconds=10.0,
+            tool_call_inactivity_seconds=300.0,
+            total_wall_seconds=0.05,
+        ),
+    )
+    watchdog.start()
+    watchdog.on_content(tool_call_tokens=1)
+
+    time.sleep(0.1)
+
+    with pytest.raises(StreamWatchdogError) as exc_info:
+        watchdog.check()
+    assert exc_info.value.reason == "total"
