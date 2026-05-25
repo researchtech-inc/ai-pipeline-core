@@ -148,6 +148,21 @@ async def _try_one_model(ctx: _CallContext, model: AIModel) -> AttemptOutcome:
         # validation error. Bypassing ``ctx.absorb`` here avoids re-running the
         # headers / skip-list / demotion bookkeeping the inner attempt already did.
         ctx.last_error = wrapped.error
+    # Retry budget for this model is fully consumed without a usable response.
+    # When the last failure class is transient (watchdog, server, rate, timeout,
+    # midstream, limiter), advancing to ``AIModel.fallback`` is the right next
+    # step — otherwise a model whose every deployment systematically fails the
+    # same way (e.g. repeated watchdog kills on PDF + heavy reasoning) burns
+    # the budget and raises without ever consulting the fallback. Auth /
+    # policy stay on the model: a misconfigured credential or refused content
+    # will not be fixed by switching to a sibling AIModel.
+    if (
+        wrapped.response is None
+        and not wrapped.advance_to_fallback
+        and wrapped.error is not None
+        and _aipl.route(_aipl.classify(wrapped.error, headers=wrapped.headers)).advance_after_exhaustion
+    ):
+        wrapped = replace(wrapped, advance_to_fallback=True)
     return wrapped
 
 

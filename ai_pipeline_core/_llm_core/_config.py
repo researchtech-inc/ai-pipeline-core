@@ -7,11 +7,12 @@ it needs proxy URL, credentials, or retry defaults. Tests can use
 ``override_config(...)`` as a contextmanager to swap configuration for one
 test.
 
-The ContextVar defaults to ``None`` so unconfigured access raises a clear
-``RuntimeError`` instead of silently using empty credentials. Standalone
-consumers must call ``configure(LLMCoreConfig(...))`` before any
-``_llm_core`` function is invoked. Inside ``ai_pipeline_core`` this is
-done at package import by ``_llm_core_bootstrap``.
+``configure()`` writes a process-wide default that survives across async
+contexts — Prefect remote workers spawn flow runs in detached contexts,
+and a ContextVar-only default would silently regress to "unconfigured" in
+those tasks. ``override_config()`` layers a per-context override via a
+``ContextVar`` so per-test isolation still works without leaking across
+concurrent test workers.
 
 Cached resources (e.g. the HTTP client) register a listener via
 ``register_on_config_change(...)`` so ``configure()`` can invalidate them
@@ -24,6 +25,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from threading import Lock
 
 __all__ = [
     "LLMCoreConfig",
@@ -56,7 +58,17 @@ class LLMCoreConfig:
     prompt_contract_max_repair: int = 2
 
 
-_config: ContextVar[LLMCoreConfig | None] = ContextVar("_llm_core_config", default=None)
+# Process-wide default config installed by ``configure()``. A ContextVar
+# alone would only bind the value in the asyncio context that called
+# ``configure()`` — Prefect spawns flow runs in detached contexts that
+# would then see ``None`` and raise ``LLMCoreNotConfiguredError`` even
+# though boot ran fine in the worker's main context. The single-element
+# list lets us mutate the active value without reassigning the module
+# binding (which the framework's mutability rules forbid).
+_default_config_holder: list[LLMCoreConfig | None] = [None]  # infrastructure singleton
+_default_config_lock = Lock()  # infrastructure singleton
+# Per-context override layer for ``override_config()`` test isolation.
+_override_config: ContextVar[LLMCoreConfig | None] = ContextVar("_llm_core_config_override", default=None)
 # infrastructure singleton: cache-invalidation listener list, populated at
 # module import via register_on_config_change().
 _on_config_change: list[Callable[[], None]] = []  # nosemgrep: no-mutable-module-globals - import-time registry
@@ -79,8 +91,13 @@ def configure(config: LLMCoreConfig) -> None:
     (``ai_pipeline_core._llm_core_bootstrap``) and never again from
     application code. Fires every registered listener so cached
     resources (HTTP client, etc.) rebuild against the new config.
+
+    Writes the process-wide default — survives across asyncio contexts
+    (including Prefect remote-worker flow runs and child tasks spawned
+    with detached contexts).
     """
-    _config.set(config)
+    with _default_config_lock:
+        _default_config_holder[0] = config
     for listener in _on_config_change:
         listener()
 
@@ -92,7 +109,10 @@ def get_config() -> LLMCoreConfig:
     ``configure()`` at package import). Standalone consumers must call
     ``configure(LLMCoreConfig(...))`` before any ``_llm_core`` function.
     """
-    config = _config.get()
+    override = _override_config.get()
+    if override is not None:
+        return override
+    config = _default_config_holder[0]
     if config is None:
         raise LLMCoreNotConfiguredError(
             "_llm_core is not configured. Call _llm_core._config.configure(LLMCoreConfig(...)) "
@@ -109,8 +129,8 @@ def override_config(config: LLMCoreConfig) -> Iterator[None]:
     race the cached client). For per-test client swap use
     ``_transport.override_client(...)``.
     """
-    token = _config.set(config)
+    token = _override_config.set(config)
     try:
         yield
     finally:
-        _config.reset(token)
+        _override_config.reset(token)

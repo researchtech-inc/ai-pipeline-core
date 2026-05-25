@@ -70,11 +70,22 @@ _KNOWN_FAILURE_CLASSES: frozenset[str] = frozenset(get_args(FailureClass.__value
 
 @dataclass(frozen=True, slots=True)
 class FailureAction:
-    """Routing action for one classified failure."""
+    """Routing action for one classified failure.
+
+    ``terminal_for_model`` advances the AIModel chain immediately after a
+    single failure. ``advance_after_exhaustion`` advances only when the
+    framework has burned the per-model retry budget without producing any
+    response — failures classified this way are "transient" (slow deployment,
+    server hiccup) and switching to a different model is the right next step.
+    Failures with neither flag (e.g. ``auth`` / ``policy``) keep retrying
+    within the model_group and never escalate, because a misconfigured
+    credential or content policy will not be fixed by trying a sibling model.
+    """
 
     skip_deployment: bool = False
     backoff_workload: bool = False
     terminal_for_model: bool = False
+    advance_after_exhaustion: bool = False
 
 
 def build_aipl_metadata(req: AttemptRequest) -> dict[str, Any]:
@@ -144,15 +155,18 @@ def classify(exc: BaseException, *, headers: AIPLResponseHeaders | None = None) 
 def route(failure_class: FailureClass | None) -> FailureAction:
     """Map a failure class to routing actions."""
     if failure_class == "limiter":
-        return FailureAction(skip_deployment=True, backoff_workload=True)
+        return FailureAction(skip_deployment=True, backoff_workload=True, advance_after_exhaustion=True)
     if failure_class in {"auth", "policy"}:
         return FailureAction(skip_deployment=True)
     if failure_class in {"watchdog", "client_aborted_stream", "upstream_empty_stream", "midstream_failure"}:
-        return FailureAction(skip_deployment=True, backoff_workload=True)
+        return FailureAction(skip_deployment=True, backoff_workload=True, advance_after_exhaustion=True)
     if failure_class in {"context_limit", "capability_mismatch", "refusal"}:
         return FailureAction(terminal_for_model=True)
     if failure_class in {"server", "rate", "timeout"}:
-        return FailureAction(backoff_workload=failure_class == "timeout")
+        return FailureAction(
+            backoff_workload=failure_class == "timeout",
+            advance_after_exhaustion=True,
+        )
     return FailureAction()
 
 

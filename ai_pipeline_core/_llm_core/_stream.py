@@ -274,12 +274,17 @@ class StreamSession:
             async for chunk in stream:
                 self._raise_if_ticker_failed()
                 self.accumulator.add_chunk(chunk)
-                if self._first_token_at is None and self.accumulator.last_content_tokens > 0:
+                visible_tokens = self.accumulator.last_content_tokens + self.accumulator.last_reasoning_tokens
+                if self._first_token_at is None and visible_tokens > 0:
                     self._first_token_at = time.monotonic()
-                if self.accumulator.last_content_tokens > 0:
+                if visible_tokens > 0:
                     tool_call_tokens = self.accumulator.last_tool_call_tokens
                     text_tokens = self.accumulator.last_content_tokens - tool_call_tokens
-                    self.watchdog.on_content(text_tokens=text_tokens, tool_call_tokens=tool_call_tokens)
+                    self.watchdog.on_content(
+                        text_tokens=text_tokens,
+                        tool_call_tokens=tool_call_tokens,
+                        reasoning_tokens=self.accumulator.last_reasoning_tokens,
+                    )
                 self.watchdog.check()
         except StreamWatchdogError:
             raise

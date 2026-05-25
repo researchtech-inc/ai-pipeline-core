@@ -191,6 +191,57 @@ def test_mixed_chunk_with_text_classifies_as_strict_mode() -> None:
         watchdog.check()
 
 
+def test_reasoning_chunks_satisfy_the_ttft_gate() -> None:
+    """A stream that emits only reasoning_content within the TTFT budget
+    must NOT be killed. Reasoning is committed model output and proves the
+    upstream is alive — the watchdog's job is liveness, not productivity.
+    Regression for PDF + reasoning_effort=high which sends reasoning chunks
+    for tens of seconds before any visible text.
+    """
+    watchdog = StreamWatchdog(
+        config=_fast_config(ttft_seconds=0.1, inactivity_seconds=5.0, total_wall_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(reasoning_tokens=8)
+
+    time.sleep(0.2)
+
+    watchdog.check()  # no raise — reasoning satisfied TTFT
+
+
+def test_reasoning_chunks_satisfy_the_inactivity_gate() -> None:
+    """After the first chunk, a steady stream of reasoning chunks keeps the
+    strict inactivity gate satisfied.
+    """
+    watchdog = StreamWatchdog(
+        config=_fast_config(inactivity_seconds=0.1, total_wall_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(reasoning_tokens=4)
+    time.sleep(0.05)
+    watchdog.on_content(reasoning_tokens=4)
+    time.sleep(0.05)
+    watchdog.on_content(reasoning_tokens=4)
+    watchdog.check()  # no raise
+
+
+def test_reasoning_does_not_flip_to_relaxed_tool_call_gate() -> None:
+    """A pure-reasoning chunk uses the strict inactivity gate, not the relaxed
+    tool-call gate. Reasoning streams should be chatty enough to satisfy 30s.
+    """
+    watchdog = StreamWatchdog(
+        config=_fast_config(inactivity_seconds=0.05, tool_call_inactivity_seconds=5.0),
+    )
+    watchdog.start()
+    watchdog.on_content(reasoning_tokens=4)
+
+    time.sleep(0.1)
+
+    with pytest.raises(StreamWatchdogError) as exc_info:
+        watchdog.check()
+    assert exc_info.value.reason == "stall"
+
+
 def test_text_then_tool_call_then_text_toggles_strict_mode() -> None:
     """The relaxed gate flag toggles on every chunk. A `text → tool_call → text`
     sequence ends in strict mode and a gap > strict inactivity raises.

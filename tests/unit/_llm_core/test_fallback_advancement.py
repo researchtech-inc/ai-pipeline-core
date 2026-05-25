@@ -491,6 +491,55 @@ async def test_stream_watchdog_kill_appends_deployment_to_next_attempt_skip_ids(
 
 
 @pytest.mark.asyncio
+async def test_watchdog_kills_across_all_retries_advance_to_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When every retry against the primary model trips the watchdog, the
+    framework must advance to ``AIModel.fallback`` instead of raising.
+
+    Regression for the PDF + reasoning_effort=high failure mode where each
+    deployment on the primary group consumes one retry to ttft and the
+    framework would historically give up without trying the fallback.
+    """
+    fallback = ALTERNATE_TEST_MODEL
+    primary = DEFAULT_TEST_MODEL.model_copy(update={"fallback": fallback})
+    seen_models: list[str] = []
+    primary_attempts = 0
+
+    @asynccontextmanager
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[Any]:
+        _ = messages, api_kwargs
+        nonlocal primary_attempts
+        seen_models.append(req.model.name)
+        if req.model.name == primary.name:
+            primary_attempts += 1
+            yield _WatchdogRaw(
+                headers={
+                    "x-aipl-call-id": f"call-primary-{primary_attempts}",
+                    "x-aipl-deployment-id": f"deployment-primary-{primary_attempts}",
+                    "x-aipl-group-status": "ok",
+                },
+                deployment_id=f"deployment-primary-{primary_attempts}",
+            )
+            return
+        yield _success_raw(req.model.name)
+
+    monkeypatch.setattr(_transport, "open_stream", fake_open_stream)
+
+    response = await llm_client.generate(_request(primary, retries=2, retry_delay_seconds=0.0))
+
+    assert response.content == "fallback ok"
+    assert response.model == fallback.name
+    # Three watchdog kills on the primary (retries=2 → 3 attempts) then the
+    # fallback model succeeds on its first try.
+    assert seen_models[:primary_attempts] == [primary.name] * primary_attempts
+    assert primary_attempts == 3
+    assert seen_models[-1] == fallback.name
+
+
+@pytest.mark.asyncio
 async def test_auth_failure_without_group_exhaustion_does_not_advance_to_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
