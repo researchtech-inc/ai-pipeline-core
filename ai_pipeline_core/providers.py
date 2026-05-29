@@ -376,9 +376,9 @@ class StatelessPollingProvider[RequestT, ResultT](ExternalProvider):
     ) -> ProviderOutcome[ResultT]:
         """Poll until terminal status or timeout.
 
-        This method handles only the timing loop. It does not
-        acquire concurrency slots or track costs — those are
-        the subclass's responsibility in ``submit`` and ``poll_once``.
+        Handles the timing loop and tracks cost on the terminal outcome.
+        Concurrency-slot acquisition remains the subclass's responsibility in
+        ``submit`` and ``poll_once``.
 
         Returns ``ProviderOutcome`` with ``status="timeout"`` on expiry.
         """

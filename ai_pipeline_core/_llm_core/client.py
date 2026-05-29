@@ -287,8 +287,22 @@ async def _execute_attempt(req: AttemptRequest) -> AttemptOutcome:
         # by advancing the AIModel chain instead of raising TerminalError.
         headers = _aipl.headers_from_exception(exc)
         action = _aipl.route(_aipl.classify(exc, headers=headers))
+        deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
         if action.terminal_for_model or (headers is not None and _aipl.is_group_exhausted(headers)):
-            deployment_id = _aipl.deployment_id_from(headers) if headers is not None else _aipl.deployment_id_from(exc)
+            return AttemptOutcome(
+                error=exc,
+                headers=headers,
+                failed_deployment_id=deployment_id,
+                advance_to_fallback=True,
+            )
+        # Unclassified provider 400: the proxy's ``_refine_failure_class``
+        # pattern set (see ``aipl_filter.py``) does not cover every OpenRouter
+        # / direct-provider 400 phrasing, and non-AIPL deployments stamp no
+        # class at all. Treat an unclassified 400 as terminal-for-model when
+        # the caller has configured a fallback — the chain is the caller's
+        # opt-in that "try the next model" is the right next step. Single-model
+        # deployments still fail fast so misconfigured callers see the error.
+        if req.model.fallback is not None:
             return AttemptOutcome(
                 error=exc,
                 headers=headers,

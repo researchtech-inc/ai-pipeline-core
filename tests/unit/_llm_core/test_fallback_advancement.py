@@ -237,32 +237,6 @@ async def test_fallback_model_retries_after_primary_exhaustion(monkeypatch: pyte
     assert seen == [(primary.name, 0), (fallback.name, 0), (fallback.name, 1)]
 
 
-@pytest.mark.asyncio
-async def test_terminal_bad_request_does_not_advance_to_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Terminal provider errors must not walk the fallback chain."""
-    fallback = ALTERNATE_TEST_MODEL
-    primary = DEFAULT_TEST_MODEL.model_copy(update={"fallback": fallback})
-    seen_models: list[str] = []
-
-    @asynccontextmanager
-    async def fake_open_stream(
-        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
-    ) -> AsyncIterator[_RawResponse]:
-        _ = messages, api_kwargs
-        seen_models.append(req.model.name)
-        if req.model.name == primary.name:
-            response = httpx.Response(400, request=httpx.Request("POST", "http://proxy/v1/chat/completions"))
-            raise openai.BadRequestError("bad request", response=response, body=None)
-        yield _success_raw(req.model.name)
-
-    monkeypatch.setattr(_transport, "open_stream", fake_open_stream)
-
-    with pytest.raises(TerminalError):
-        await llm_client.generate(_request(primary))
-
-    assert seen_models == [primary.name]
-
-
 class _WatchdogChunks:
     """Async iterator that raises StreamWatchdogError on first chunk pull."""
 
@@ -385,10 +359,18 @@ async def test_bad_request_with_proxy_failure_class_advances_to_fallback(
 
 
 @pytest.mark.asyncio
-async def test_bad_request_without_terminal_failure_class_still_raises_terminal(
+async def test_unclassified_bad_request_advances_when_fallback_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A 400 with no recognized failure class still raises ``TerminalError`` (no fallback)."""
+    """An unclassified 400 advances to ``AIModel.fallback`` when one is configured.
+
+    Production W1-T009 sank a sub-deployment when a bare ``openai.BadRequestError``
+    reached the framework without an ``x-aipl-failure-class`` header (the AIPL
+    proxy's pattern set in ``aipl_filter.py`` does not match every OpenRouter
+    / direct-provider 400 phrasing). With a fallback configured the caller has
+    opted into "try the next model"; raising ``TerminalError`` short-circuits
+    that contract.
+    """
     fallback = ALTERNATE_TEST_MODEL
     primary = DEFAULT_TEST_MODEL.model_copy(update={"fallback": fallback})
     seen_models: list[str] = []
@@ -404,6 +386,41 @@ async def test_bad_request_without_terminal_failure_class_still_raises_terminal(
             response = httpx.Response(400, request=request)
             raise openai.BadRequestError("malformed request", response=response, body=None)
         yield _success_raw(req.model.name)
+
+    monkeypatch.setattr(_transport, "open_stream", fake_open_stream)
+
+    response = await llm_client.generate(_request(primary))
+
+    assert response.content == "fallback ok"
+    assert response.model == fallback.name
+    assert seen_models == [primary.name, fallback.name]
+    assert response.transport.model_chain.used_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_unclassified_bad_request_without_fallback_raises_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unclassified 400 on a single-model deployment still raises ``TerminalError``.
+
+    Without a configured fallback the framework has no chain to walk and the
+    fail-fast contract must hold so misconfigured callers see the underlying
+    provider error rather than a silent retry loop.
+    """
+    primary = DEFAULT_TEST_MODEL  # no fallback
+    seen_models: list[str] = []
+
+    @asynccontextmanager
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[Any]:
+        _ = messages, api_kwargs
+        seen_models.append(req.model.name)
+        request = httpx.Request("POST", "http://proxy/v1/chat/completions")
+        response = httpx.Response(400, request=request)
+        if req.model is primary:
+            raise openai.BadRequestError("malformed request", response=response, body=None)
+        yield _success_raw(req.model.name)  # safety net: any unexpected attempt visibly succeeds
 
     monkeypatch.setattr(_transport, "open_stream", fake_open_stream)
 
