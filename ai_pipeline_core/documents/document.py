@@ -646,9 +646,9 @@ class Document[TContent: BaseModel = Any](BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, v: str) -> str:
-        """Reject path traversal, whitespace issues, reserved suffixes. Must match FILES enum if defined."""
-        if ".." in v or "\\" in v or "/" in v:
-            raise DocumentNameError(f"Invalid filename - contains path traversal characters: {v}")
+        """Reject path separators, whitespace issues, reserved suffixes. Must match FILES enum if defined."""
+        if "\\" in v or "/" in v:
+            raise DocumentNameError(f"Invalid filename - contains path separator: {v}")
 
         if not v or v.startswith(" ") or v.endswith(" "):
             raise DocumentNameError(f"Invalid filename format: {v}")

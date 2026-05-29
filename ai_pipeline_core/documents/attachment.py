@@ -57,15 +57,15 @@ class Attachment(BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, v: str) -> str:
-        """Reject path traversal, reserved suffixes, whitespace issues."""
+        """Reject path separators, reserved suffixes, whitespace issues."""
         if v.endswith(".description.md"):
             raise DocumentNameError(f"Attachment names cannot end with .description.md: {v}")
         if v.endswith(".sources.json"):
             raise DocumentNameError(f"Attachment names cannot end with .sources.json: {v}")
         if v.endswith(".attachments.json"):
             raise DocumentNameError(f"Attachment names cannot end with .attachments.json: {v}")
-        if ".." in v or "\\" in v or "/" in v:
-            raise DocumentNameError(f"Invalid attachment name - contains path traversal characters: {v}")
+        if "\\" in v or "/" in v:
+            raise DocumentNameError(f"Invalid attachment name - contains path separator: {v}")
         if not v or v.startswith(" ") or v.endswith(" "):
             raise DocumentNameError(f"Invalid attachment name format: {v}")
         return v

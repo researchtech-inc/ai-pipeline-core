@@ -505,7 +505,7 @@ PlanDocument.get_content_type()  # → PlanModel
 ```
 
 **Document fields:**
-- `name`: Filename (validated for security -- no path traversal)
+- `name`: Filename (validated -- no path separators `/` or `\`)
 - `description`: Optional human-readable description
 - `content`: Raw bytes (auto-converted from str, dict, list, BaseModel via `create()`)
 - `derived_from`: Content provenance — SHA256 hashes of source documents (stored internally). Constructors (`derive()`, `create()`) accept `Sequence[Document]` and extract hashes automatically. URI-style references use `create_external(from_sources=...)` instead.
@@ -726,7 +726,7 @@ from ai_pipeline_core import (
 - `ProviderAuthError` — Authentication/authorization failure (401/403), never retried (subclass of both `ProviderError` and `NonRetriableError`)
 - `DocumentValidationError` — Document validation failures
 - `DocumentSizeError` — Document exceeds size limits
-- `DocumentNameError` — Invalid document name (path traversal, etc.)
+- `DocumentNameError` — Invalid document name (path separators, reserved suffixes, etc.)
 
 Output degeneration (token repetition loops) is detected automatically and triggers an internal retry with cache disabled; the framework surfaces it as `LLMError` only after retries exhaust. `EmptyResponseError` and `OutputDegenerationError` are framework-internal retry signals and are not part of the top-level public surface.
 

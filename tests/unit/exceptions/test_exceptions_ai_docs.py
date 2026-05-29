@@ -17,10 +17,10 @@ class _TinyDoc(Document):
 
 
 @pytest.mark.ai_docs
-def test_document_name_error_on_path_traversal() -> None:
-    """Path traversal in document names raises DocumentNameError."""
+def test_document_name_error_on_path_separator() -> None:
+    """Path separators in document names raise DocumentNameError."""
     with pytest.raises(DocumentNameError):
-        _TestExDoc(name="../bad.txt", content=b"x")
+        _TestExDoc(name="sub/bad.txt", content=b"x")
 
 
 @pytest.mark.ai_docs

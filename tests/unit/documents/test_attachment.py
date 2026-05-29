@@ -47,11 +47,11 @@ class TestAttachmentNameValidation:
             Attachment(name="", content=b"data")
 
     def test_rejects_forward_slash(self):
-        with pytest.raises(DocumentNameError, match="path traversal"):
+        with pytest.raises(DocumentNameError, match="path separator"):
             Attachment(name="path/file.txt", content=b"data")
 
     def test_rejects_backslash(self):
-        with pytest.raises(DocumentNameError, match="path traversal"):
+        with pytest.raises(DocumentNameError, match="path separator"):
             Attachment(name="path\\file.txt", content=b"data")
 
     def test_rejects_description_md_suffix(self):
@@ -62,9 +62,17 @@ class TestAttachmentNameValidation:
         with pytest.raises(DocumentNameError, match=r".sources.json"):
             Attachment(name="test.sources.json", content=b"data")
 
-    def test_rejects_double_dot(self):
-        with pytest.raises(DocumentNameError, match="path traversal"):
-            Attachment(name="..file.txt", content=b"data")
+    def test_accepts_double_dot(self):
+        """Double dots in filenames are user data, not path traversal — names are never joined into filesystem paths."""
+        valid_names = [
+            "MYNE _ Pitch deck 2026.._compressed.pdf",
+            "..file.txt",
+            "report v1..final.md",
+            "foo...bar.json",
+        ]
+        for name in valid_names:
+            att = Attachment(name=name, content=b"data")
+            assert att.name == name
 
     def test_rejects_leading_whitespace(self):
         with pytest.raises(DocumentNameError):

@@ -16,4 +16,4 @@ class DocumentSizeError(DocumentValidationError):
 
 
 class DocumentNameError(DocumentValidationError):
-    """Raised when document name contains path traversal, reserved suffixes, or invalid format."""
+    """Raised when document name contains path separators, reserved suffixes, or invalid format."""

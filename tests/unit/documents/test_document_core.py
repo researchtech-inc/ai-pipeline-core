@@ -105,15 +105,15 @@ class TestDocumentValidation:
         assert "exceeds maximum allowed size" in str(exc_info.value)
 
     def test_name_security_validation(self):
-        """Test security validation for document names."""
-        # Path traversal attempts should fail
-        with pytest.raises(DocumentNameError):
+        """Test validation for document names."""
+        # Path separators should fail
+        with pytest.raises(DocumentNameError, match="path separator"):
             ConcreteTestDocument(name="../etc/passwd", content=b"test")
 
-        with pytest.raises(DocumentNameError):
+        with pytest.raises(DocumentNameError, match="path separator"):
             ConcreteTestDocument(name="..\\windows\\system32", content=b"test")
 
-        with pytest.raises(DocumentNameError):
+        with pytest.raises(DocumentNameError, match="path separator"):
             ConcreteTestDocument(name="/etc/passwd", content=b"test")
 
         # .meta.json extension should be rejected (reserved for store metadata)
@@ -130,6 +130,22 @@ class TestDocumentValidation:
 
         with pytest.raises(DocumentNameError):
             ConcreteTestDocument(name="test ", content=b"test")
+
+    def test_name_accepts_double_dots_without_separator(self):
+        """Document names with `..` but no path separator are accepted.
+
+        Document.name is stored as data and never joined into a filesystem path
+        (storage uses sha256), so `..` substrings carry no traversal meaning.
+        """
+        valid_names = [
+            "MYNE _ Pitch deck 2026.._compressed.pdf",
+            "report v1..final.md",
+            "foo...bar.json",
+            "..leading.txt",
+        ]
+        for name in valid_names:
+            doc = ConcreteTestDocument(name=name, content=b"test")
+            assert doc.name == name
 
 
 class TestAbstractInstantiation:
