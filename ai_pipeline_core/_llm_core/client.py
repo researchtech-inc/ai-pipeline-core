@@ -69,6 +69,7 @@ _SIGNATURE_REPLAY_PATTERN = re.compile(
     r"(?:corrupted|invalid|missing|not\s+valid).{0,40}?thought.?signature|thought.?signature.{0,40}?(?:corrupted|invalid|missing|not\s+valid)",
     re.IGNORECASE | re.DOTALL,
 )
+_DIRECT_PROVIDER_MODEL_UNAVAILABLE_STATUS = 404
 
 
 @overload
@@ -131,7 +132,7 @@ async def _try_one_model(ctx: _CallContext, model: AIModel) -> AttemptOutcome:
             attempt = _with_structured_retry_prompt(attempt)
 
         outcome = await _execute_attempt(attempt)
-        ctx.absorb(outcome)
+        ctx.absorb(outcome, attempt)
         last_outcome = outcome
         if outcome.response is not None:
             if strip_signatures:
@@ -140,7 +141,8 @@ async def _try_one_model(ctx: _CallContext, model: AIModel) -> AttemptOutcome:
         if outcome.advance_to_fallback or ctx.skip.exhausted:
             return outcome
         if attempt_index < retries:
-            await _sleep_retry(attempt_index, ctx.request.retry.retry_delay_seconds)
+            retry_after = last_outcome.headers.retry_after_s if last_outcome.headers is not None else None
+            await _sleep_retry(attempt_index, ctx.request.retry.retry_delay_seconds, retry_after)
     wrapped = _maybe_wrap_repair_exhausted(last_outcome, model)
     if wrapped is not last_outcome and wrapped.error is not None:
         # Promote the wrapped terminal exception so chain-exhaustion in generate()
@@ -312,7 +314,10 @@ async def _execute_attempt(req: AttemptRequest) -> AttemptOutcome:
         raise TerminalError(f"Terminal LLM provider error for model={req.model.name}: {exc}") from exc
     except _TRANSPORT_FAILURES + _SEMANTIC_FAILURES as exc:
         await _aipl.maybe_fetch_trace(exc, call_id=req.call_id)
-        return _classify_failure(exc)
+        outcome = _classify_failure(exc)
+        if _should_advance_direct_provider_fallback(req, exc, outcome):
+            return replace(outcome, advance_to_fallback=True)
+        return outcome
 
 
 def _check_capabilities(req: AttemptRequest) -> None:
@@ -355,6 +360,7 @@ def _iter_content_parts(content: Any) -> Any:
 
 def _prepare_api_kwargs(req: AttemptRequest) -> tuple[dict[str, Any], str | None]:
     generation = req.call.generation
+    aipl_proxy = get_config().aipl_proxy
     messages = _messages_for_transport(req)
     api_messages = _transport.core_messages_to_api(
         messages,
@@ -368,23 +374,29 @@ def _prepare_api_kwargs(req: AttemptRequest) -> tuple[dict[str, Any], str | None
     if cache_prefix_len > 0 and len(messages) > len(req.call.messages):
         cache_prefix_len += len(messages) - len(req.call.messages)
 
-    prompt_cache_key = req.call.cache.key_override or (
-        _transport.compute_cache_key(api_messages[:cache_prefix_len]) if cache_prefix_len > 0 else None
-    )
-
-    cache_ttl = req.call.cache.ttl
-    if cache_ttl > 0 and cache_prefix_len > 0:
-        _transport.annotate_with_cache_markers(api_messages, cache_prefix_len, cache_ttl)
-
-    metadata = _aipl.build_aipl_metadata(req)
-    if prompt_cache_key is not None:
-        metadata["prompt_cache_key"] = prompt_cache_key
+    prompt_cache_key: str | None = None
     kwargs: dict[str, Any] = {
         "messages": api_messages,
-        "extra_body": _transport.build_extra_body(req, prompt_cache_key=prompt_cache_key),
-        "metadata": metadata,
         "stream_options": {"include_usage": True},
     }
+    if aipl_proxy:
+        prompt_cache_key = req.call.cache.key_override or (
+            _transport.compute_cache_key(api_messages[:cache_prefix_len]) if cache_prefix_len > 0 else None
+        )
+        cache_ttl = req.call.cache.ttl
+        if cache_ttl > 0 and cache_prefix_len > 0:
+            _transport.annotate_with_cache_markers(api_messages, cache_prefix_len, cache_ttl)
+
+        metadata = _aipl.build_aipl_metadata(req)
+        if prompt_cache_key is not None:
+            metadata["prompt_cache_key"] = prompt_cache_key
+        kwargs["metadata"] = metadata
+        extra_body = _transport.build_extra_body(req, prompt_cache_key=prompt_cache_key)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+    user = _transport.tenant_user(req)
+    if user:
+        kwargs["user"] = user
     if generation.temperature is not None:
         kwargs["temperature"] = generation.temperature
     if generation.max_completion_tokens is not None:
@@ -555,6 +567,16 @@ def _classify_failure(exc: BaseException) -> AttemptOutcome:
     )
 
 
+def _should_advance_direct_provider_fallback(
+    req: AttemptRequest,
+    exc: BaseException,
+    outcome: AttemptOutcome,
+) -> bool:
+    if get_config().aipl_proxy or req.model.fallback is None or outcome.advance_to_fallback:
+        return False
+    return _aipl.extract_status(exc) == _DIRECT_PROVIDER_MODEL_UNAVAILABLE_STATUS
+
+
 def _is_signature_replay_error(exc: BaseException) -> bool:
     """True when an upstream 400 rejects a replayed reasoning signature."""
     if _SIGNATURE_REPLAY_PATTERN.search(str(exc)):
@@ -564,15 +586,47 @@ def _is_signature_replay_error(exc: BaseException) -> bool:
     return isinstance(body, str) and bool(_SIGNATURE_REPLAY_PATTERN.search(body))
 
 
-async def _sleep_retry(attempt_index: int, retry_delay_seconds: float | None) -> None:
-    if retry_delay_seconds is None:
-        config = get_config()
-        delay = min(
+def _compute_retry_delay(
+    attempt_index: int,
+    retry_delay_seconds: float | None,
+    retry_after_seconds: float | None,
+    *,
+    jitter: float = 1.0,
+) -> float:
+    """Resolve the pre-retry sleep, honoring an upstream ``Retry-After`` when present.
+
+    ``jitter`` (0.8..1.2 at runtime) is applied to the exponential/fixed backoff, then the
+    ``Retry-After`` floor is enforced *after* jitter so a downward jitter can never make us
+    retry before the server's cool-off (the proxy ``aipl_health`` 429/503 path). The floor is
+    itself bounded by ``conversation_retry_max_delay_seconds`` so an absurd ``Retry-After``
+    (e.g. 9999s) is treated as that maximum rather than honored verbatim and stalling — i.e.
+    we never sleep below the server cool-off, but never longer than the configured ceiling.
+    """
+    config = get_config()
+    if retry_delay_seconds is not None:
+        base = retry_delay_seconds
+    else:
+        base = min(
             config.conversation_retry_delay_seconds * (config.conversation_retry_backoff_multiplier**attempt_index),
             config.conversation_retry_max_delay_seconds,
         )
-    else:
-        delay = retry_delay_seconds
-    jittered_delay = delay * _JITTER_RANDOM.uniform(0.8, 1.2)
-    if jittered_delay > 0:
-        await asyncio.sleep(jittered_delay)
+    delay = base * jitter
+    if retry_after_seconds is not None and retry_after_seconds > 0:
+        floor = min(retry_after_seconds, config.conversation_retry_max_delay_seconds)
+        delay = max(delay, floor)
+    return delay
+
+
+async def _sleep_retry(
+    attempt_index: int,
+    retry_delay_seconds: float | None,
+    retry_after_seconds: float | None = None,
+) -> None:
+    delay = _compute_retry_delay(
+        attempt_index,
+        retry_delay_seconds,
+        retry_after_seconds,
+        jitter=_JITTER_RANDOM.uniform(0.8, 1.2),
+    )
+    if delay > 0:
+        await asyncio.sleep(delay)

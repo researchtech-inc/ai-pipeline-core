@@ -47,6 +47,7 @@ class AIPLResponseHeaders:
     litellm_attempted_retries: int | None = None
     litellm_attempted_fallbacks: int | None = None
     response_cost: float | None = None
+    retry_after_s: float | None = None
 
     @classmethod
     def from_response_headers(cls, headers: Mapping[str, str] | None) -> AIPLResponseHeaders:
@@ -90,6 +91,7 @@ class AIPLResponseHeaders:
                 lower.get("x-litellm-attempted-fallbacks"), "x-litellm-attempted-fallbacks"
             ),
             response_cost=_parse_float(lower.get("x-litellm-response-cost"), "x-litellm-response-cost"),
+            retry_after_s=_parse_retry_after(lower.get("retry-after")),
         )
 
 
@@ -115,6 +117,22 @@ def _parse_float(value: str | None, header: str) -> float | None:
         return float(value)
     except ValueError:
         raise AIPLHeaderParseError(f"Malformed float AIPL header {header}: {value!r}") from None
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a standard ``Retry-After`` header in delta-seconds form.
+
+    Unlike the strict AIPL parsers, this never raises: ``Retry-After`` may
+    legitimately be an HTTP-date, which we do not honor (return ``None`` so the
+    caller falls back to its computed backoff) rather than failing the request.
+    """
+    if not value:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
 
 
 def _parse_bool_flag(value: str | None, header: str) -> bool:

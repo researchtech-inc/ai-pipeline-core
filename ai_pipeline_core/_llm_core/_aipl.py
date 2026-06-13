@@ -40,6 +40,7 @@ __all__ = [
     "build_transport_metadata",
     "classify",
     "deployment_id_from",
+    "extract_status",
     "fetch_trace",
     "headers_from_exception",
     "is_group_exhausted",
@@ -148,7 +149,7 @@ def classify(exc: BaseException, *, headers: AIPLResponseHeaders | None = None) 
     for exception_type, failure_class in _EXCEPTION_FAILURE_CLASSES:
         if isinstance(exc, exception_type):
             return failure_class
-    status = _extract_status(exc)
+    status = extract_status(exc)
     return _STATUS_FAILURE_CLASSES.get(status) if status is not None else None
 
 
@@ -334,7 +335,10 @@ async def fetch_trace(call_id: str | None) -> dict[str, Any] | None:
     """Fetch an AIPL trace blob by call id, returning None when unavailable."""
     if not call_id:
         return None
-    api_key = get_config().openai_api_key
+    config = get_config()
+    if not config.aipl_proxy:
+        return None
+    api_key = config.openai_api_key
     proxy_root = _proxy_root()
     if not proxy_root or not api_key:
         return None
@@ -368,7 +372,8 @@ def _proxy_root() -> str | None:
     return root
 
 
-def _extract_status(exc: BaseException) -> int | None:
+def extract_status(exc: BaseException) -> int | None:
+    """Extract an HTTP status code from OpenAI/httpx-style exceptions."""
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None) if response is not None else None
     if isinstance(status, int):

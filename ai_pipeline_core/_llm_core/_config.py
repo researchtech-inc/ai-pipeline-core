@@ -26,6 +26,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from threading import Lock
+from urllib.parse import urlsplit
 
 __all__ = [
     "LLMCoreConfig",
@@ -41,6 +42,9 @@ class LLMCoreNotConfiguredError(RuntimeError):
     """Raised when ``_llm_core`` is used before ``configure()`` was called."""
 
 
+_DIRECT_PROVIDER_HOSTS: tuple[str, ...] = ("api.openai.com", "openrouter.ai")
+
+
 @dataclass(frozen=True, slots=True)
 class LLMCoreConfig:
     """All external configuration ``_llm_core`` needs to operate.
@@ -51,11 +55,43 @@ class LLMCoreConfig:
 
     openai_base_url: str = ""
     openai_api_key: str = ""
+    project: str = ""
+    # HTTP connection-pool sizing for the shared AsyncOpenAI client. The 200/100
+    # defaults suit a distributed worker fleet (per-process pool); a single-process
+    # high-throughput driver can raise them. ``keepalive_expiry`` is 60s to match the
+    # proxy's keepalive posture and avoid stale-socket reuse.
+    http_max_connections: int = 200
+    http_max_keepalive_connections: int = 100
+    http_keepalive_expiry_s: float = 60.0
     conversation_retries: int = 2
     conversation_retry_delay_seconds: float = 30.0
     conversation_retry_backoff_multiplier: float = 3.0
     conversation_retry_max_delay_seconds: float = 300.0
     prompt_contract_max_repair: int = 2
+
+    def __post_init__(self) -> None:
+        """Validate connection-pool knobs at config load, not at client construction."""
+        if self.http_max_connections < 1:
+            raise ValueError(
+                f"http_max_connections must be >= 1; got {self.http_max_connections}. "
+                "Set a positive HTTP_MAX_CONNECTIONS (200 is the per-process default)."
+            )
+        if self.http_max_keepalive_connections < 0:
+            raise ValueError(f"http_max_keepalive_connections must be >= 0; got {self.http_max_keepalive_connections}.")
+        if self.http_keepalive_expiry_s <= 0:
+            raise ValueError(
+                f"http_keepalive_expiry_s must be > 0; got {self.http_keepalive_expiry_s}. "
+                "Use a positive idle-keepalive in seconds (60 matches the proxy)."
+            )
+
+    @property
+    def aipl_proxy(self) -> bool:
+        """True when the configured base URL targets the AIPL proxy."""
+        base_url = self.openai_base_url.strip()
+        if not base_url:
+            return True
+        host = (urlsplit(base_url if "://" in base_url else f"https://{base_url}").hostname or "").lower()
+        return not any(host == direct or host.endswith(f".{direct}") for direct in _DIRECT_PROVIDER_HOSTS)
 
 
 # Process-wide default config installed by ``configure()``. A ContextVar

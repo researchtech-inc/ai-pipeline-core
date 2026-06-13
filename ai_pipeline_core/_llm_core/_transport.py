@@ -16,7 +16,7 @@ import httpx
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from ._config import get_config, register_on_config_change
+from ._config import LLMCoreConfig, get_config, register_on_config_change
 from ._defaults import cache_ttl_to_wire
 from ._validation import validate_image_content, validate_pdf_content
 from .exceptions import PayloadTooLargeError
@@ -26,6 +26,7 @@ from .types import ContentPart, CoreMessage, ImageContent, PDFContent, RawToolCa
 __all__ = [
     "annotate_with_cache_markers",
     "build_extra_body",
+    "build_request_headers",
     "compute_cache_key",
     "core_messages_to_api",
     "get_client",
@@ -33,6 +34,7 @@ __all__ = [
     "override_client",
     "shutdown_client",
     "strip_reasoning_signatures",
+    "tenant_user",
 ]
 
 _REASONING_SIGNATURE_KEYS = frozenset({"thought_signature", "thought_signatures"})
@@ -46,6 +48,7 @@ _TOOL_CALL_ID_SIGNATURE_SEPARATOR = "__thought__"
 logger = logging.getLogger(__name__)
 type APIMessage = dict[str, Any]
 _MAX_INLINE_FILE_BYTES = 25_000_000
+_MAX_HEADER_VALUE_LEN = 256
 
 
 @dataclass(slots=True)
@@ -58,6 +61,15 @@ _client_state = _ClientState()  # infrastructure singleton: process-wide HTTP po
 _client_override: ContextVar[AsyncOpenAI | None] = ContextVar("_llm_openai_client_override", default=None)
 
 
+def _build_http_limits(config: LLMCoreConfig) -> httpx.Limits:
+    """Build the httpx connection-pool limits from the active config."""
+    return httpx.Limits(
+        max_connections=config.http_max_connections,
+        max_keepalive_connections=config.http_max_keepalive_connections,
+        keepalive_expiry=config.http_keepalive_expiry_s,
+    )
+
+
 async def get_client() -> AsyncOpenAI:
     """Return a process-wide AsyncOpenAI client with pooled HTTP connections."""
     override = _client_override.get()
@@ -68,7 +80,7 @@ async def get_client() -> AsyncOpenAI:
     async with _client_state.lock:
         if _client_state.client is None:
             config = get_config()
-            limits = httpx.Limits(max_connections=200, max_keepalive_connections=100, keepalive_expiry=300)
+            limits = _build_http_limits(config)
             timeout = httpx.Timeout(connect=10.0, read=600.0, write=120.0, pool=10.0)
             _client_state.client = AsyncOpenAI(
                 api_key=config.openai_api_key,
@@ -222,6 +234,60 @@ def build_extra_body(req: AttemptRequest, *, prompt_cache_key: str | None) -> di
     return body
 
 
+def _safe_header_value(value: Any, *, max_len: int = _MAX_HEADER_VALUE_LEN) -> str:
+    """Strip control characters and truncate so httpx accepts the header value."""
+    text = "".join(ch for ch in str(value) if ch >= " " and ch != "\x7f")
+    return text.strip()[:max_len]
+
+
+def _put_header(headers: dict[str, str], name: str, value: Any) -> None:
+    if value is None or (isinstance(value, str) and not value):
+        return
+    safe = _safe_header_value(value)
+    if safe:
+        headers[name] = safe
+
+
+def build_request_headers(req: AttemptRequest) -> dict[str, str]:
+    """Build proxy-only AIPL correlation and tenant headers for one attempt."""
+    if not get_config().aipl_proxy:
+        return {}
+    headers: dict[str, str] = {"x-aipl-call-id": req.call_id}
+    correlation = req.correlation
+    if correlation is not None:
+        _put_header(headers, "x-aipl-logical-request-id", correlation.logical_request_id)
+        _put_header(headers, "x-aipl-attempt-number", correlation.attempt_number)
+        _put_header(headers, "x-aipl-attempt-kind", correlation.attempt_kind)
+        _put_header(headers, "x-aipl-requested-model", correlation.requested_model)
+        if correlation.is_fallback:
+            _put_header(headers, "x-aipl-is-fallback", "true")
+        _put_header(headers, "x-aipl-prev-call-id", correlation.prev_call_id)
+        _put_header(headers, "x-aipl-prev-model", correlation.prev_model)
+        _put_header(headers, "x-aipl-prev-deployment-id", correlation.prev_deployment_id)
+        _put_header(headers, "x-aipl-prev-failure-class", correlation.prev_failure_class)
+    tenant = req.call.tenant
+    _put_header(headers, "x-aipl-project", tenant.project or get_config().project or None)
+    _put_header(headers, "x-aipl-workload-stage", tenant.workload_stage)
+    _put_header(headers, "x-aipl-run-id", tenant.run_id)
+    _put_header(headers, "x-aipl-workload-kind", tenant.workload_kind)
+    return headers
+
+
+def tenant_user(req: AttemptRequest) -> str | None:
+    """Build the OpenAI ``user`` value used for tenant attribution."""
+    tenant = req.call.tenant
+    project = _safe_header_value(tenant.project or get_config().project)
+    if not project:
+        return None
+    stage = _safe_header_value(tenant.workload_stage) if tenant.workload_stage else ""
+    run_id = _safe_header_value(tenant.run_id) if tenant.run_id else ""
+    if run_id:
+        return "/".join([project, stage, run_id])
+    if stage:
+        return "/".join([project, stage])
+    return project
+
+
 @asynccontextmanager
 async def open_stream(
     req: AttemptRequest, *, messages: list[APIMessage], api_kwargs: dict[str, Any]
@@ -233,14 +299,17 @@ async def open_stream(
     """
     client = await get_client()
     create = cast(Any, client.chat.completions.with_raw_response.create)
-    yield await create(
-        model=req.model.name,
-        messages=cast(Iterable[ChatCompletionMessageParam], messages),
-        stream=True,
-        extra_headers={"x-aipl-call-id": req.call_id},
-        timeout=req.call.retry.timeout_s or req.model.timeout_s,
+    request_kwargs: dict[str, Any] = {
+        "model": req.model.name,
+        "messages": cast(Iterable[ChatCompletionMessageParam], messages),
+        "stream": True,
+        "timeout": req.call.retry.timeout_s or req.model.timeout_s,
         **api_kwargs,
-    )
+    }
+    extra_headers = build_request_headers(req)
+    if extra_headers:
+        request_kwargs["extra_headers"] = extra_headers
+    yield await create(**request_kwargs)
 
 
 def _content_to_api_parts(content: str | ContentPart | tuple[ContentPart, ...]) -> list[dict[str, Any]]:

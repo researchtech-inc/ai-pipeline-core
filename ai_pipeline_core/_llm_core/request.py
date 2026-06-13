@@ -10,6 +10,7 @@ from ._defaults import DEFAULT_CACHE_TTL_MINUTES, cache_ttl_to_wire
 from .types import AIModel, CoreMessage
 
 __all__ = [
+    "AttemptCorrelation",
     "AttemptRequest",
     "CacheSpec",
     "DebugSpec",
@@ -19,6 +20,7 @@ __all__ = [
     "ResponseSpec",
     "RetrySpec",
     "RoutingSpec",
+    "TenantSpec",
     "ToolSpec",
     "ValidationSpec",
     "get_list_item_type",
@@ -70,6 +72,16 @@ class RoutingSpec:
     preferred_deployment_id: str | None = None
     skip_cost_optimized: bool | None = None
     skip_ids: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
+class TenantSpec:
+    """Tenant and workload attribution for one logical LLM request."""
+
+    project: str | None = None
+    workload_stage: str | None = None
+    run_id: str | None = None
+    workload_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,11 +173,27 @@ class LLMRequest:
     generation: GenerationSpec = field(default_factory=GenerationSpec)
     cache: CacheSpec = field(default_factory=CacheSpec)
     routing: RoutingSpec = field(default_factory=RoutingSpec)
+    tenant: TenantSpec = field(default_factory=TenantSpec)
     response: ResponseSpec = field(default_factory=ResponseSpec)
     tools: ToolSpec = field(default_factory=ToolSpec)
     debug: DebugSpec = field(default_factory=DebugSpec)
     retry: RetrySpec = field(default_factory=RetrySpec)
     purpose: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptCorrelation:
+    """Per-attempt correlation linking one HTTP call to its retry/fallback chain."""
+
+    logical_request_id: str
+    attempt_number: int
+    attempt_kind: Literal["initial", "retry_same_model", "fallback_model"]
+    is_fallback: bool
+    requested_model: str
+    prev_call_id: str | None = None
+    prev_model: str | None = None
+    prev_deployment_id: str | None = None
+    prev_failure_class: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,3 +204,4 @@ class AttemptRequest:
     model: AIModel
     attempt_index: int
     call_id: str
+    correlation: AttemptCorrelation | None = None

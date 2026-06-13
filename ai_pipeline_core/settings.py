@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # LLM API Configuration
     openai_base_url: str = ""
     openai_api_key: str = ""
+    project: str = ""
+
+    # HTTP connection-pool sizing for the shared AsyncOpenAI client. Defaults suit a
+    # distributed worker fleet (per-process pool); raise via env for a single-process
+    # high-throughput driver. Keepalive is 60s to match the proxy keepalive posture.
+    http_max_connections: int = 200
+    http_max_keepalive_connections: int = 100
+    http_keepalive_expiry_s: float = 60.0
 
     # Prefect Configuration
     prefect_api_url: str = ""

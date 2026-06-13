@@ -12,6 +12,7 @@ import pytest
 
 from ai_pipeline_core._llm_core import CoreMessage, LLMRequest, RetrySpec, Role
 from ai_pipeline_core._llm_core import _transport
+from ai_pipeline_core._llm_core._config import LLMCoreConfig, override_config
 from ai_pipeline_core._llm_core import client as llm_client
 from ai_pipeline_core._llm_core._watchdog import StreamWatchdog, WatchdogConfig
 from ai_pipeline_core._llm_core.exceptions import (
@@ -395,6 +396,37 @@ async def test_unclassified_bad_request_advances_when_fallback_configured(
     assert response.model == fallback.name
     assert seen_models == [primary.name, fallback.name]
     assert response.transport.model_chain.used_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_direct_provider_not_found_advances_when_fallback_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Direct OpenAI/OpenRouter 404 means the configured model route is unavailable."""
+    fallback = ALTERNATE_TEST_MODEL
+    primary = DEFAULT_TEST_MODEL.model_copy(update={"fallback": fallback})
+    seen_models: list[str] = []
+
+    @asynccontextmanager
+    async def fake_open_stream(
+        req: Any, *, messages: list[dict[str, Any]], api_kwargs: dict[str, Any]
+    ) -> AsyncIterator[Any]:
+        _ = messages, api_kwargs
+        seen_models.append(req.model.name)
+        if req.model.name == primary.name:
+            request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("model not found", request=request, response=response)
+        yield _success_raw(req.model.name)
+
+    monkeypatch.setattr(_transport, "open_stream", fake_open_stream)
+
+    with override_config(LLMCoreConfig(openai_base_url="https://openrouter.ai/api/v1", openai_api_key="key")):
+        response = await llm_client.generate(_request(primary))
+
+    assert response.content == "fallback ok"
+    assert response.model == fallback.name
+    assert seen_models == [primary.name, fallback.name]
 
 
 @pytest.mark.asyncio

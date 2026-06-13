@@ -1,13 +1,18 @@
 """AIPL metadata and trace helper tests."""
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 import httpx
 import pytest
 
 from ai_pipeline_core._llm_core import _aipl
+from ai_pipeline_core._llm_core import _transport
+from ai_pipeline_core._llm_core._config import LLMCoreConfig, override_config
+from ai_pipeline_core._llm_core._routing import _CallContext
 from ai_pipeline_core._llm_core._transport_metadata import AIPLInfo
+from ai_pipeline_core._llm_core.client import _prepare_api_kwargs
 from ai_pipeline_core._llm_core.exceptions import (
     ContentPolicyError,
     EmptyResponseError,
@@ -15,9 +20,11 @@ from ai_pipeline_core._llm_core.exceptions import (
     PartialToolCallStreamError,
     StreamWatchdogError,
 )
+from ai_pipeline_core._llm_core.model_response import AttemptOutcome
 from ai_pipeline_core._llm_core.request import AttemptRequest, LLMRequest
+from ai_pipeline_core._llm_core.request import AttemptCorrelation, CacheSpec, RetrySpec, TenantSpec
 from ai_pipeline_core._llm_core.types import CoreMessage, Role
-from tests.support.model_catalog import DEFAULT_TEST_MODEL
+from tests.support.model_catalog import ALTERNATE_TEST_MODEL, DEFAULT_TEST_MODEL
 
 
 def _attempt() -> AttemptRequest:
@@ -28,10 +35,145 @@ def _attempt() -> AttemptRequest:
     return AttemptRequest(call=request, model=request.model, attempt_index=0, call_id="call-123")
 
 
+def _attribution_request(*, tenant: TenantSpec | None = None, cache: CacheSpec | None = None) -> LLMRequest:
+    return LLMRequest(
+        model=DEFAULT_TEST_MODEL,
+        messages=(
+            CoreMessage(role=Role.USER, content="cacheable context"),
+            CoreMessage(role=Role.USER, content="question"),
+        ),
+        cache=cache or CacheSpec(ttl=0),
+        retry=RetrySpec(retries=0),
+        tenant=tenant or TenantSpec(),
+        purpose="unit-attribution",
+    )
+
+
+def _attribution_attempt(request: LLMRequest, *, attempt_index: int = 0) -> AttemptRequest:
+    return AttemptRequest(
+        call=request,
+        model=request.model,
+        attempt_index=attempt_index,
+        call_id="call-1",
+        correlation=AttemptCorrelation(
+            logical_request_id="logical-1",
+            attempt_number=2,
+            attempt_kind="fallback_model",
+            is_fallback=True,
+            requested_model=request.model.name,
+            prev_call_id="call-0",
+            prev_model="previous-model",
+            prev_deployment_id="deployment-0",
+            prev_failure_class="rate",
+        ),
+    )
+
+
 def test_build_aipl_metadata_includes_aipl_call_id() -> None:
     metadata = _aipl.build_aipl_metadata(_attempt())
 
     assert metadata == {"aipl": "1", "aipl_call_id": "call-123"}
+
+
+def test_proxy_headers_include_correlation_and_sanitized_tenant() -> None:
+    request = _attribution_request(
+        tenant=TenantSpec(
+            project="tenant\nproject",
+            workload_stage="stage\rname",
+            run_id="run\x00id",
+            workload_kind="summary",
+        )
+    )
+
+    with override_config(LLMCoreConfig(openai_base_url="https://proxy.example/v1", openai_api_key="key")):
+        headers = _transport.build_request_headers(_attribution_attempt(request))
+
+    assert headers == {
+        "x-aipl-call-id": "call-1",
+        "x-aipl-logical-request-id": "logical-1",
+        "x-aipl-attempt-number": "2",
+        "x-aipl-attempt-kind": "fallback_model",
+        "x-aipl-requested-model": DEFAULT_TEST_MODEL.name,
+        "x-aipl-is-fallback": "true",
+        "x-aipl-prev-call-id": "call-0",
+        "x-aipl-prev-model": "previous-model",
+        "x-aipl-prev-deployment-id": "deployment-0",
+        "x-aipl-prev-failure-class": "rate",
+        "x-aipl-project": "tenantproject",
+        "x-aipl-workload-stage": "stagename",
+        "x-aipl-run-id": "runid",
+        "x-aipl-workload-kind": "summary",
+    }
+
+
+def test_direct_mode_omits_aipl_headers_metadata_and_cache_protocol() -> None:
+    request = _attribution_request(
+        tenant=TenantSpec(project="tenant", workload_stage="stage", run_id="run"),
+        cache=CacheSpec(context_count=1, ttl=5),
+    )
+    attempt = _attribution_attempt(request, attempt_index=1)
+
+    with override_config(LLMCoreConfig(openai_base_url="https://openrouter.ai/api/v1", openai_api_key="key")):
+        headers = _transport.build_request_headers(attempt)
+        api_kwargs, prompt_cache_key = _prepare_api_kwargs(attempt)
+
+    assert headers == {}
+    assert prompt_cache_key is None
+    assert api_kwargs["user"] == "tenant/stage/run"
+    assert "metadata" not in api_kwargs
+    assert "extra_body" not in api_kwargs
+    assert "cache_control" not in api_kwargs["messages"][0]
+    assert "cache_control" not in api_kwargs["messages"][0]["content"]
+
+
+def test_tenant_user_omits_empty_suffixes_but_preserves_run_position() -> None:
+    with override_config(LLMCoreConfig(project="tenant")):
+        assert _transport.tenant_user(_attribution_attempt(_attribution_request())) == "tenant"
+        assert (
+            _transport.tenant_user(
+                _attribution_attempt(_attribution_request(tenant=TenantSpec(workload_stage="stage")))
+            )
+            == "tenant/stage"
+        )
+        assert (
+            _transport.tenant_user(_attribution_attempt(_attribution_request(tenant=TenantSpec(run_id="run"))))
+            == "tenant//run"
+        )
+
+
+def test_call_context_links_retries_and_fallbacks_with_one_logical_request_id() -> None:
+    primary = DEFAULT_TEST_MODEL.model_copy(update={"fallback": ALTERNATE_TEST_MODEL})
+    ctx = _CallContext(replace(_attribution_request(), model=primary))
+
+    first = ctx.build_attempt(primary, 0)
+    ctx.absorb(
+        AttemptOutcome(
+            error=RuntimeError("rate limited"),
+            headers=_aipl.AIPLResponseHeaders(deployment_id="deployment-primary", failure_class="rate"),
+            failed_deployment_id="deployment-primary",
+        ),
+        first,
+    )
+    retry = ctx.build_attempt(primary, 1)
+    ctx.absorb(AttemptOutcome(error=RuntimeError("server"), failed_deployment_id="deployment-primary-2"), retry)
+    fallback = ctx.build_attempt(ALTERNATE_TEST_MODEL, 0)
+
+    assert first.correlation is not None
+    assert retry.correlation is not None
+    assert fallback.correlation is not None
+    assert retry.correlation.logical_request_id == first.correlation.logical_request_id
+    assert retry.correlation.attempt_number == 2
+    assert retry.correlation.attempt_kind == "retry_same_model"
+    assert retry.correlation.is_fallback is False
+    assert retry.correlation.prev_call_id == first.call_id
+    assert retry.correlation.prev_deployment_id == "deployment-primary"
+    assert retry.correlation.prev_failure_class == "rate"
+    assert fallback.correlation.logical_request_id == first.correlation.logical_request_id
+    assert fallback.correlation.attempt_number == 3
+    assert fallback.correlation.attempt_kind == "fallback_model"
+    assert fallback.correlation.is_fallback is True
+    assert fallback.correlation.prev_call_id == retry.call_id
+    assert fallback.correlation.prev_deployment_id == "deployment-primary-2"
 
 
 def test_classify_stream_watchdog_returns_watchdog() -> None:

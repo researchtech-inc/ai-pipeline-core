@@ -17,7 +17,7 @@ This framework is the foundation of AI projects at [research.tech](https://resea
 
 **Conversation model identity:** `Conversation` now accepts only `AIModel` instances at the model boundary; raw strings are rejected. Wrap model names with `AIModel(name=...)` before constructing conversations or passing model identity through options. See [Conversation](#conversation-recommended) and [AIModel](#aimodel).
 
-**LLM transport:** OpenRouter support has been dropped as a supported transport path. The AIPL-compatible LiteLLM proxy is the only production transport, including deployment routing, fallback chains, group exhaustion, and trace fetch. See [Required Proxy Capabilities](#required-proxy-capabilities).
+**LLM transport:** Direct OpenAI (`api.openai.com`) and OpenRouter (`openrouter.ai`) are supported for quick testing and simple runs through the standard OpenAI client path. The AIPL-compatible LiteLLM proxy remains the full production transport when you need deployment routing, fallback chains, group exhaustion, and trace fetch. See [Required Proxy Capabilities](#required-proxy-capabilities).
 
 **LLM exceptions:** The LLM core now exposes `TerminalError`, `RetryableError`, `GroupExhaustedError`, `ContentPolicyError`, `LLMValidationError`, and `StreamWatchdogError` for routing and failure handling. See [Exceptions](#exceptions).
 
@@ -36,7 +36,7 @@ This framework is the foundation of AI projects at [research.tech](https://resea
 - **Document System**: Single `Document` base class with immutable content, SHA256-based identity, automatic MIME type detection, provenance tracking, multi-part attachments, and optional typed content via `Document[ModelType]`
 - **Database Storage**: Unified database backends (ClickHouse production, filesystem CLI/download/replay, in-memory testing) with automatic deduplication
 - **Conversation Class**: Immutable, stateful multi-turn LLM conversations with context caching, automatic URL/address shortening, and eager response restoration
-- **LLM Integration**: Unified interface to any model via an AIPL-compatible LiteLLM proxy with context caching (default 300s TTL). Production execution requires fallback chains, group exhaustion, deployment routing, and trace fetch — capabilities only the AIPL proxy provides
+- **LLM Integration**: Unified interface to any model through one OpenAI-compatible client path. Direct OpenAI and OpenRouter work for simple runs; the AIPL-compatible LiteLLM proxy adds production routing, fallback chains, group exhaustion, trace fetch, and richer observability
 - **Tool Calling**: Define tools as typed Python classes with import-time validation, automatic schema generation, and a built-in auto-loop that executes tools and re-sends results until the LLM produces a final answer
 - **Structured Output**: Type-safe generation with Pydantic model validation via `Conversation.send_structured()`
 - **Workflow Orchestration**: Class-based `PipelineTask`, `PipelineFlow`, and `PipelineDeployment` with annotation-driven document types and import-time validation
@@ -79,10 +79,10 @@ dev = [
 ]
 ```
 
-`ai-dev-cli` ships on PyPI; pin the exact version to lock the workflow contract. To pin `trace-inspector` to a specific revision, append `@v0.23.2` (or a commit hash) before `#subdirectory`:
+`ai-dev-cli` ships on PyPI; pin the exact version to lock the workflow contract. To pin `trace-inspector` to a specific revision, append `@v0.23.11` (or a commit hash) before `#subdirectory`:
 
 ```toml
-    "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.23.2#subdirectory=tools/trace-inspector"
+    "trace-inspector @ git+https://github.com/researchtech-inc/ai-pipeline-core.git@v0.23.11#subdirectory=tools/trace-inspector"
 ```
 
 This installs two additional CLI commands:
@@ -1362,9 +1362,18 @@ Connection defaults to `CLICKHOUSE_*` environment variables, or use `--db-path` 
 ### Environment Variables
 
 ```bash
-# LLM Configuration (via LiteLLM proxy)
+# LLM Configuration
+# AIPL-compatible LiteLLM proxy:
 OPENAI_BASE_URL=http://localhost:4000
 OPENAI_API_KEY=your-api-key
+
+# Direct OpenAI:
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_API_KEY=your-openai-key
+
+# Direct OpenRouter:
+# OPENAI_BASE_URL=https://openrouter.ai/api/v1
+# OPENAI_API_KEY=your-openrouter-key
 
 # Optional: Orchestration
 PREFECT_API_URL=http://localhost:4200/api
@@ -1410,7 +1419,7 @@ PUBSUB_TOPIC_ID=pipeline-events
 
 ### Required Proxy Capabilities
 
-The framework can speak to a plain LiteLLM-compatible endpoint for basic completions, but production behavior assumes an AIPL-compatible LiteLLM proxy. These capabilities power fallback chains, deployment pinning, workload routing, and trace debugging:
+Direct OpenAI and OpenRouter work through the same OpenAI-compatible client path for simple requests and client-side `AIModel.fallback`. Production behavior still assumes an AIPL-compatible LiteLLM proxy when you need richer routing and observability. These capabilities power fallback chains, deployment pinning, workload routing, and trace debugging:
 
 - AIPL response headers parsed by the framework, including `x-aipl-call-id`, `x-aipl-deployment-id`, `x-aipl-group-status`, `x-aipl-tried`, `x-aipl-failed`, `x-aipl-cc-dedup`, `x-aipl-cc-stale`, cache headers, limiter headers, and provider metadata.
 - `GET /aipl/trace/{call_id}` for best-effort trace fetch after failed or degraded calls.

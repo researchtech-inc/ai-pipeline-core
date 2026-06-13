@@ -24,6 +24,10 @@ def install_default_config() -> None:
         LLMCoreConfig(
             openai_base_url=settings.openai_base_url,
             openai_api_key=settings.openai_api_key,
+            project=settings.project,
+            http_max_connections=settings.http_max_connections,
+            http_max_keepalive_connections=settings.http_max_keepalive_connections,
+            http_keepalive_expiry_s=float(settings.http_keepalive_expiry_s),
             conversation_retries=settings.conversation_retries,
             conversation_retry_delay_seconds=float(settings.conversation_retry_delay_seconds),
             conversation_retry_backoff_multiplier=float(settings.conversation_retry_backoff_multiplier),

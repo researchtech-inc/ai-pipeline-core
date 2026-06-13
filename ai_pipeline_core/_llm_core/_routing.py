@@ -3,13 +3,14 @@
 import time
 from collections.abc import Iterator
 from contextvars import ContextVar, Token
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from typing import Literal
 from uuid import uuid4
 
-from ._aipl import AIPLResponseHeaders
+from ._aipl import AIPLResponseHeaders, classify
 from .exceptions import LLMError
 from .model_response import AttemptOutcome
-from .request import AttemptRequest, LLMRequest
+from .request import AttemptCorrelation, AttemptRequest, LLMRequest
 from .types import AIModel
 
 __all__ = ["GroupSkipList", "_CallContext", "reset_workload_state", "set_workload_state"]
@@ -119,6 +120,16 @@ def _workload_state() -> WorkloadState | None:
     return _workload_state_cv.get()
 
 
+@dataclass(frozen=True, slots=True)
+class _PrevAttempt:
+    """Snapshot of the previous real HTTP attempt in a logical generation."""
+
+    call_id: str
+    model_name: str
+    deployment_id: str | None
+    failure_class: str | None
+
+
 class _CallContext:
     """Mutable state for one logical generate call."""
 
@@ -126,6 +137,9 @@ class _CallContext:
         self.request = request
         self.skip = GroupSkipList()
         self.last_error: BaseException | None = None
+        self.logical_request_id = uuid4().hex
+        self.attempt_number = 0
+        self.prev: _PrevAttempt | None = None
         self.workload_id = request.routing.workload_id or derive_workload_id(
             run_id=None, name=request.purpose or request.model.name
         )
@@ -139,17 +153,35 @@ class _CallContext:
             current = current.fallback
 
     def build_attempt(self, model: AIModel, attempt_index: int) -> AttemptRequest:
-        """Build one attempt request with current skip state."""
+        """Build one attempt request with current skip and correlation state."""
         routing = replace(self.request.routing, skip_ids=self.skip.ids)
         call = replace(self.request, routing=routing)
+        if self.prev is None:
+            attempt_kind: Literal["initial", "retry_same_model", "fallback_model"] = "initial"
+        elif self.prev.model_name == model.name:
+            attempt_kind = "retry_same_model"
+        else:
+            attempt_kind = "fallback_model"
+        correlation = AttemptCorrelation(
+            logical_request_id=self.logical_request_id,
+            attempt_number=self.attempt_number + 1,
+            attempt_kind=attempt_kind,
+            is_fallback=model.name != self.request.model.name,
+            requested_model=self.request.model.name,
+            prev_call_id=self.prev.call_id if self.prev else None,
+            prev_model=self.prev.model_name if self.prev else None,
+            prev_deployment_id=self.prev.deployment_id if self.prev else None,
+            prev_failure_class=self.prev.failure_class if self.prev else None,
+        )
         return AttemptRequest(
             call=call,
             model=model,
             attempt_index=attempt_index,
             call_id=uuid4().hex,
+            correlation=correlation,
         )
 
-    def absorb(self, outcome: AttemptOutcome) -> None:
+    def absorb(self, outcome: AttemptOutcome, attempt: AttemptRequest | None = None) -> None:
         """Fold an attempt outcome into context state."""
         if outcome.error is not None:
             self.last_error = outcome.error
@@ -157,6 +189,7 @@ class _CallContext:
             self.skip.merge_from_headers(outcome.headers)
         if outcome.new_skip_ids:
             self.skip.update(outcome.new_skip_ids)
+        deployment_id: str | None = outcome.failed_deployment_id
         response = outcome.response
         if response is not None:
             deployment_id = response.transport.aipl.deployment_id
@@ -166,6 +199,14 @@ class _CallContext:
                 self.skip.exhausted = True
         if outcome.demote_workload and outcome.failed_deployment_id is not None:
             mark_slow(self.workload_id, outcome.failed_deployment_id)
+        if attempt is not None:
+            self.prev = _PrevAttempt(
+                call_id=attempt.call_id,
+                model_name=attempt.model.name,
+                deployment_id=deployment_id,
+                failure_class=classify(outcome.error, headers=outcome.headers) if outcome.error is not None else None,
+            )
+            self.attempt_number += 1
 
     def terminal_error(self) -> BaseException:
         """Return the most useful terminal error after all attempts fail."""

@@ -22,6 +22,7 @@ from ai_pipeline_core._llm_core.request import (
     ResponseSpec,
     RetrySpec,
     RoutingSpec,
+    TenantSpec,
     ToolSpec,
     ValidationSpec,
 )
@@ -429,7 +430,21 @@ def _build_llm_request(
             warmup_strategy_override=debug_override.warmup_strategy_override if debug_override else None,
         ),
         purpose=request.purpose,
+        tenant=_tenant_spec_for_request(request),
     )
+
+
+def _tenant_spec_for_request(request: InteractionRequest) -> TenantSpec:
+    """Build tenant attribution from the active execution context."""
+    execution_ctx = get_execution_context()
+    if execution_ctx is None:
+        return TenantSpec(workload_stage=request.purpose)
+    stage = request.purpose
+    if execution_ctx.task_frame is not None and execution_ctx.task_frame.task_class_name:
+        stage = execution_ctx.task_frame.task_class_name
+    elif execution_ctx.flow_frame is not None and execution_ctx.flow_frame.flow_class_name:
+        stage = execution_ctx.flow_frame.flow_class_name
+    return TenantSpec(workload_stage=stage, run_id=execution_ctx.run_id)
 
 
 async def _execute_tools(
