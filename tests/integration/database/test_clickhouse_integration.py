@@ -26,6 +26,7 @@ from ai_pipeline_core.database._types import (
 )
 from ai_pipeline_core.database.clickhouse._backend import ClickHouseDatabase
 from ai_pipeline_core.database.clickhouse._connection import reset_schema_check
+from ai_pipeline_core.database.clickhouse._ddl import LOGS_TTL_DAYS
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._handler import ExecutionLogHandler
@@ -85,6 +86,10 @@ async def database(clickhouse_settings: Settings):
 # ---------------------------------------------------------------------------
 
 _BASE_TIME = datetime(2026, 3, 11, 12, 0, tzinfo=UTC)
+# The logs table has a LOGS_TTL_DAYS DELETE TTL. A fixed past date drifts past it
+# over time, and ClickHouse's off-schedule TTL merge then deletes the rows, so the
+# log tests start flaking. Anchor log timestamps to "now" so they never expire.
+_LOG_BASE_TIME = datetime.now(UTC)
 
 
 def _make_span(**kwargs: object) -> SpanRecord:
@@ -145,7 +150,7 @@ def _make_log(**kwargs: object) -> LogRecord:
     defaults: dict[str, object] = {
         "deployment_id": uuid4(),
         "span_id": uuid4(),
-        "timestamp": _BASE_TIME,
+        "timestamp": _LOG_BASE_TIME,
         "sequence_no": 0,
         "level": "INFO",
         "category": "framework",
@@ -157,6 +162,23 @@ def _make_log(**kwargs: object) -> LogRecord:
     }
     defaults.update(kwargs)
     return LogRecord(**defaults)
+
+
+def test_log_fixture_timestamp_within_ttl() -> None:
+    """Guard: the default log-fixture timestamp must stay within the logs DELETE TTL.
+
+    Closes the category behind a real CI failure: a fixed past date in _make_log
+    drifted past the logs table's LOGS_TTL_DAYS TTL, ClickHouse's off-schedule TTL
+    merge deleted the rows, and the log tests flaked. This is a fast, deterministic,
+    ClickHouse-free check — if someone reintroduces an absolute past timestamp it
+    fails immediately here with an actionable message instead of flaking months later.
+    """
+    age_days = (datetime.now(UTC) - _make_log().timestamp).total_seconds() / 86_400
+    assert age_days < LOGS_TTL_DAYS / 2, (
+        f"Default log timestamp is {age_days:.0f} days old, approaching the logs "
+        f"DELETE TTL of {LOGS_TTL_DAYS} days. Keep _LOG_BASE_TIME anchored to now() — "
+        "a fixed past date drifts past the TTL and makes the log tests flake."
+    )
 
 
 # ---------------------------------------------------------------------------

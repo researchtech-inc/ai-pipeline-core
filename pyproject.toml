@@ -1,6 +1,6 @@
 [project]
 name = "ai-pipeline-core"
-version = "0.23.11"
+version = "0.23.12"
 description = "Core utilities for AI-powered processing pipelines using prefect"
 readme = "README.md"
 license = {text = "MIT"}

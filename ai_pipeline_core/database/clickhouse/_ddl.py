@@ -8,6 +8,7 @@ __all__ = [
     "DOCUMENTS_TABLE",
     "LOGS_DDL",
     "LOGS_TABLE",
+    "LOGS_TTL_DAYS",
     "SCHEMA_META_DDL",
     "SCHEMA_META_TABLE",
     "SCHEMA_VERSION",
@@ -22,6 +23,11 @@ DOCUMENTS_TABLE = "documents"
 BLOBS_TABLE = "blobs"
 LOGS_TABLE = "logs"
 SCHEMA_META_TABLE = "schema_meta"
+
+# DELETE-TTL retention for the logs table. Single source of truth: the DDL below
+# interpolates this, and tests that stamp log rows assert their timestamps stay
+# within this window so a fixed past date can never silently drift past the TTL.
+LOGS_TTL_DAYS = 90
 
 SPANS_DDL = f"""
 CREATE TABLE IF NOT EXISTS {SPANS_TABLE} (
@@ -125,7 +131,7 @@ CREATE TABLE IF NOT EXISTS {LOGS_TABLE} (
 )
 ENGINE = MergeTree()
 ORDER BY (deployment_id, span_id, timestamp, sequence_no)
-TTL toDateTime(timestamp) + INTERVAL 90 DAY
+TTL toDateTime(timestamp) + INTERVAL {LOGS_TTL_DAYS} DAY
 """.strip()
 
 SCHEMA_META_DDL = f"""
