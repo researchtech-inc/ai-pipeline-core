@@ -3,7 +3,7 @@
 The integration tests under ``tests/integration/llm/`` are exempt from the
 file-rules registry (their ``__module__`` contains the ``tests`` segment),
 which short-circuits ``load_body_file`` to an empty body. To exercise the
-template-driven path (``.md.j2`` / ``.md`` discovery + Jinja rendering),
+template-driven path (``.j2`` discovery + Jinja rendering),
 this helper constructs classes whose ``__module__`` is a single-segment
 stub module name (e.g. ``_pc_test_stub_pass_phrase``) registered in
 ``sys.modules`` with ``__file__`` pointing into ``contracts/``.

@@ -30,6 +30,7 @@ type JsonValue = Any
 __all__ = [
     "TOKENS_PER_IMAGE",
     "AIModel",
+    "AIModelRef",
     "ContentPart",
     "CoreMessage",
     "ImageContent",
@@ -149,6 +150,9 @@ class AIModel(BaseModel):
             seen.add(current.name)
             current = current.fallback
         return self
+
+
+AIModelRef = AIModel
 
 
 class RawToolCall(BaseModel):

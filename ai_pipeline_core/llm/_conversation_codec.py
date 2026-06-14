@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from ._conversation_messages import AnyMessage, AssistantMessage, ToolResultMessage, UserMessage
+from ._request_messages import AnyMessage, AssistantMessage, ToolResultMessage, UserMessage
 
 
 def serialize_message(message: AnyMessage) -> Any:

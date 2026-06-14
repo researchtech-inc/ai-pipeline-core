@@ -4,8 +4,8 @@ from typing import Any, ClassVar, Never
 
 from ai_pipeline_core.pipeline._file_rules import is_exempt
 
-from ._body_file import BodyFormat, load_body_file
-from ._class_introspection import declared_annotations, is_classvar_annotation
+from .body_file import load_body_file
+from .class_introspection import declared_annotations, is_classvar_annotation
 
 __all__ = ["Methodology"]
 
@@ -44,8 +44,8 @@ class Methodology:
     - ``purpose: ClassVar[str]`` — the short framing line rendered before
       the methodology body.
 
-    The methodology's analytical body lives in a markdown file paired with
-    the class. The framework discovers the file from the class name (suffix
+    The methodology's analytical body lives in a paired ``.j2`` file. The
+    framework discovers the file from the class name (suffix
     stripped, snake_case) located next to the defining Python module, and
     loads its content at class definition time.
 
@@ -54,7 +54,6 @@ class Methodology:
 
     purpose: ClassVar[str]
     _body: ClassVar[str] = ""
-    _body_format: ClassVar[BodyFormat] = "none"
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -64,7 +63,6 @@ class Methodology:
         _require_purpose(cls)
         body_file = load_body_file(cls, suffix="Methodology", kind="Methodology", exempt=is_exempt(cls))
         cls._body = body_file.source
-        cls._body_format = body_file.format
 
     def __init__(self, *args: Any, **kwargs: Any) -> Never:
         raise TypeError(

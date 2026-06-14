@@ -13,12 +13,12 @@ from ai_pipeline_core._llm_core.model_response import Citation, ModelResponse
 from ai_pipeline_core._llm_core.types import ImagePreset, ModelOptions, TextContent, TokenUsage
 from ai_pipeline_core.documents import Attachment
 from ai_pipeline_core.llm import AIModel
-from ai_pipeline_core.llm._conversation_messages import (
+from ai_pipeline_core.llm._request_messages import (
     _document_to_content_parts,
     _escape_xml_content,
     _escape_xml_metadata,
 )
-from ai_pipeline_core.llm._conversation_runtime import generation_overrides
+from ai_pipeline_core.llm._request_assembly import generation_overrides
 from ai_pipeline_core.llm._substitutor import URLSubstitutor
 from ai_pipeline_core.llm.conversation import Conversation
 
@@ -267,7 +267,7 @@ class TestBlockingIOFixed:
 
     def testto_core_messages_wrapped_in_to_thread(self):
         """to_core_messages() should be called via asyncio.to_thread() in the shared helper."""
-        import ai_pipeline_core.llm._conversation_runtime as runtime_module
+        import ai_pipeline_core.llm._request_assembly as runtime_module
 
         source = inspect.getsource(runtime_module.assemble_api_messages)
 
@@ -278,7 +278,7 @@ class TestBlockingIOFixed:
 
     def test_asyncio_imported(self):
         """asyncio module should be imported in the runtime helper."""
-        import ai_pipeline_core.llm._conversation_runtime as runtime_module
+        import ai_pipeline_core.llm._request_assembly as runtime_module
 
         assert hasattr(runtime_module, "asyncio") or "import asyncio" in inspect.getsource(runtime_module)
 

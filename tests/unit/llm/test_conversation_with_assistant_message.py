@@ -4,7 +4,7 @@ import pytest
 
 from ai_pipeline_core._llm_core import LLMRequest
 from ai_pipeline_core._llm_core.types import CoreMessage, Role
-from ai_pipeline_core.llm._conversation_runtime import to_core_messages
+from ai_pipeline_core.llm._request_assembly import to_core_messages
 from ai_pipeline_core.llm.conversation import Conversation, AssistantMessage
 from tests.support.helpers import ConcreteDocument, create_test_model_response
 from tests.support.model_catalog import DEFAULT_TEST_MODEL

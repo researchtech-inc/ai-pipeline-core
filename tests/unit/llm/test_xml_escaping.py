@@ -10,7 +10,7 @@ _escape_xml_metadata escapes XML-sensitive characters for names/IDs/descriptions
 
 from ai_pipeline_core._llm_core.types import ImagePreset, TextContent
 from ai_pipeline_core.documents import Attachment
-from ai_pipeline_core.llm._conversation_messages import (
+from ai_pipeline_core.llm._request_messages import (
     _document_to_content_parts,
     _escape_xml_content,
     _escape_xml_metadata,

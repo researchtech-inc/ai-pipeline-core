@@ -1,20 +1,13 @@
-"""Tests for ``JinjaPromptRenderer`` and ``.md.j2`` template discovery (Stage B PR 3).
+"""Tests for Jinja prompt rendering and ``.j2`` template discovery.
 
 Coverage:
 
-- ``JinjaPromptRenderer`` wires the canonical context names into Jinja.
+- ``render_prompt`` wires the canonical context names into Jinja.
 - ``StrictUndefined`` turns unknown variables into render-time errors.
 - ``to_json`` filter renders Pydantic models and plain dicts as indented JSON.
-- Discovery prefers ``.md.j2`` over ``.md`` and rejects ambiguity
-  (TypeError when both files exist for one class).
-- Discovery falls back to ``.md`` static body when only ``.md`` exists.
-- Discovery falls back to the default renderer when neither file exists
-  (exempt path; non-exempt path is covered by the existing missing-file
-  test in ``test_body_file.py``).
-- Import-time Jinja syntax errors and H1-outside-fence errors surface as
-  ``TypeError`` at class definition time.
-- An end-to-end Jinja-template-backed contract renders the prompt via
-  the new renderer through ``PromptContract.execute``.
+- Discovery loads the paired ``.j2`` body next to the defining module.
+- An end-to-end Jinja-template-backed contract renders the prompt through
+  ``PromptContract.execute``.
 """
 
 from __future__ import annotations
@@ -33,13 +26,11 @@ from ai_pipeline_core import FrozenBaseModel
 from ai_pipeline_core._llm_core.model_response import ModelResponse
 from ai_pipeline_core._llm_core.types import TokenUsage
 from ai_pipeline_core.prompt_contract import Methodology, PromptContract
-from ai_pipeline_core.prompt_contract._body_file import load_body_file
-from ai_pipeline_core.prompt_contract._render import (
-    DefaultPromptRenderer,
-    JinjaPromptRenderer,
+from ai_pipeline_core.prompt_contract.body_file import load_body_file
+from ai_pipeline_core.prompt_contract.render import (
     _to_json_filter,
     build_prompt_render_context,
-    select_renderer_for_contract,
+    render_prompt,
 )
 
 
@@ -49,9 +40,13 @@ from ai_pipeline_core.prompt_contract._render import (
 
 
 class JinjaOutput(FrozenBaseModel):
-    """Tiny output used by Jinja renderer tests."""
+    """Tiny output used by Jinja renderer tests.
+
+    Two fields keep the contract in structured (not single-str prose) mode.
+    """
 
     answer: str
+    score: int = 0
 
 
 def _install_module(monkeypatch: pytest.MonkeyPatch, name: str, file: Path) -> str:
@@ -61,6 +56,12 @@ def _install_module(monkeypatch: pytest.MonkeyPatch, name: str, file: Path) -> s
     module.__file__ = str(file)
     monkeypatch.setitem(sys.modules, module_name, module)
     return module_name
+
+
+def _context(cls: type, **kwargs: object) -> Any:
+    kwargs.setdefault("dynamic_fields", {})
+    kwargs.setdefault("ordered_documents", ())
+    return build_prompt_render_context(cls, **kwargs)  # type: ignore[arg-type]  # kwargs widen keyword-only signature
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ class TestToJsonFilter:
 
 
 # ---------------------------------------------------------------------------
-# JinjaPromptRenderer: rendering, strict undefined, custom filter exposure
+# render_prompt: rendering, strict undefined, custom filter exposure
 # ---------------------------------------------------------------------------
 
 
@@ -104,9 +105,9 @@ class _RenderTargetContract(PromptContract[JinjaOutput]):
     topic: str
 
 
-class TestJinjaPromptRenderer:
+class TestJinjaRendering:
     def test_render_exposes_canonical_top_level_names(self) -> None:
-        context = build_prompt_render_context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
+        context = _context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
         template = textwrap.dedent("""
             contract={{ contract.purpose }}
             inputs.topic.text={{ inputs.topic.text }}
@@ -118,36 +119,31 @@ class TestJinjaPromptRenderer:
             citations_enabled={{ citations.enabled }}
             notation_active={{ notation.active }}
         """).strip()
-        rendered = JinjaPromptRenderer(template).render(context)
+        rendered = render_prompt(context, template)
         assert "contract=render" in rendered
         assert "inputs.topic.text=ml" in rendered
         assert "output=JinjaOutput" in rendered
         assert "notation_active=False" in rendered
 
     def test_strict_undefined_raises_on_unknown_variable(self) -> None:
-        context = build_prompt_render_context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
-        template = "{{ does_not_exist }}"
+        context = _context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
         with pytest.raises(jinja2.UndefinedError):
-            JinjaPromptRenderer(template).render(context)
+            render_prompt(context, "{{ does_not_exist }}")
 
     def test_to_json_filter_available_for_pydantic_model(self) -> None:
-        context = build_prompt_render_context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
-        rendered = JinjaPromptRenderer("{{ contract | to_json }}").render(context)
+        context = _context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
+        rendered = render_prompt(context, "{{ contract | to_json }}")
         assert '"purpose": "render"' in rendered
 
     def test_to_json_filter_available_for_plain_dict(self) -> None:
-        context = build_prompt_render_context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
-        rendered = JinjaPromptRenderer("{{ inputs | to_json }}").render(context)
+        context = _context(_RenderTargetContract, dynamic_fields={"topic": "ml"})
+        rendered = render_prompt(context, "{{ inputs | to_json }}")
         # inputs is a dict[str, InputView] — to_json falls back to json.dumps with default=str.
         assert "topic" in rendered
 
-    def test_select_renderer_default_for_static_body(self) -> None:
-        renderer = select_renderer_for_contract(_RenderTargetContract)
-        assert isinstance(renderer, DefaultPromptRenderer)
-
 
 # ---------------------------------------------------------------------------
-# Discovery: .md.j2 vs .md vs both vs neither
+# Discovery: paired .j2 body next to the defining module
 # ---------------------------------------------------------------------------
 
 
@@ -155,81 +151,24 @@ class TestTemplateDiscovery:
     def test_jinja_template_discovered(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         py_file = tmp_path / "definer.py"
         py_file.write_text("# stub")
-        (tmp_path / "my_analysis.md.j2").write_text("## H2\n\nhello {{ contract.purpose }}\n")
+        (tmp_path / "my_analysis.j2").write_text("## H2\n\nhello {{ contract.purpose }}\n")
         cls = type("MyAnalysisContract", (), {})
         cls.__module__ = _install_module(monkeypatch, "jinja_only", py_file)
         body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
-        assert body.format == "jinja"
         assert "{{ contract.purpose }}" in body.source
 
-    def test_static_md_used_when_jinja_absent(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        py_file = tmp_path / "definer.py"
-        py_file.write_text("# stub")
-        (tmp_path / "my_analysis.md").write_text("## H2\n\nstatic body\n")
-        cls = type("MyAnalysisContract", (), {})
-        cls.__module__ = _install_module(monkeypatch, "static_only", py_file)
-        body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
-        assert body.format == "static"
-        assert "static body" in body.source
-
-    def test_both_files_present_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        py_file = tmp_path / "definer.py"
-        py_file.write_text("# stub")
-        (tmp_path / "my_analysis.md").write_text("## H2\n\nstatic\n")
-        (tmp_path / "my_analysis.md.j2").write_text("## H2\n\njinja {{ contract.purpose }}\n")
-        cls = type("MyAnalysisContract", (), {})
-        cls.__module__ = _install_module(monkeypatch, "both", py_file)
-        with pytest.raises(TypeError, match="has both a Jinja template and a static markdown body"):
-            load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
-
-    def test_exempt_with_neither_returns_none_format(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_exempt_with_no_file_returns_empty_source(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         py_file = tmp_path / "definer.py"
         py_file.write_text("# stub")
         cls = type("MyAnalysisContract", (), {})
         cls.__module__ = _install_module(monkeypatch, "exempt_none", py_file)
         body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=True)
-        assert body.format == "none"
         assert body.source == ""
 
 
 # ---------------------------------------------------------------------------
-# Import-time validation: Jinja syntax + H1 inside .md.j2
-# ---------------------------------------------------------------------------
-
-
-class TestJinjaImportTimeValidation:
-    def test_invalid_jinja_syntax_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        py_file = tmp_path / "definer.py"
-        py_file.write_text("# stub")
-        # Unterminated {% block opens a tag jinja2 cannot parse.
-        (tmp_path / "my_analysis.md.j2").write_text("## H2\n\n{% if x %}no endif\n")
-        cls = type("MyAnalysisContract", (), {})
-        cls.__module__ = _install_module(monkeypatch, "bad_jinja", py_file)
-        with pytest.raises(TypeError, match="invalid Jinja syntax"):
-            load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
-
-    def test_h1_outside_fence_in_jinja_template_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        py_file = tmp_path / "definer.py"
-        py_file.write_text("# stub")
-        (tmp_path / "my_analysis.md.j2").write_text("## H2 ok\n\n# Bad H1 in template\n")
-        cls = type("MyAnalysisContract", (), {})
-        cls.__module__ = _install_module(monkeypatch, "h1_jinja", py_file)
-        with pytest.raises(TypeError, match="uses '# ' \\(H1\\)"):
-            load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
-
-    def test_empty_jinja_template_raises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        py_file = tmp_path / "definer.py"
-        py_file.write_text("# stub")
-        (tmp_path / "my_analysis.md.j2").write_text("   \n   \n")
-        cls = type("MyAnalysisContract", (), {})
-        cls.__module__ = _install_module(monkeypatch, "empty_jinja", py_file)
-        with pytest.raises(TypeError, match="body file is empty"):
-            load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
-
-
-# ---------------------------------------------------------------------------
-# End-to-end: PromptContract.execute() picks JinjaPromptRenderer when
-# a paired .md.j2 template is discovered next to the contract's module.
+# End-to-end: PromptContract.execute() renders the paired .j2 template
+# next to the contract's module.
 # ---------------------------------------------------------------------------
 
 
@@ -261,13 +200,13 @@ def _make_response(parsed: JinjaOutput) -> ModelResponse[Any]:
 def _build_jinja_template_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> tuple[type[PromptContract[JinjaOutput]], type[Methodology]]:
-    """Construct a PromptContract subclass whose paired ``.md.j2`` lives in ``tmp_path``."""
+    """Construct a PromptContract subclass whose paired ``.j2`` lives in ``tmp_path``."""
     py_file = tmp_path / "_jinja_e2e_module.py"
     py_file.write_text("# stub for e2e jinja tests")
     module_name = _install_module(monkeypatch, "jinja_e2e", py_file)
 
     # Paired Jinja template for the methodology.
-    (tmp_path / "render_e2e.md.j2").write_text(
+    (tmp_path / "render_e2e.j2").write_text(
         textwrap.dedent("""
             ## Methodology body
 
@@ -278,7 +217,7 @@ def _build_jinja_template_contract(
     )
 
     # Paired Jinja template for the contract.
-    (tmp_path / "render_e2e_jinja.md.j2").write_text(
+    (tmp_path / "render_e2e_jinja.j2").write_text(
         textwrap.dedent("""
             ## Header
 
@@ -327,8 +266,7 @@ class TestEndToEndJinjaRendering:
         from tests.support.model_catalog import DEFAULT_TEST_MODEL
 
         contract_cls, _methodology_cls = _build_jinja_template_contract(monkeypatch, tmp_path)
-        assert contract_cls._body_format == "jinja"
-        assert select_renderer_for_contract(contract_cls).__class__ is JinjaPromptRenderer
+        assert "{{ contract.purpose }}" in contract_cls._body
 
         captured = _patch_generate(monkeypatch, _make_response(JinjaOutput(answer="ok")))
         await contract_cls(topic="ml").execute(DEFAULT_TEST_MODEL)
@@ -339,7 +277,7 @@ class TestEndToEndJinjaRendering:
             for message in captured[0].messages
             if message.role.value == "user"
         )
-        # Substrings emitted only when the new Jinja renderer is wired up.
+        # Substrings emitted only when the Jinja body template is rendered.
         assert "Contract purpose: use jinja template" in user_text
         assert "Topic: ml" in user_text
         assert "Output: JinjaOutput" in user_text
@@ -348,12 +286,12 @@ class TestEndToEndJinjaRendering:
         assert "rubric=single-rubric for e2e test" in user_text
 
     def test_methodology_body_rendered_when_jinja(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """The methodology's ``.md.j2`` template renders during view build."""
+        """The methodology's ``.j2`` template renders during view build."""
         contract_cls, methodology_cls = _build_jinja_template_contract(monkeypatch, tmp_path)
-        assert methodology_cls._body_format == "jinja"
+        assert "{{ methodology.purpose }}" in methodology_cls._body
 
         # Build a contract-render context directly to inspect the methodology body.
-        context = build_prompt_render_context(contract_cls, dynamic_fields={"topic": "x"})
+        context = _context(contract_cls, dynamic_fields={"topic": "x"})
         assert len(context.methodologies) == 1
         body = context.methodologies[0].body
         assert "Purpose: guide e2e rendering" in body

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from ai_pipeline_core._llm_core.types import CoreMessage, Role
 from ai_pipeline_core.exceptions import LLMError
 from ai_pipeline_core.llm import _engine
-from ai_pipeline_core.llm._conversation_messages import ToolResultMessage, UserMessage
+from ai_pipeline_core.llm._request_messages import ToolResultMessage, UserMessage
 from ai_pipeline_core.llm._engine import InteractionRequest, ToolRuntime, _tool_loop
 from ai_pipeline_core.llm.tools import Tool
 
@@ -155,6 +155,9 @@ async def test_forced_final_has_steering_user_message(monkeypatch) -> None:
     forced_final_messages = recorded_messages[-1]
     assert forced_final_messages[-1].role == Role.USER
     assert "do not call" in str(forced_final_messages[-1].content).lower()
+    # The steering message is transient: it is sent for the final synthesis call only and
+    # must NOT leak into the accumulated thread, or a follow-up turn would inherit the
+    # "do not call any tools" instruction and refuse legitimate tool use.
     assert not any(isinstance(message, UserMessage) for message in accumulated)
 
 

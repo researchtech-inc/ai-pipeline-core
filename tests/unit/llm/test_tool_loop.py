@@ -11,7 +11,7 @@ from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.llm import _engine
-from ai_pipeline_core.llm._conversation_messages import ToolResultMessage
+from ai_pipeline_core.llm._request_messages import ToolResultMessage
 from ai_pipeline_core.llm._engine import InteractionRequest, ToolRuntime, _execute_single_tool, _tool_loop
 from ai_pipeline_core.llm.tools import Tool
 from ai_pipeline_core.pipeline._execution_context import ExecutionContext, set_execution_context

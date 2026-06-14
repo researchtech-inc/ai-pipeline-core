@@ -15,6 +15,9 @@ showcases:
   - path: examples/showcase_stubs.py
     smoke: { entrypoint: main }
     live: { enabled: false }
+  - path: examples/showcase_prompt_contract.py
+    smoke: { entrypoint: smoke }
+    live: { enabled: true, env_gate: RUN_PROMPT_CONTRACT_SHOWCASE }
   - path: examples/showcase.py
     smoke: { entrypoint: smoke }
     live: { enabled: true, cost_cap_usd: 0.50 }

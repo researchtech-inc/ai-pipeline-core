@@ -11,7 +11,7 @@ from ai_pipeline_core._llm_core._validation import (
     validate_image_content,
     validate_pdf_content,
 )
-from ai_pipeline_core.llm._conversation_messages import validate_text
+from ai_pipeline_core.llm._request_messages import validate_text
 
 
 def _encode_png(width: int, height: int) -> bytes:
@@ -114,7 +114,7 @@ class TestValidatePdfContent:
 
 
 class TestValidateText:
-    """Tests for validate_text helper that now lives in llm/_conversation_messages.py."""
+    """Tests for validate_text helper that now lives in llm/_request_messages.py."""
 
     def test_empty_data(self):
         result = validate_text(b"", "test.txt")

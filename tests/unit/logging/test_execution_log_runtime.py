@@ -10,7 +10,11 @@ from uuid import uuid4
 from ai_pipeline_core.database import LogRecord
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
-from ai_pipeline_core.logger._handler import ExecutionLogHandler, _should_add_sentry_breadcrumb
+from ai_pipeline_core.logger._handler import (
+    ExecutionLogHandler,
+    _classify_record,
+    _should_add_sentry_breadcrumb,
+)
 from ai_pipeline_core.pipeline._execution_context import ExecutionContext, set_execution_context
 from ai_pipeline_core.pipeline.limits import _SharedStatus
 
@@ -51,6 +55,24 @@ def test_execution_log_buffer_sequences_summaries_and_flush_request() -> None:
         "errors": 1,
         "last_error": "error",
     }
+
+
+def _record(name: str) -> logging.LogRecord:
+    return logging.LogRecord(
+        name=name, level=logging.WARNING, pathname=__file__, lineno=1, msg="m", args=(), exc_info=None
+    )
+
+
+def test_urllib3_is_classified_as_dependency_not_application() -> None:
+    """Regression: urllib3 (incl. the connectionpool churn logger) is a transitive
+    dependency, not application code. Before the fix it fell through to the
+    "application" bucket, so its benign "pool is full" WARNING was persisted into
+    ClickHouse as an application log under heavy fan-out.
+    """
+    assert _classify_record(_record("urllib3"))[0] == "dependency"
+    assert _classify_record(_record("urllib3.connectionpool"))[0] == "dependency"
+    # A genuine application logger still classifies as application.
+    assert _classify_record(_record("my_app.runtime"))[0] == "application"
 
 
 def test_execution_log_handler_classifies_and_filters_levels() -> None:

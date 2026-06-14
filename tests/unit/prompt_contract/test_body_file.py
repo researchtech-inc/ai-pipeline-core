@@ -1,10 +1,10 @@
-"""Tests for body-file discovery and validation."""
+"""Tests for ``.j2`` body-file discovery and validation."""
 
 from pathlib import Path
 
 import pytest
 
-from ai_pipeline_core.prompt_contract._body_file import BodyFile, load_body_file
+from ai_pipeline_core.prompt_contract.body_file import BodyFile, load_body_file
 
 
 class _FakeClass:
@@ -32,22 +32,21 @@ def test_exempt_short_circuits_with_empty_body(tmp_path: Path) -> None:
     body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=True)
     assert isinstance(body, BodyFile)
     assert body.source == ""
-    assert body.format == "none"
 
 
 def test_missing_file_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
     cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
-    with pytest.raises(TypeError, match="expects a body file"):
+    with pytest.raises(TypeError, match="expects a paired Jinja body file"):
         load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
 
 
 def test_empty_file_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "my_analysis.md"
-    md_file.write_text("   \n   ")
+    j2_file = tmp_path / "my_analysis.j2"
+    j2_file.write_text("   \n   ")
     cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
     with pytest.raises(TypeError, match="body file is empty"):
         load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
@@ -56,10 +55,21 @@ def test_empty_file_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
 def test_h1_header_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "my_analysis.md"
-    md_file.write_text("## Allowed\n\n# Not allowed\n")
+    j2_file = tmp_path / "my_analysis.j2"
+    j2_file.write_text("## Allowed\n\n# Not allowed\n")
     cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
     with pytest.raises(TypeError, match="uses '# ' \\(H1\\) at line 3"):
+        load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
+
+
+def test_invalid_jinja_syntax_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A ``.j2`` body that does not parse under Jinja surfaces a TypeError at load time."""
+    py_file = tmp_path / "definer.py"
+    py_file.write_text("# empty")
+    j2_file = tmp_path / "my_analysis.j2"
+    j2_file.write_text("## Section\n\n{% for x in %}\n")
+    cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
+    with pytest.raises(TypeError, match="invalid Jinja syntax"):
         load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
 
 
@@ -67,20 +77,19 @@ def test_loads_and_returns_content_verbatim(monkeypatch: pytest.MonkeyPatch, tmp
     """Body content is returned verbatim (no whitespace trimming) so author-supplied formatting survives."""
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "my_analysis.md"
-    md_file.write_text("## Section\n\nbody text\n")
+    j2_file = tmp_path / "my_analysis.j2"
+    j2_file.write_text("## Section\n\nbody text\n")
     cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
     body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
     assert body.source == "## Section\n\nbody text\n"
-    assert body.format == "static"
 
 
 def test_h1_inside_code_fence_is_allowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The H1 ban must not fire on lines inside fenced code blocks (e.g. ``# comment`` in a python example)."""
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "my_analysis.md"
-    md_file.write_text(
+    j2_file = tmp_path / "my_analysis.j2"
+    j2_file.write_text(
         "## Section\n\nExample python:\n\n```python\n"
         "# this is a python comment, not an H1 header\n"
         "value = 1\n```\n\nMore prose.\n"
@@ -94,32 +103,30 @@ def test_h1_outside_fenced_block_after_code_still_rejected(monkeypatch: pytest.M
     """A real H1 after a closed fence still fails — fence tracking does not bleed over."""
     py_file = tmp_path / "definer.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "my_analysis.md"
-    md_file.write_text("## Section\n\n```python\n# inside fence ok\n```\n\n# Bad H1 after fence\n")
+    j2_file = tmp_path / "my_analysis.j2"
+    j2_file.write_text("## Section\n\n```python\n# inside fence ok\n```\n\n# Bad H1 after fence\n")
     cls = _stub_module(monkeypatch, name="MyAnalysisContract", file=py_file)
     with pytest.raises(TypeError, match="uses '# ' \\(H1\\)"):
         load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
 
 
 def test_suffix_strip_pascal_to_snake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``AssessReviewRiskContract`` -> ``assess_review_risk.md`` (Contract suffix stripped)."""
+    """``AssessReviewRiskContract`` -> ``assess_review_risk.j2`` (Contract suffix stripped)."""
     py_file = tmp_path / "module.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "assess_review_risk.md"
-    md_file.write_text("## Body\n\nok\n")
+    j2_file = tmp_path / "assess_review_risk.j2"
+    j2_file.write_text("## Body\n\nok\n")
     cls = _stub_module(monkeypatch, name="AssessReviewRiskContract", file=py_file)
     body = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=False)
     assert body.source.strip() == "## Body\n\nok"
-    assert body.format == "static"
 
 
 def test_methodology_suffix_strip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``ReviewQualityMethodology`` -> ``review_quality.md`` (Methodology suffix stripped)."""
+    """``ReviewQualityMethodology`` -> ``review_quality.j2`` (Methodology suffix stripped)."""
     py_file = tmp_path / "module.py"
     py_file.write_text("# empty")
-    md_file = tmp_path / "review_quality.md"
-    md_file.write_text("## Body\n\nok\n")
+    j2_file = tmp_path / "review_quality.j2"
+    j2_file.write_text("## Body\n\nok\n")
     cls = _stub_module(monkeypatch, name="ReviewQualityMethodology", file=py_file)
     body = load_body_file(cls, suffix="Methodology", kind="Methodology", exempt=False)
     assert body.source.strip() == "## Body\n\nok"
-    assert body.format == "static"

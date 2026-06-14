@@ -1,4 +1,4 @@
-"""Tests for prompt_contract._contract (PromptContract validation + execute stub)."""
+"""Tests for prompt_contract.contract (PromptContract validation + execute stub)."""
 
 from typing import ClassVar
 

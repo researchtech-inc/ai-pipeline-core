@@ -26,18 +26,8 @@ from ai_pipeline_core.prompt_compiler.render import (
 from ai_pipeline_core.prompt_compiler.spec import PromptSpec
 
 from ._conversation_codec import deserialize_message, serialize_message
-from ._conversation_messages import (
-    AnyMessage,
-    AssistantMessage,
-    ConversationContent,
-    ToolResultMessage,
-    UserMessage,
-    _normalize_content,
-    _prompt_parts,
-    _response_format_path,
-    _serialize_tool_config,
-)
-from ._conversation_runtime import (
+from ._engine import InteractionRequest, ToolRuntime, execute_interaction
+from ._request_assembly import (
     approximate_tokens_count,
     assemble_api_messages,
     build_effective_options,
@@ -50,7 +40,17 @@ from ._conversation_runtime import (
     tool_runtime,
     validate_send_scope,
 )
-from ._engine import InteractionRequest, ToolRuntime, execute_interaction
+from ._request_messages import (
+    AnyMessage,
+    AssistantMessage,
+    ConversationContent,
+    ToolResultMessage,
+    UserMessage,
+    _normalize_content,
+    _prompt_parts,
+    _response_format_path,
+    _serialize_tool_config,
+)
 from .tools import Tool, ToolCallRecord, ToolOutput
 
 __all__ = ["AssistantMessage", "Conversation", "ConversationContent", "ToolResultMessage", "UserMessage"]

@@ -1,4 +1,4 @@
-"""Private message and content helpers for Conversation."""
+"""Shared message and document-content helpers for LLM requests."""
 
 import json
 import logging
@@ -228,7 +228,7 @@ AnyMessage = Document | ModelResponse[Any] | UserMessage | AssistantMessage | To
 
 
 def _normalize_content(content: ConversationContent) -> tuple[Document | UserMessage, ...]:
-    """Normalize send content to Documents or internal user messages."""
+    """Normalize conversation-compatibility content to Documents or user messages."""
     if isinstance(content, str):
         return (UserMessage(content),)
     if isinstance(content, Document):
@@ -299,7 +299,7 @@ def _prompt_parts(content: ConversationContent) -> tuple[str, tuple[str, ...]]:
 
 
 def _serialize_tool_config(tool: Tool) -> dict[str, Any]:
-    """Serialize tool metadata for conversation detail_json."""
+    """Serialize tool metadata for span detail_json."""
     tool_cls = type(tool)
     return {
         "name": tool_cls.name,

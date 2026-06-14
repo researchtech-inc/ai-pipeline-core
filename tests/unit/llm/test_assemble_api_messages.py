@@ -11,8 +11,8 @@ import pytest
 from ai_pipeline_core._llm_core import Role
 from ai_pipeline_core._llm_core._transport import compute_cache_key, core_messages_to_api
 from ai_pipeline_core._llm_core.types import CoreMessage, TextContent
-from ai_pipeline_core.llm._conversation_messages import UserMessage
-from ai_pipeline_core.llm._conversation_runtime import assemble_api_messages, prepare_substitutor
+from ai_pipeline_core.llm._request_messages import UserMessage
+from ai_pipeline_core.llm._request_assembly import assemble_api_messages, prepare_substitutor
 from tests.support.helpers import ConcreteDocument
 from tests.support.model_catalog import DEFAULT_TEST_MODEL
 

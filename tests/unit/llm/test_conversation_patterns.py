@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from ai_pipeline_core._llm_core.model_response import ModelResponse
 from ai_pipeline_core._llm_core import LLMRequest
 from ai_pipeline_core._llm_core.types import CoreMessage, RawToolCall, Role, TokenUsage
-from ai_pipeline_core.llm._conversation_runtime import to_core_messages
+from ai_pipeline_core.llm._request_assembly import to_core_messages
 from ai_pipeline_core.llm.conversation import Conversation
 from ai_pipeline_core.llm.tools import Tool
 from tests.support.helpers import ConcreteDocument, create_test_model_response

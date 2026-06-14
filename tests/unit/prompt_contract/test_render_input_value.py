@@ -1,8 +1,7 @@
 """Tests for ``render_input_value`` type dispatch (Stage A item 6).
 
-Stage B PR 2 moved the helper from ``prompt_contract._contract`` into
-``prompt_contract._render`` and dropped the leading underscore so the
-renderer module can reuse it. The dispatch behavior is unchanged.
+The helper lives in ``prompt_contract.render`` so the renderer module can
+reuse it. The dispatch behavior is unchanged.
 """
 
 import logging
@@ -12,7 +11,7 @@ from typing import Literal
 import pytest
 from pydantic import BaseModel
 
-from ai_pipeline_core.prompt_contract._render import render_input_value as _render_input_value
+from ai_pipeline_core.prompt_contract.render import render_input_value as _render_input_value
 
 
 class TestStrEnum:
@@ -117,7 +116,7 @@ class TestUnknownType:
             def __repr__(self) -> str:
                 return "Custom"
 
-        with caplog.at_level(logging.WARNING, logger="ai_pipeline_core.prompt_contract._contract"):
+        with caplog.at_level(logging.WARNING, logger="ai_pipeline_core.prompt_contract.render"):
             _render_input_value(Custom())
         assert any("unsupported type" in record.message for record in caplog.records)
 
@@ -162,6 +161,6 @@ class TestStrEnumCollections:
         class M(BaseModel):
             n: int
 
-        with caplog.at_level(logging.WARNING, logger="ai_pipeline_core.prompt_contract._contract"):
+        with caplog.at_level(logging.WARNING, logger="ai_pipeline_core.prompt_contract.render"):
             _render_input_value([M(n=1), "string"])
-        assert any("mixed/unsupported" in record.message for record in caplog.records)
+        assert any("unsupported item types" in record.message for record in caplog.records)

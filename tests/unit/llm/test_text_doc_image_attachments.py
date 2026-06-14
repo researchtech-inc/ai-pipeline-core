@@ -16,7 +16,7 @@ from pypdf import PdfWriter
 
 from ai_pipeline_core._llm_core.types import ImageContent, ImagePreset, PDFContent, TextContent
 from ai_pipeline_core.documents import Attachment
-from ai_pipeline_core.llm._conversation_messages import _document_to_content_parts
+from ai_pipeline_core.llm._request_messages import _document_to_content_parts
 
 from tests.support.helpers import ConcreteDocument
 

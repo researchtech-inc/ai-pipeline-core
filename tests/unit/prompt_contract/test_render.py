@@ -1,10 +1,10 @@
-"""Tests for the PromptContract renderer abstraction (Stage B PR 2).
+"""Tests for the PromptContract render context and prompt assembly.
 
-Two concerns are pinned separately so future PRs can evolve them
-independently:
+Two concerns are pinned separately:
 
 - ``build_prompt_render_context`` assembles the typed data view.
-- ``DefaultPromptRenderer`` turns the data view into the user message.
+- ``render_prompt`` turns the data view plus the paired ``.j2`` body into the
+  user message.
 
 The byte-identity test at the end is the regression pin against silent
 drift in section ordering, separator characters, or methodology layout.
@@ -13,21 +13,20 @@ drift in section ordering, separator characters, or methodology layout.
 from typing import ClassVar
 
 from ai_pipeline_core import FrozenBaseModel
-from ai_pipeline_core.llm._conversation_runtime import _SUBSTITUTOR_INSTRUCTION
+from ai_pipeline_core.llm._request_assembly import _SUBSTITUTOR_INSTRUCTION
 from ai_pipeline_core.prompt_contract import Methodology, PromptContract, ToolAvailability
-from ai_pipeline_core.prompt_contract._render import (
+from ai_pipeline_core.prompt_contract.render import (
     ContractView,
-    DefaultPromptRenderer,
     InputView,
     MethodologyFieldView,
     MethodologyView,
     NotationView,
     OutputView,
     PromptRenderContext,
-    PromptRenderer,
     ToolView,
     build_prompt_render_context,
     render_input_value,
+    render_prompt,
 )
 
 
@@ -77,6 +76,13 @@ class RenderWithMethodologyContract(PromptContract[RenderOutput]):
     methodologies: ClassVar[tuple[type[Methodology], ...]] = (RenderStepMethodology,)
 
 
+def _context(cls: type, **kwargs: object) -> PromptRenderContext:
+    """Build a render context with default empty document/input arguments."""
+    kwargs.setdefault("dynamic_fields", {})
+    kwargs.setdefault("ordered_documents", ())
+    return build_prompt_render_context(cls, **kwargs)  # type: ignore[arg-type]  # kwargs widen keyword-only signature
+
+
 # ---------------------------------------------------------------------------
 # View models are FrozenBaseModel subclasses.
 # ---------------------------------------------------------------------------
@@ -96,19 +102,13 @@ def test_views_are_frozen_base_model_subclasses() -> None:
         assert issubclass(cls, FrozenBaseModel), cls.__name__
 
 
-def test_default_renderer_satisfies_renderer_protocol() -> None:
-    """``DefaultPromptRenderer`` is a structural ``PromptRenderer``."""
-    renderer = DefaultPromptRenderer()
-    assert isinstance(renderer, PromptRenderer)
-
-
 # ---------------------------------------------------------------------------
 # build_prompt_render_context: contract metadata
 # ---------------------------------------------------------------------------
 
 
 def test_build_context_populates_contract_view() -> None:
-    context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
+    context = _context(RenderMinimalContract)
     assert isinstance(context, PromptRenderContext)
     assert context.contract.class_name == "RenderMinimalContract"
     assert context.contract.title == "Render Minimal"
@@ -119,24 +119,23 @@ def test_build_context_populates_contract_view() -> None:
 
 
 def test_build_context_minimal_has_empty_sub_views() -> None:
-    context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
+    context = _context(RenderMinimalContract)
     assert context.inputs == {}
     assert context.input_order == ()
     assert context.methodologies == ()
     assert context.tools == ()
     assert context.documents == ()
-    assert context.body == ""
     assert context.notation.active is False
     assert context.notation.instruction == ""
 
 
-def test_build_context_output_view_carries_class_identity() -> None:
-    context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
+def test_build_context_output_view_carries_class_identity_and_schema() -> None:
+    context = _context(RenderMinimalContract)
     assert context.output.class_name == "RenderOutput"
     assert context.output.module == RenderOutput.__module__
-    # PR 2 defers schema/fields/has_cited_text population.
-    assert context.output.schema_text == ""
-    assert context.output.fields == ()
+    # The unified render context fully populates the output view.
+    assert '"answer"' in context.output.schema_text
+    assert tuple(f.name for f in context.output.fields) == ("answer",)
     assert context.output.has_cited_text is False
 
 
@@ -146,19 +145,13 @@ def test_build_context_output_view_carries_class_identity() -> None:
 
 
 def test_build_context_inputs_preserve_insertion_order() -> None:
-    context = build_prompt_render_context(
-        RenderInputsContract,
-        dynamic_fields={"topic": "x", "count": 3},
-    )
+    context = _context(RenderInputsContract, dynamic_fields={"topic": "x", "count": 3})
     assert context.input_order == ("topic", "count")
     assert list(context.inputs.keys()) == ["topic", "count"]
 
 
 def test_build_context_input_view_shapes() -> None:
-    context = build_prompt_render_context(
-        RenderInputsContract,
-        dynamic_fields={"topic": "machine learning", "count": 3},
-    )
+    context = _context(RenderInputsContract, dynamic_fields={"topic": "machine learning", "count": 3})
     topic = context.inputs["topic"]
     assert topic.name == "topic"
     assert topic.title == "topic"
@@ -190,7 +183,7 @@ def test_build_context_kind_detection() -> None:
         returns: ClassVar[str] = "r"
         success_criteria: ClassVar[str] = "s"
 
-    context = build_prompt_render_context(
+    context = _context(
         KindContract,
         dynamic_fields={
             "scalar": "x",
@@ -215,7 +208,7 @@ def test_build_context_kind_detection() -> None:
 
 
 def test_build_context_methodology_view_populated() -> None:
-    context = build_prompt_render_context(RenderWithMethodologyContract, dynamic_fields={})
+    context = _context(RenderWithMethodologyContract)
     assert len(context.methodologies) == 1
     methodology = context.methodologies[0]
     assert methodology.class_name == "RenderStepMethodology"
@@ -250,7 +243,7 @@ def test_build_context_methodology_fields_sorted_by_name() -> None:
         success_criteria: ClassVar[str] = "s"
         methodologies: ClassVar[tuple[type[Methodology], ...]] = (AlphaBetaMethodology,)
 
-    context = build_prompt_render_context(WithAlphaBetaContract, dynamic_fields={})
+    context = _context(WithAlphaBetaContract)
     field_names = [f.name for f in context.methodologies[0].fields]
     assert field_names == ["alpha", "beta"]
 
@@ -289,7 +282,7 @@ def test_build_context_tools_view_populated() -> None:
         success_criteria: ClassVar[str] = "any"
         tools: ClassVar[tuple[ToolAvailability, ...]] = (ToolAvailability(_EchoTool, max_calls=3),)
 
-    context = build_prompt_render_context(WithToolContract, dynamic_fields={})
+    context = _context(WithToolContract)
     assert len(context.tools) == 1
     tool_view = context.tools[0]
     assert tool_view.name == _EchoTool.name
@@ -304,29 +297,25 @@ def test_build_context_tools_view_populated() -> None:
 
 
 def test_build_context_notation_inactive_by_default() -> None:
-    context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
+    context = _context(RenderMinimalContract)
     assert context.notation.active is False
     assert context.notation.instruction == ""
 
 
 def test_build_context_notation_active_populates_instruction() -> None:
-    context = build_prompt_render_context(
-        RenderMinimalContract,
-        dynamic_fields={},
-        notation_active=True,
-    )
+    context = _context(RenderMinimalContract, notation_active=True)
     assert context.notation.active is True
     assert context.notation.instruction == _SUBSTITUTOR_INSTRUCTION
 
 
 # ---------------------------------------------------------------------------
-# DefaultPromptRenderer: section assembly
+# render_prompt: section assembly (empty body => no Instructions section)
 # ---------------------------------------------------------------------------
 
 
-def test_default_renderer_minimal_layout() -> None:
-    context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
-    rendered = DefaultPromptRenderer().render(context)
+def test_render_prompt_minimal_layout() -> None:
+    context = _context(RenderMinimalContract)
+    rendered = render_prompt(context, "")
     expected = (
         "# Purpose\n\nproduce an answer\n\n"
         "# Returns\n\nRenderOutput with answer\n\n"
@@ -335,58 +324,50 @@ def test_default_renderer_minimal_layout() -> None:
     assert rendered == expected
 
 
-def test_default_renderer_inputs_section() -> None:
-    context = build_prompt_render_context(
-        RenderInputsContract,
-        dynamic_fields={"topic": "ml", "count": 3},
-    )
-    rendered = DefaultPromptRenderer().render(context)
+def test_render_prompt_inputs_section() -> None:
+    context = _context(RenderInputsContract, dynamic_fields={"topic": "ml", "count": 3})
+    rendered = render_prompt(context, "")
     assert rendered.startswith("# Inputs\n\n## topic\n\nml\n\n## count\n\n3\n\n# Purpose")
 
 
-def test_default_renderer_methodology_section() -> None:
-    context = build_prompt_render_context(RenderWithMethodologyContract, dynamic_fields={})
-    rendered = DefaultPromptRenderer().render(context)
+def test_render_prompt_methodology_section() -> None:
+    context = _context(RenderWithMethodologyContract)
+    rendered = render_prompt(context, "")
     assert "# Reference: Render Step" in rendered
     assert "decompose then synthesize" in rendered
     assert "Step-by-step reasoning guidance for renderer tests." in rendered
     assert "## rubric\n\nscore each step on a 1-5 scale" in rendered
 
 
-def test_default_renderer_notation_section_only_when_active() -> None:
-    inactive = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
-    rendered_inactive = DefaultPromptRenderer().render(inactive)
+def test_render_prompt_notation_section_only_when_active() -> None:
+    rendered_inactive = render_prompt(_context(RenderMinimalContract), "")
     assert "# Notation" not in rendered_inactive
 
-    active = build_prompt_render_context(
-        RenderMinimalContract,
-        dynamic_fields={},
-        notation_active=True,
-    )
-    rendered_active = DefaultPromptRenderer().render(active)
+    active = _context(RenderMinimalContract, notation_active=True)
+    rendered_active = render_prompt(active, "")
     assert rendered_active.startswith(f"# Notation\n\n{_SUBSTITUTOR_INSTRUCTION}\n\n# Purpose")
 
 
-def test_default_renderer_omits_instructions_section_when_body_empty() -> None:
-    context = build_prompt_render_context(RenderMinimalContract, dynamic_fields={})
-    rendered = DefaultPromptRenderer().render(context)
+def test_render_prompt_omits_instructions_section_when_body_empty() -> None:
+    rendered = render_prompt(_context(RenderMinimalContract), "")
     assert "# Instructions" not in rendered
+
+
+def test_render_prompt_includes_instructions_when_body_present() -> None:
+    rendered = render_prompt(_context(RenderMinimalContract), "## Step\n\nDo the thing.")
+    assert rendered.endswith("# Instructions\n\n## Step\n\nDo the thing.")
 
 
 # ---------------------------------------------------------------------------
 # Byte-identity regression pin: hand-written expected string follows the
-# legacy assembly rules verbatim. Any drift in separators, header text, or
-# section ordering breaks this test.
+# assembly rules verbatim. Any drift in separators, header text, or section
+# ordering breaks this test.
 # ---------------------------------------------------------------------------
 
 
-def test_default_renderer_byte_identical_to_legacy_layout() -> None:
-    context = build_prompt_render_context(
-        RenderWithMethodologyContract,
-        dynamic_fields={},
-        notation_active=True,
-    )
-    rendered = DefaultPromptRenderer().render(context)
+def test_render_prompt_byte_identical_layout() -> None:
+    context = _context(RenderWithMethodologyContract, notation_active=True)
+    rendered = render_prompt(context, "")
     expected = (
         f"# Notation\n\n{_SUBSTITUTOR_INSTRUCTION}\n\n"
         "# Purpose\n\nproduce a careful answer\n\n"
@@ -401,12 +382,12 @@ def test_default_renderer_byte_identical_to_legacy_layout() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ``render_input_value`` is the canonical helper exposed from ``_render``.
+# ``render_input_value`` is the canonical helper exposed from ``render``.
 # ---------------------------------------------------------------------------
 
 
 def test_render_input_value_canonical_location() -> None:
-    """The helper is importable from ``ai_pipeline_core.prompt_contract._render``."""
-    from ai_pipeline_core.prompt_contract import _render as render_mod
+    """The helper is importable from ``ai_pipeline_core.prompt_contract.render``."""
+    from ai_pipeline_core.prompt_contract import render as render_mod
 
     assert render_mod.render_input_value is render_input_value

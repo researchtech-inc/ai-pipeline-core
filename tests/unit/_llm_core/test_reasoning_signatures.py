@@ -19,7 +19,7 @@ from ai_pipeline_core._llm_core._transport import (
     strip_reasoning_signatures,
 )
 from ai_pipeline_core._llm_core.model_response import ModelResponse
-from ai_pipeline_core.llm._conversation_runtime import to_core_messages
+from ai_pipeline_core.llm._request_assembly import to_core_messages
 from tests.support.model_catalog import DEFAULT_TEST_MODEL
 
 

@@ -33,6 +33,7 @@ _DEPENDENCY_LOGGER_PREFIXES = (
     "httpx",
     "litellm",
     "prefect",
+    "urllib3",
 )
 _FRAMEWORK_LOGGER_PREFIX = "ai_pipeline_core"
 

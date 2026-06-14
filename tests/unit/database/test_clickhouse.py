@@ -319,6 +319,36 @@ async def test_create_client_no_retry_on_non_retryable_error(mock_get_client: As
 
 
 @pytest.mark.asyncio
+@patch("ai_pipeline_core.database.clickhouse._connection.get_async_client")
+async def test_create_client_passes_connector_limits(mock_get_client: AsyncMock) -> None:
+    """Connector sizing is plumbed from Settings to the aiohttp async client.
+
+    ClickHouse is a single host, so the per-host cap must not be left at the
+    library's multi-host default of 20, which queues observability writes under
+    task fan-out. The framework defaults the per-host cap to the total cap.
+    """
+    mock_get_client.return_value = AsyncMock()
+
+    await _create_client(_retry_settings())
+    kwargs = mock_get_client.await_args.kwargs
+    assert kwargs["connector_limit"] == 100
+    assert kwargs["connector_limit_per_host"] == 100
+
+    mock_get_client.reset_mock()
+    tuned = Settings(
+        clickhouse_host="test-host",
+        clickhouse_connect_retries=1,
+        clickhouse_retry_backoff_sec=0,
+        clickhouse_connector_limit=250,
+        clickhouse_connector_limit_per_host=64,
+    )
+    await _create_client(tuned)
+    kwargs = mock_get_client.await_args.kwargs
+    assert kwargs["connector_limit"] == 250
+    assert kwargs["connector_limit_per_host"] == 64
+
+
+@pytest.mark.asyncio
 @patch("ai_pipeline_core.database.clickhouse._connection.asyncio.sleep", new_callable=AsyncMock)
 @patch("ai_pipeline_core.database.clickhouse._connection.get_async_client")
 async def test_create_client_backoff_increases_with_attempt(mock_get_client: AsyncMock, mock_sleep: AsyncMock) -> None:

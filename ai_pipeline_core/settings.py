@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     clickhouse_send_receive_timeout: int = 66
     clickhouse_connect_retries: int = 3
     clickhouse_retry_backoff_sec: int = 10
+    # aiohttp connector sizing for the async ClickHouse client. ClickHouse is a single
+    # host, so the per-host cap defaults to the total cap rather than the library's
+    # multi-host default of 20, which otherwise queues observability writes under fan-out.
+    clickhouse_connector_limit: int = 100
+    clickhouse_connector_limit_per_host: int = 100
 
     # Document summary generation (store-level)
     doc_summary_enabled: bool = True

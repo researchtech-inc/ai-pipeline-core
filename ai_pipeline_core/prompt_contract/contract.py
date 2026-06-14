@@ -1,26 +1,23 @@
 """PromptContract base class with import-time validation and live execution."""
 
 import logging
+import typing
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, ClassVar, TypeVar, cast
+from types import NoneType, UnionType
+from typing import Annotated, Any, ClassVar, TypeVar, cast, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ai_pipeline_core._llm_core.model_response import Citation, ModelResponse
 from ai_pipeline_core._llm_core.request import ValidationSpec
-from ai_pipeline_core._llm_core.types import AIModel
+from ai_pipeline_core._llm_core.types import AIModelRef
 from ai_pipeline_core._pydantic_base import FrozenBaseModel
 from ai_pipeline_core._pydantic_generic import extract_generic_arg
 from ai_pipeline_core.database import SpanKind
 from ai_pipeline_core.documents import Document
-from ai_pipeline_core.llm._conversation_messages import (
-    UserMessage,
-    _core_messages_to_db_span_input,
-    _response_format_path,
-    _serialize_response_tool_calls,
-)
-from ai_pipeline_core.llm._conversation_runtime import (
+from ai_pipeline_core.llm._engine import EngineResult, InteractionRequest, ToolRuntime, execute_interaction
+from ai_pipeline_core.llm._request_assembly import (
     assemble_api_messages,
     assert_llm_scope,
     cache_overrides,
@@ -29,7 +26,13 @@ from ai_pipeline_core.llm._conversation_runtime import (
     routing_overrides,
     tool_runtime,
 )
-from ai_pipeline_core.llm._engine import EngineResult, InteractionRequest, ToolRuntime, execute_interaction
+from ai_pipeline_core.llm._request_messages import (
+    AnyMessage,
+    UserMessage,
+    _core_messages_to_db_span_input,
+    _response_format_path,
+    _serialize_response_tool_calls,
+)
 from ai_pipeline_core.llm._tool_binding import ToolBinding
 from ai_pipeline_core.llm.tools import Tool
 from ai_pipeline_core.pipeline._execution_context import get_execution_context, get_sinks
@@ -37,14 +40,15 @@ from ai_pipeline_core.pipeline._file_rules import is_exempt, register_contract, 
 from ai_pipeline_core.pipeline._track_span import track_span
 from ai_pipeline_core.settings import settings
 
-from ._body_file import BodyFormat, load_body_file
-from ._cited_text import CitedText, DocumentCitation
-from ._class_introspection import declared_annotations, is_classvar_annotation
-from ._methodology import Methodology
-from ._render import PromptRenderer, build_prompt_render_context, select_renderer_for_contract
-from ._result import PromptResult
-from ._tool_surface import ToolAvailability
-from ._validation import ValidationFailure
+from .body_file import load_body_file
+from .cited_text import CitedText, DocumentCitation
+from .class_introspection import declared_annotations, is_classvar_annotation
+from .continuation import Continues
+from .methodology import Methodology
+from .render import build_prompt_render_context, render_prompt
+from .result import ContinuationState, PromptResult
+from .tool_surface import ToolAvailability
+from .validation import ValidationFailure
 
 __all__ = ["OutputT", "PromptContract"]
 
@@ -58,6 +62,61 @@ _REQUIRED_CLASSVARS = ("purpose", "returns", "success_criteria")
 
 
 _GENERIC_ARG_MISSING: Any = object()
+
+
+def _unwrap_annotated(annotation: Any) -> Any:
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        args = get_args(annotation)
+        if args:
+            return _unwrap_annotated(args[0])
+    return annotation
+
+
+def _prompt_result_output_type(annotation: Any) -> Any:
+    annotation = _unwrap_annotated(annotation)
+    if annotation is PromptResult:
+        return _GENERIC_ARG_MISSING
+    if get_origin(annotation) is PromptResult:
+        args = get_args(annotation)
+        return args[0] if args else _GENERIC_ARG_MISSING
+    return None
+
+
+def _is_document_annotation(annotation: Any) -> bool:
+    annotation = _unwrap_annotated(annotation)
+    if annotation is NoneType:
+        return False
+    origin = get_origin(annotation)
+    if origin in {typing.Union, UnionType}:
+        return any(_is_document_annotation(arg) for arg in get_args(annotation))
+    if origin in {tuple, list}:
+        args = get_args(annotation)
+        return bool(args) and any(arg is not Ellipsis and _is_document_annotation(arg) for arg in args)
+    return isinstance(annotation, type) and issubclass(annotation, Document)
+
+
+def _instance_field_annotations(cls: type) -> dict[str, Any]:
+    declared = getattr(cls, "__annotations__", {})
+    try:
+        resolved = typing.get_type_hints(cls, include_extras=True)
+    except NameError, TypeError, AttributeError:
+        resolved = declared
+    return {
+        field_name: resolved.get(field_name, annotation)
+        for field_name, annotation in declared.items()
+        if not is_classvar_annotation(annotation)
+    }
+
+
+def _single_required_str_field(output_type: type[FrozenBaseModel]) -> str | None:
+    authored_fields = tuple(output_type.model_fields.items())
+    if len(authored_fields) != 1:
+        return None
+    name, field_info = authored_fields[0]
+    if _unwrap_annotated(field_info.annotation) is str and field_info.is_required():
+        return name
+    return None
 
 
 def _check_no_duplicates(
@@ -142,7 +201,65 @@ def _resolve_output_type(cls: type, name: str) -> type[FrozenBaseModel]:
     return output_type
 
 
-def _validate_prompt_contract(cls: type, name: str) -> None:
+def _validate_continuation(cls: type, name: str, continues: Continues | None) -> None:
+    predecessor_fields: list[tuple[str, Any]] = []
+    for field_name, annotation in _instance_field_annotations(cls).items():
+        output_type = _prompt_result_output_type(annotation)
+        if output_type is not None:
+            predecessor_fields.append((field_name, output_type))
+
+    if continues is None:
+        if predecessor_fields:
+            field_names = ", ".join(field_name for field_name, _ in predecessor_fields)
+            raise TypeError(
+                f"PromptContract '{name}' declares PromptResult input field(s) without continues=: {field_names}. "
+                "PromptResult fields are only valid on continuation contracts. "
+                f"Declare class {name}(..., continues=Continues.once(OpenerContract)) or pass the prior "
+                "response value as an ordinary structured input instead."
+            )
+        cls._continues = None
+        cls._predecessor_field_name = None
+        return
+
+    if not isinstance(continues, Continues):  # type: ignore[unreachable]  # runtime defensive check despite static narrowing
+        raise TypeError(  # type: ignore[unreachable]  # runtime defensive check despite static narrowing
+            f"PromptContract '{name}' continues= must be Continues.once(OpenerContract) or "
+            f"Continues.repeating(OpenerContract), got {continues!r}."
+        )
+    if not isinstance(continues.opener, type) or not issubclass(continues.opener, PromptContract):
+        raise TypeError(
+            f"PromptContract '{name}' continues= opener must be a PromptContract subclass. "
+            "Use continues=Continues.once(OpenerContract) or Continues.repeating(OpenerContract)."
+        )
+    if len(predecessor_fields) != 1:
+        raise TypeError(
+            f"PromptContract '{name}' declares continues= but has {len(predecessor_fields)} PromptResult field(s). "
+            "A continuation contract must declare exactly one predecessor field, for example "
+            "prior: PromptResult[OpenerOutput] = Field(description='The turn this contract continues.')."
+        )
+
+    predecessor_field_name, predecessor_output_type = predecessor_fields[0]
+    if predecessor_output_type is _GENERIC_ARG_MISSING:
+        raise TypeError(
+            f"PromptContract '{name}' field '{predecessor_field_name}' must parameterize PromptResult with the "
+            "predecessor output model, for example prior: PromptResult[OpenerOutput]."
+        )
+
+    legal_contracts = (continues.opener, cls) if continues.repeatable else (continues.opener,)
+    legal_outputs = tuple(contract._output_type for contract in legal_contracts)
+    if predecessor_output_type not in legal_outputs:
+        legal_names = ", ".join(output.__name__ for output in legal_outputs)
+        raise TypeError(
+            f"PromptContract '{name}' field '{predecessor_field_name}' is PromptResult[{predecessor_output_type}], "
+            f"but this continuation may only continue outputs from: {legal_names}. "
+            "Change the field annotation to the opener output type, or change continues= to the intended opener."
+        )
+
+    cls._continues = continues
+    cls._predecessor_field_name = predecessor_field_name
+
+
+def _validate_prompt_contract(cls: type, name: str, continues: Continues | None) -> None:
     exempt = is_exempt(cls)
 
     if not name.endswith("Contract"):
@@ -176,7 +293,8 @@ def _validate_prompt_contract(cls: type, name: str) -> None:
     cls._output_type = _resolve_output_type(cls, name)
     body_file = load_body_file(cls, suffix="Contract", kind="PromptContract", exempt=exempt)
     cls._body = body_file.source
-    cls._body_format = body_file.format
+    cls._prose_field_name = _single_required_str_field(cls._output_type)
+    _validate_continuation(cls, name, continues)
 
     if not exempt:
         register_contract(cls)
@@ -202,9 +320,19 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
 
     - ``methodologies: ClassVar[tuple[type[Methodology], ...]]`` (default ``()``)
     - ``tools: ClassVar[tuple[ToolAvailability, ...]]`` (default ``()``)
+    - ``continues=Continues.once(...)`` or ``Continues.repeating(...)`` for
+      task-local continuation.
 
     Subclass names must end with ``Contract``. The generic parameter
     ``OutputT`` must be a ``BaseModel`` subclass.
+
+    Rule lines enforced at class definition:
+    - Each non-exempt subclass has exactly one paired ``<stem>.j2`` body file.
+    - Document fields are sent to the model in declaration order; document tuples keep caller order.
+    - ``PromptResult`` input fields are only allowed on contracts that declare ``continues=``.
+    - A continuation contract has exactly one legal predecessor ``PromptResult`` field.
+    - Additional continuation document fields are appended after prior turns and do not affect the prompt cache key.
+    - An output model with one required plain ``str`` field uses markdown transport and is wrapped into the model.
 
     Override ``validate(response)`` to add semantic checks; non-empty
     failure tuples drive the engine's repair loop. The repair budget is
@@ -221,13 +349,21 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
     tools: ClassVar[tuple[ToolAvailability, ...]] = ()
     _output_type: ClassVar[type[FrozenBaseModel]]
     _body: ClassVar[str] = ""
-    _body_format: ClassVar[BodyFormat] = "none"
+    _continues: ClassVar[Continues | None] = None
+    _predecessor_field_name: ClassVar[str | None] = None
+    _prose_field_name: ClassVar[str | None] = None
+    _pending_continues: ClassVar[Continues | None] = None
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, *, continues: Continues | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        cls._pending_continues = continues
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:  # noqa: PLW3201  # pydantic hook fires after model_fields populate; __init_subclass__ is too early
+        super().__pydantic_init_subclass__(**kwargs)
         if "[" in cls.__name__:
             return
-        _validate_prompt_contract(cls, cls.__name__)
+        _validate_prompt_contract(cls, cls.__name__, cls._pending_continues)
 
     # ``BaseModel.validate`` is a deprecated v1 classmethod alias; we shadow it
     # intentionally with an instance method so contract subclasses can read
@@ -237,46 +373,60 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
         _ = response
         return ()
 
-    async def execute(  # noqa: PLR0914 — engine dispatch unavoidably touches many locals; further extraction would obscure the single-shot flow.
+    async def execute(  # noqa: PLR0914, PLR0915 — engine dispatch unavoidably touches many locals; further extraction would obscure the single-shot flow.
         self,
-        model: AIModel,
+        model: AIModelRef,
         *,
         tool_bindings: tuple[ToolBinding, ...] = (),
     ) -> PromptResult[OutputT]:
         """Execute this contract against ``model`` and return a parsed result."""
-        if not isinstance(model, AIModel):  # type: ignore[unreachable]  # runtime defensive check despite static type
-            raise TypeError(f"PromptContract.execute(model=...) requires an AIModel; got {type(model).__name__}.")  # type: ignore[unreachable]  # runtime defensive check despite static narrowing
+        if not isinstance(model, AIModelRef):  # type: ignore[unreachable]  # runtime defensive check despite static type
+            raise TypeError(f"PromptContract.execute(model=...) requires an AIModelRef; got {type(model).__name__}.")  # type: ignore[unreachable]  # runtime defensive check despite static narrowing
 
         # Refuse to dispatch the LLM when called directly from a flow body without a task.
         assert_llm_scope(source="PromptContract.execute()")
 
         cls = type(self)
         runtime = _build_tool_runtime(cls, tool_bindings)
-        context_docs, dynamic_fields = _partition_instance_fields(self)
+        ordered_documents, dynamic_fields = _partition_instance_fields(self)
+        predecessor = _predecessor_continuation(self)
+        if predecessor is not None:
+            _validate_continuation_model_compatibility(cls, predecessor, model)
+        context_tuple = (
+            tuple(document for _, document in ordered_documents) if predecessor is None else predecessor.context
+        )
+        prior_turns = () if predecessor is None else predecessor.turns
+        followup_documents = () if predecessor is None else tuple(document for _, document in ordered_documents)
+        prose_field_name = cls._prose_field_name
 
-        context_tuple = tuple(context_docs)
-        renderer: PromptRenderer = select_renderer_for_contract(cls)
-        # First pass: render without the # Notation section so the
-        # substitutor can pre-scan the actual text the model will see.
-        first_pass_context = build_prompt_render_context(cls, dynamic_fields=dynamic_fields, notation_active=False)
-        first_pass_text = renderer.render(first_pass_context)
+        first_pass_context = build_prompt_render_context(
+            cls,
+            dynamic_fields=dynamic_fields,
+            ordered_documents=ordered_documents,
+            notation_active=False,
+            prose_field_name=prose_field_name,
+        )
+        first_pass_text = render_prompt(first_pass_context, cls._body)
+        first_pass_messages = prior_turns + followup_documents + (UserMessage(first_pass_text),)
         substitutor = prepare_substitutor(
             context=context_tuple,
-            messages=(UserMessage(first_pass_text),),
+            messages=first_pass_messages,
             enabled=True,
             model=model,
         )
         substitutor_active = substitutor is not None and substitutor.pattern_count > 0
-        # Second pass: include the # Notation section only when substitution
-        # actually applies (PromptContract emits no system block, so this is
-        # the place the preservation instruction reaches the model).
         if substitutor_active:
-            final_context = build_prompt_render_context(cls, dynamic_fields=dynamic_fields, notation_active=True)
-            prompt_text = renderer.render(final_context)
+            final_context = build_prompt_render_context(
+                cls,
+                dynamic_fields=dynamic_fields,
+                ordered_documents=ordered_documents,
+                notation_active=True,
+                prose_field_name=prose_field_name,
+            )
+            prompt_text = render_prompt(final_context, cls._body)
         else:
             prompt_text = first_pass_text
-        prompt_message = UserMessage(prompt_text)
-        messages_tuple = (prompt_message,)
+        messages_tuple = prior_turns + followup_documents + (UserMessage(prompt_text),)
 
         core_messages, context_count = await assemble_api_messages(
             system_block=None,
@@ -286,17 +436,19 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
             substitutor=substitutor,
         )
 
-        validation_spec = ValidationSpec(validate=self.validate, max_attempts=settings.prompt_contract_max_repair)
+        validation_spec = ValidationSpec(
+            validate=self._coerce_and_validate,
+            max_attempts=settings.prompt_contract_max_repair,
+        )
         purpose_label = type(self).__name__
         execution_ctx = get_execution_context()
         preferred_deployment_id = None  # PromptContract is single-shot at the public boundary.
-        # Honor ExecutionContext.disable_cache the same way Conversation does.
         cache_override = cache_overrides(options=None)
         request = InteractionRequest(
             messages=tuple(core_messages),
             model=model,
             context_count=context_count,
-            response_format=cls._output_type,
+            response_format=None if prose_field_name is not None else cls._output_type,
             tools=runtime,
             substitutor=substitutor,
             purpose=purpose_label,
@@ -328,9 +480,9 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
             result: EngineResult = await execute_interaction(request)
             response = result.response
             if substitutor is not None and substitutor.pattern_count > 0:
-                response = restore_response(response, substitutor, cls._output_type)
+                response = restore_response(response, substitutor, request.response_format)
 
-            parsed = response.parsed
+            parsed = _build_output_model(self, response)
             if not isinstance(parsed, cls._output_type):
                 raise TypeError(
                     f"PromptContract '{purpose_label}' expected parsed response of "
@@ -338,6 +490,13 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
                 )
 
             combined_citations = _build_prompt_result_citations(parsed, response.citations)
+            restored_turns = _restored_accumulated_messages(result, response)
+            continuation = ContinuationState(
+                context=context_tuple,
+                turns=messages_tuple + restored_turns,
+                source_span_id=str(span_ctx.span_id),
+                model_cache_fingerprint=_model_cache_fingerprint(model),
+            )
             span_ctx.set_meta(
                 **_prompt_contract_meta(
                     cls=cls,
@@ -347,6 +506,11 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
                     repair_attempt_count=result.repair_attempt_count,
                     tool_bindings=tool_bindings,
                     citations=combined_citations,
+                    ordered_documents=ordered_documents,
+                    followup_document_count=len(followup_documents),
+                    continuation=continuation,
+                    predecessor=predecessor,
+                    prose_field_name=prose_field_name,
                 )
             )
             span_ctx.set_metrics(
@@ -359,9 +523,17 @@ class PromptContract[OutputT: FrozenBaseModel](BaseModel):
             prompt_result: PromptResult[OutputT] = PromptResult(
                 response=cast(OutputT, parsed),
                 citations=combined_citations,
+                _continuation=continuation,
             )
             span_ctx._set_output_value(prompt_result)
             return prompt_result
+
+    def _coerce_and_validate(self, parsed: Any) -> tuple[ValidationFailure, ...]:
+        """Coerce prose transport into the output model before running contract validation."""
+        output = _build_output_model_from_parsed(self, parsed)
+        if isinstance(output, tuple):
+            return output
+        return self.validate(cast(OutputT, output))
 
 
 # ---------------------------------------------------------------------------
@@ -427,20 +599,127 @@ def _build_tool_runtime(
 
 def _partition_instance_fields(
     instance: PromptContract[Any],
-) -> tuple[list[Document], dict[str, Any]]:
-    """Split contract instance fields into document context and dynamic value fields."""
-    docs: list[Document] = []
+) -> tuple[tuple[tuple[str, Document], ...], dict[str, Any]]:
+    """Split instance fields into ordered documents and non-document render inputs."""
+    docs: list[tuple[str, Document]] = []
     dynamic: dict[str, Any] = {}
-    for field_name in type(instance).model_fields:
+    cls = type(instance)
+    for field_name, field_info in cls.model_fields.items():
+        if field_name == cls._predecessor_field_name:
+            continue
         value = getattr(instance, field_name)
-        if isinstance(value, Document):
-            docs.append(value)
-            continue
-        if isinstance(value, (list, tuple)) and value and all(isinstance(item, Document) for item in value):
-            docs.extend(value)
-            continue
+        if _is_document_annotation(field_info.annotation):
+            if value is None:
+                continue
+            if isinstance(value, Document):
+                docs.append((field_name, value))
+                continue
+            if isinstance(value, (list, tuple)) and all(isinstance(item, Document) for item in value):
+                docs.extend((field_name, item) for item in value)
+                continue
+            raise TypeError(
+                f"PromptContract '{cls.__name__}' field '{field_name}' is annotated as a Document input but "
+                f"has value of type {type(value).__name__}. Pass a Document instance, a tuple of Document "
+                "instances, or None for optional document fields."
+            )
         dynamic[field_name] = value
-    return docs, dynamic
+    return tuple(docs), dynamic
+
+
+def _predecessor_continuation(instance: PromptContract[Any]) -> ContinuationState | None:
+    field_name = type(instance)._predecessor_field_name
+    if field_name is None:
+        return None
+    predecessor = getattr(instance, field_name)
+    if not isinstance(predecessor, PromptResult):
+        raise TypeError(
+            f"PromptContract '{type(instance).__name__}' predecessor field '{field_name}' must contain a "
+            "PromptResult returned by the contract it continues."
+        )
+    if predecessor._continuation is None:
+        raise TypeError(
+            f"PromptContract '{type(instance).__name__}' predecessor field '{field_name}' has no continuation "
+            "state. Pass the PromptResult returned directly by PromptContract.execute() inside the same task."
+        )
+    return predecessor._continuation
+
+
+def _model_cache_fingerprint(model: AIModelRef) -> tuple[str, bool, bool]:
+    return (
+        model.vision_preset.value,
+        model.preserve_input_urls,
+        model.supports_url_substitution,
+    )
+
+
+def _validate_continuation_model_compatibility(
+    cls: type[PromptContract[Any]],
+    predecessor: ContinuationState,
+    model: AIModelRef,
+) -> None:
+    fingerprint = _model_cache_fingerprint(model)
+    if fingerprint == predecessor.model_cache_fingerprint:
+        return
+    raise TypeError(
+        f"PromptContract '{cls.__name__}' continues a previous PromptContract result with a different "
+        "model context-rendering configuration. Continuations must use the same AIModelRef rendering behavior "
+        "as the opener so the initial document prefix produces the same prompt cache key. "
+        "Use the same AIModelRef for the opener and continuation, or start a fresh non-continuation contract."
+    )
+
+
+def _build_output_model(instance: PromptContract[Any], response: ModelResponse[Any]) -> FrozenBaseModel:
+    output = _build_output_model_from_parsed(instance, response.parsed)
+    if isinstance(output, tuple):
+        raise TypeError(output[0].message if output else "PromptContract response could not be coerced.")
+    return output
+
+
+def _build_output_model_from_parsed(
+    instance: PromptContract[Any],
+    parsed: Any,
+) -> FrozenBaseModel | tuple[ValidationFailure, ...]:
+    cls = type(instance)
+    prose_field_name = cls._prose_field_name
+    if prose_field_name is None:
+        if isinstance(parsed, cls._output_type):
+            return parsed
+        return (
+            ValidationFailure(
+                message=(
+                    f"Response parsed as {type(parsed).__name__}, but {cls.__name__} requires "
+                    f"{cls._output_type.__name__}. Re-emit the response in the declared structure."
+                )
+            ),
+        )
+    if not isinstance(parsed, str):
+        return (
+            ValidationFailure(
+                field=prose_field_name,
+                message=(
+                    f"Response parsed as {type(parsed).__name__}, but prose-mode field '{prose_field_name}' "
+                    "requires plain markdown text."
+                ),
+            ),
+        )
+    try:
+        return cls._output_type(**{prose_field_name: parsed})
+    except (TypeError, ValueError, ValidationError) as exc:
+        return (
+            ValidationFailure(
+                field=prose_field_name,
+                message=f"Response text could not be assigned to '{prose_field_name}': {exc}",
+            ),
+        )
+
+
+def _restored_accumulated_messages(result: EngineResult, response: ModelResponse[Any]) -> tuple[AnyMessage, ...]:
+    accumulated = list(result.accumulated_messages)
+    for index in range(len(accumulated) - 1, -1, -1):
+        if isinstance(accumulated[index], ModelResponse):
+            accumulated[index] = response
+            break
+    return tuple(accumulated)
 
 
 def _engine_citation_to_document_citation(citation: Citation) -> DocumentCitation:
@@ -556,6 +835,11 @@ def _prompt_contract_meta(
     repair_attempt_count: int,
     tool_bindings: tuple[ToolBinding, ...],
     citations: tuple[DocumentCitation, ...],
+    ordered_documents: tuple[tuple[str, Document], ...],
+    followup_document_count: int,
+    continuation: ContinuationState,
+    predecessor: ContinuationState | None,
+    prose_field_name: str | None,
 ) -> dict[str, Any]:
     """Build PROMPT_EXECUTION span meta.
 
@@ -596,6 +880,20 @@ def _prompt_contract_meta(
         "litellm": asdict(response.transport.litellm),
         "model_chain": asdict(response.transport.model_chain),
         "prompt_cache_key": response.transport.prompt_cache_key,
+        "context_document_ids": tuple(document.id for _, document in ordered_documents),
+        "cache_prefix_document_ids": tuple(document.id for document in continuation.context),
+        "followup_document_count": followup_document_count,
+        "continuation_used": predecessor is not None,
+        "continuation_predecessor_span_id": predecessor.source_span_id if predecessor is not None else None,
+        "continuation_span_id": continuation.source_span_id,
+        "continues_opener": (
+            f"{cls._continues.opener.__module__}:{cls._continues.opener.__qualname__}"
+            if cls._continues is not None
+            else None
+        ),
+        "continues_repeatable": cls._continues.repeatable if cls._continues is not None else False,
+        "prose_field_name": prose_field_name,
+        "response_transport_mode": "markdown" if prose_field_name is not None else "structured",
         "raw_response_headers": dict(response.transport.raw_response_headers),
         # LLM_ROUND-shaped fields included at the contract level for parity:
         "finish_reason": response.finish_reason,

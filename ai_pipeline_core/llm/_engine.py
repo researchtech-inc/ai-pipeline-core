@@ -1,4 +1,4 @@
-"""Private LLM execution engine used by Conversation."""
+"""Private LLM execution engine used by framework interaction surfaces."""
 
 import asyncio
 import json
@@ -28,9 +28,10 @@ from ai_pipeline_core._llm_core.request import (
 )
 from ai_pipeline_core._llm_core.types import AIModel, CoreMessage, RawToolCall, Role, TokenUsage
 from ai_pipeline_core.database import SpanKind
-from ai_pipeline_core.llm._conversation_messages import (
+from ai_pipeline_core.llm._request_messages import (
     AnyMessage,
     ToolResultMessage,
+    UserMessage,
     _core_messages_to_db_span_input,
     _response_format_path,
     _serialize_response_tool_calls,
@@ -94,7 +95,7 @@ class ToolRuntime:
 
 @dataclass(frozen=True, slots=True)
 class EngineResult:
-    """Engine output consumed by Conversation."""
+    """Engine output consumed by framework interaction surfaces."""
 
     response: ModelResponse[Any]
     tool_call_records: tuple[ToolCallRecord, ...]
@@ -108,7 +109,7 @@ class EngineResult:
 
 @dataclass(frozen=True, slots=True)
 class InteractionRequest:
-    """Engine input created by Conversation or internal framework callers."""
+    """Engine input created by framework interaction surfaces."""
 
     messages: tuple[CoreMessage, ...]
     model: AIModel
@@ -162,7 +163,13 @@ async def execute_interaction(request: InteractionRequest) -> EngineResult:  # n
             # Exhausted — exit loop, raise below.
             break
 
-        messages = _extend_for_repair(messages, response, last_failures)
+        repair_text = _render_repair(last_failures, structured=request.response_format is not None)
+        messages = _extend_for_repair(
+            messages,
+            response,
+            repair_text,
+        )
+        accumulated.append(UserMessage(repair_text))
         current_request = _request_with_repair_routing(current_request, response.transport.aipl.deployment_id)
 
     if validation is not None and last_failures:
@@ -188,13 +195,7 @@ async def execute_interaction(request: InteractionRequest) -> EngineResult:  # n
 def _run_validation(validation: ValidationSpec | None, response: ModelResponse[Any]) -> tuple[Any, ...]:
     if validation is None:
         return ()
-    parsed = response.parsed
-    if not isinstance(parsed, BaseModel):
-        # Validation only applies to structured (BaseModel) outputs. Non-structured
-        # responses pass through; the contract layer is expected to enforce the
-        # response_format separately.
-        return ()
-    failures = validation.validate(parsed)
+    failures = validation.validate(response.parsed)
     if not failures:
         return ()
     return tuple(failures)
@@ -203,7 +204,7 @@ def _run_validation(validation: ValidationSpec | None, response: ModelResponse[A
 def _extend_for_repair(
     messages: list[CoreMessage],
     response: ModelResponse[Any],
-    failures: Sequence[Any],
+    repair_text: str,
 ) -> list[CoreMessage]:
     """Append the failing assistant response and a USER repair message to the history."""
     extended: list[CoreMessage] = list(messages)
@@ -216,7 +217,7 @@ def _extend_for_repair(
             thinking_blocks=response.thinking_blocks,
         )
     )
-    extended.append(CoreMessage(role=Role.USER, content=_render_repair(failures)))
+    extended.append(CoreMessage(role=Role.USER, content=repair_text))
     return extended
 
 
@@ -229,7 +230,7 @@ def _request_with_repair_routing(request: InteractionRequest, deployment_id: str
     return replace(request, routing_overrides=new_routing)
 
 
-def _render_repair(failures: Sequence[Any]) -> str:
+def _render_repair(failures: Sequence[Any], *, structured: bool) -> str:
     """Render validation failures into a USER repair message body."""
     lines = ["Your previous response did not satisfy the contract validation."]
     for failure in failures:
@@ -239,10 +240,16 @@ def _render_repair(failures: Sequence[Any]) -> str:
             lines.append(f"- [{field_path}] {message}")
         else:
             lines.append(f"- {message}")
-    lines.append(
-        "Re-emit the structured response that conforms exactly to the declared output schema "
-        "and addresses every issue above. Do not include prose, markdown, or commentary."
-    )
+    if structured:
+        lines.append(
+            "Re-emit the structured response that conforms exactly to the declared output schema "
+            "and addresses every issue above. Do not include prose, markdown, or commentary."
+        )
+    else:
+        lines.append(
+            "Revise the response text to address every issue above. Return only the corrected markdown text; "
+            "do not wrap it in JSON or code fences."
+        )
     return "\n".join(lines)
 
 
@@ -315,6 +322,11 @@ async def _tool_loop(
         if consecutive_unknown_rounds >= MAX_CONSECUTIVE_UNKNOWN_TOOL_ROUNDS
         else _FORCED_FINAL_MAX_ROUNDS_MSG
     )
+    # The forced-final steering ("no more tools are available … do not call any tools")
+    # is appended only to the working ``messages`` for this one synthesis call. It is
+    # deliberately NOT added to ``accumulated``: it is transient turn-local instruction,
+    # and persisting it into the conversation/continuation thread would suppress legitimate
+    # tool use on later turns.
     messages.append(CoreMessage(role=Role.USER, content=final_message))
     try:
         response = await _single_call(request, messages, max_rounds, None)

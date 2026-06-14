@@ -1,4 +1,4 @@
-"""Pure helper functions for Conversation execution."""
+"""Shared LLM request assembly helpers."""
 
 import asyncio
 import logging
@@ -22,14 +22,14 @@ from ai_pipeline_core._token_estimates import (
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.pipeline._execution_context import get_execution_context, get_task_context
 
-from ._conversation_messages import (
+from ._engine import ToolRuntime
+from ._request_messages import (
     AnyMessage,
     AssistantMessage,
     ToolResultMessage,
     UserMessage,
     _document_to_content_parts,
 )
-from ._engine import ToolRuntime
 from ._substitutor import URLSubstitutor
 from ._tool_schema import generate_tool_schema
 from .tools import Tool
@@ -44,7 +44,7 @@ _SUBSTITUTOR_INSTRUCTION = (
 
 
 def to_core_messages(items: tuple[AnyMessage, ...], model: AIModel) -> list[CoreMessage]:
-    """Convert Conversation messages and documents into core transport messages.
+    """Convert framework messages and documents into core transport messages.
 
     When rebuilding prior ``ModelResponse`` items into ASSISTANT messages we
     preserve ``provider_specific_fields`` and ``thinking_blocks`` so reasoning
@@ -89,7 +89,7 @@ def prepare_substitutor(
     enabled: bool,
     model: AIModel,
 ) -> URLSubstitutor | None:
-    """Prepare URL/address substitution for a conversation turn."""
+    """Prepare URL/address substitution for one LLM interaction."""
     if not enabled or model.preserve_input_urls or not model.supports_url_substitution:
         return None
     substitutor = URLSubstitutor()
@@ -112,8 +112,8 @@ async def assemble_api_messages(
 ) -> tuple[list[CoreMessage], int]:
     """Assemble core messages and cache-prefix count for one LLM turn.
 
-    Owns the wire-payload assembly path shared by ``Conversation.send*`` and
-    ``PromptContract.execute``. Two callers passing the same inputs must
+    Owns the wire-payload assembly path shared by conversation compatibility
+    and ``PromptContract.execute``. Two callers passing the same inputs must
     produce identical messages so the engine's ``prompt_cache_key`` matches
     across the two surfaces.
 
@@ -213,11 +213,11 @@ def cache_overrides(options: ModelOptions | None) -> CacheSpec | None:
 
 
 def routing_overrides(purpose: str | None, preferred_deployment_id: str | None = None) -> RoutingSpec:
-    """Build routing overrides for a Conversation turn.
+    """Build routing overrides for one LLM interaction.
 
     ``preferred_deployment_id`` is a soft hint for multi-turn affinity: pass
     the deployment that handled the previous response so the proxy prefers it
-    (and the model's KV cache) without forcing the choice when unhealthy.
+    without forcing the choice when unhealthy.
     """
     execution_ctx = get_execution_context()
     return RoutingSpec(
@@ -237,8 +237,7 @@ def tool_runtime(
     """Build the tool runtime lookup for a turn.
 
     ``max_calls_by_name`` (when present) caps each tool's per-execution call
-    count. Tools not in the mapping run unmetered — matches the legacy
-    ``Conversation.send(tools=[...])`` ergonomics where the caller has not
+    count. Tools not in the mapping run unmetered for callers that have not
     declared per-tool budgets.
     """
     if not tools:

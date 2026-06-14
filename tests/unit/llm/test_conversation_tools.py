@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from ai_pipeline_core._llm_core.model_response import ModelResponse
 from ai_pipeline_core._llm_core.types import CoreMessage, Role
-from ai_pipeline_core.llm._conversation_runtime import collect_text, to_core_messages
+from ai_pipeline_core.llm._request_assembly import collect_text, to_core_messages
 from ai_pipeline_core.llm._engine import InteractionRequest, ToolRuntime, execute_interaction
 from ai_pipeline_core.llm.conversation import Conversation, ToolResultMessage
 from ai_pipeline_core.llm.tools import Tool, ToolCallRecord, ToolOutput
@@ -285,7 +285,7 @@ def test_tool_calls_for_multi_phase_collection() -> None:
 
 def test_serialize_tool_config_name_and_class_path_only() -> None:
     """_serialize_tool_config returns only name and class_path, no constructor_args."""
-    from ai_pipeline_core.llm._conversation_messages import _serialize_tool_config
+    from ai_pipeline_core.llm._request_messages import _serialize_tool_config
 
     config = _serialize_tool_config(ToolA())
     assert set(config.keys()) == {"name", "class_path"}
@@ -294,7 +294,7 @@ def test_serialize_tool_config_name_and_class_path_only() -> None:
 
 def test_serialize_tool_config_no_api_key_leakage() -> None:
     """Tool with API key in __init__ state: _serialize_tool_config excludes it."""
-    from ai_pipeline_core.llm._conversation_messages import _serialize_tool_config
+    from ai_pipeline_core.llm._request_messages import _serialize_tool_config
 
     class ApiTool(Tool):
         """Tool with API key."""

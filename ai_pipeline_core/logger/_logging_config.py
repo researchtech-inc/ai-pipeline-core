@@ -88,6 +88,11 @@ class _LoggingConfig:
                 "httpcore": {"level": "WARNING", "propagate": True},
                 "LiteLLM": {"level": "WARNING", "propagate": True},
                 "clickhouse_connect": {"level": "WARNING", "propagate": True},
+                "urllib3": {"level": "WARNING", "propagate": True},
+                # The "Connection pool is full, discarding connection" churn warning is
+                # benign (the request still succeeds) but floods execution logs — which the
+                # root ExecutionLogHandler persists into ClickHouse — under heavy fan-out.
+                "urllib3.connectionpool": {"level": "ERROR", "propagate": True},
             },
             "root": {
                 "level": "DEBUG",

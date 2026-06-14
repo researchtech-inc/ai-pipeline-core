@@ -4,7 +4,7 @@ import inspect
 
 from ai_pipeline_core._llm_core.types import ImageContent, ImagePreset
 from ai_pipeline_core.llm import Conversation
-from ai_pipeline_core.llm._conversation_runtime import to_core_messages
+from ai_pipeline_core.llm._request_assembly import to_core_messages
 from ai_pipeline_core.llm._images import process_image
 from tests.support.helpers import ConcreteDocument, make_text_image_tile
 from tests.support.model_catalog import DEFAULT_TEST_MODEL, ALTERNATE_TEST_MODEL

@@ -13,7 +13,7 @@ from ai_pipeline_core._llm_core.types import TokenUsage
 from ai_pipeline_core.documents import Document
 from ai_pipeline_core.exceptions import TerminalError
 from ai_pipeline_core.llm import _engine
-from ai_pipeline_core.llm._conversation_runtime import assemble_api_messages
+from ai_pipeline_core.llm._request_assembly import assemble_api_messages
 from ai_pipeline_core.llm.tools import Tool
 from ai_pipeline_core.prompt_contract import (
     Methodology,
@@ -865,7 +865,7 @@ class _SubstitutorTestContract(PromptContract[ContractAnswer]):
 @pytest.mark.asyncio
 async def test_user_message_omits_substitutor_instruction_when_no_patterns(monkeypatch: pytest.MonkeyPatch) -> None:
     """When no shortening applies, the user message must not carry the substitutor instruction."""
-    from ai_pipeline_core.llm._conversation_runtime import _SUBSTITUTOR_INSTRUCTION
+    from ai_pipeline_core.llm._request_assembly import _SUBSTITUTOR_INSTRUCTION
 
     captured = _patch_generate(monkeypatch, [_make_structured_response(ContractAnswer(answer="ok"))])
     await TrivialPassContract().execute(DEFAULT_TEST_MODEL)
@@ -881,7 +881,7 @@ async def test_user_message_omits_substitutor_instruction_when_no_patterns(monke
 @pytest.mark.asyncio
 async def test_user_message_includes_substitutor_instruction_when_active(monkeypatch: pytest.MonkeyPatch) -> None:
     """The captured request to the engine must contain a # Notation section with the preservation instruction."""
-    from ai_pipeline_core.llm._conversation_runtime import _SUBSTITUTOR_INSTRUCTION
+    from ai_pipeline_core.llm._request_assembly import _SUBSTITUTOR_INSTRUCTION
 
     captured = _patch_generate(monkeypatch, [_make_structured_response(ContractAnswer(answer="ok"))])
     long_url = "https://example.com/etherscan/tx/0x8ccd766e39a2fba8c43eb4329bac734165a4237df34884059739ed8a874111e1?source=research-2026"

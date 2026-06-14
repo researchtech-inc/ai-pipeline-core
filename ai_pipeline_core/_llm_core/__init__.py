@@ -1,6 +1,6 @@
 """Streaming-first AIPL-aware internal LLM core.
 
-The public application boundary is ``ai_pipeline_core.llm.Conversation``.
+The public application boundary is ``PromptContract`` plus compatibility conversation helpers.
 This package exposes typed content, request, response, and transport metadata
 objects. The low-level ``client.generate`` function is intentionally not
 re-exported here so application code cannot bypass the engine.
@@ -22,6 +22,7 @@ from .request import (
 )
 from .types import (
     AIModel,
+    AIModelRef,
     ContentPart,
     CoreMessage,
     ImageContent,
@@ -35,6 +36,7 @@ from .types import (
 
 __all__ = [
     "AIModel",
+    "AIModelRef",
     "AIPLInfo",
     "CacheSpec",
     "Citation",

@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from ai_pipeline_core.llm import ModelOptions
-from ai_pipeline_core.llm._conversation_runtime import cache_overrides, generation_overrides, retry_overrides
+from ai_pipeline_core.llm._request_assembly import cache_overrides, generation_overrides, retry_overrides
 from ai_pipeline_core.settings import Settings
 
 

@@ -87,7 +87,7 @@ async def test_five_calls_in_one_round_capped_at_two(monkeypatch: pytest.MonkeyP
     assert tool.invocations == 2
 
     # 3 tool-result messages should carry the budget-exhausted error.
-    from ai_pipeline_core.llm._conversation_messages import ToolResultMessage
+    from ai_pipeline_core.llm._request_messages import ToolResultMessage
 
     tool_results = [m for m in accumulated if isinstance(m, ToolResultMessage)]
     exhausted = [m for m in tool_results if "max_calls budget" in m.content]
@@ -137,7 +137,7 @@ async def test_budget_persists_across_rounds(monkeypatch: pytest.MonkeyPatch) ->
     assert tool.invocations == 3
     assert remaining["counter_tool"] == 0
 
-    from ai_pipeline_core.llm._conversation_messages import ToolResultMessage
+    from ai_pipeline_core.llm._request_messages import ToolResultMessage
 
     tool_results = [m for m in accumulated if isinstance(m, ToolResultMessage)]
     exhausted = [m for m in tool_results if "max_calls budget" in m.content]

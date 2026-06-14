@@ -16,6 +16,8 @@ from prefect.settings import get_current_settings
 if "prefect" in sys.modules and get_current_settings().cloud.enable_orchestration_telemetry:
     refresh_global_settings_context()
 
+from pydantic import Field
+
 from . import _llm_core_bootstrap as _llm_core_bootstrap  # populate _llm_core config from Settings
 from . import llm
 from ._codec import CodecError, UniversalCodec
@@ -54,6 +56,7 @@ from .exceptions import (
 )
 from .llm import (
     AIModel,
+    AIModelRef,
     Citation,
     Conversation,
     ImagePreset,
@@ -95,6 +98,7 @@ from .prompt_compiler import (
 )
 from .prompt_contract import (
     CitedText,
+    Continues,
     DocumentCitation,
     Methodology,
     PromptContract,
@@ -117,11 +121,13 @@ __version__ = importlib.metadata.version("ai-pipeline-core")
 
 __all__ = [
     "AIModel",
+    "AIModelRef",
     "Attachment",
     "Citation",
     "CitedText",
     "CodecError",
     "ContentPolicyError",
+    "Continues",
     "Conversation",
     "DeploymentPlan",
     "DeploymentResult",
@@ -134,6 +140,7 @@ __all__ = [
     "ExperimentOverrides",
     "ExperimentResult",
     "ExternalProvider",
+    "Field",
     "FieldGate",
     "FlowOptions",
     "FlowOutputs",

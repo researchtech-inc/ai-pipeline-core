@@ -143,6 +143,8 @@ async def _create_client(active_settings: Settings) -> AsyncClient:
                 secure=active_settings.clickhouse_secure,
                 connect_timeout=active_settings.clickhouse_connect_timeout,
                 send_receive_timeout=active_settings.clickhouse_send_receive_timeout,
+                connector_limit=active_settings.clickhouse_connector_limit,
+                connector_limit_per_host=active_settings.clickhouse_connector_limit_per_host,
                 autogenerate_session_id=False,
             )
         except _RETRYABLE_EXCEPTIONS as exc:

@@ -113,7 +113,7 @@ def test_messages_to_api_assistant_with_content_and_tool_calls() -> None:
 
 def test_apply_substitution_preserves_tool_fields() -> None:
     """Regression: _apply_substitution must preserve tool_call_id and name on TOOL messages."""
-    from ai_pipeline_core.llm._conversation_runtime import apply_substitution
+    from ai_pipeline_core.llm._request_assembly import apply_substitution
     from ai_pipeline_core.llm._substitutor import URLSubstitutor
 
     messages = [

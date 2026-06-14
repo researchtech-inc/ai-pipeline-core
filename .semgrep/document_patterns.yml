@@ -41,7 +41,7 @@ rules:
         # (ModelOptions, ModelResponse, Conversation, DeploymentResult, SpanInfo)
         - "**/_llm_core/**"
         - "**/llm/conversation.py"
-        - "**/llm/_conversation_runtime.py"
+        - "**/llm/_request_assembly.py"
         - "**/deployment/base.py"
         - "**/observability/_tracking/**"
         - "**/prompt_compiler/_*.py"

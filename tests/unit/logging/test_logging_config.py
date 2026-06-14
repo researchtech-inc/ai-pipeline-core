@@ -77,6 +77,16 @@ handlers:
         assert loggers["httpx"]["level"] == "WARNING"
         assert loggers["httpcore"]["level"] == "WARNING"
 
+    def test_default_config_quiets_benign_urllib3_pool_warning(self):
+        """Regression: the benign urllib3 "Connection pool is full, discarding connection"
+        churn warning must be quieted (logger at ERROR) so it does not flood execution
+        logs persisted into ClickHouse under heavy fan-out."""
+        config = _LoggingConfig()
+        loggers = config.load_config()["loggers"]
+
+        assert loggers["urllib3"]["level"] == "WARNING"
+        assert loggers["urllib3.connectionpool"]["level"] == "ERROR"
+
     @patch("logging.config.dictConfig")
     def test_apply_config(self, mock_dict_config: Mock) -> None:
         """Test applying logging configuration."""
