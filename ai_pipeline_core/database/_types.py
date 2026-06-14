@@ -89,14 +89,26 @@ def _validate_bytes_mapping(field_name: str, values: object) -> None:
 
 
 def _validate_enum_string(field_name: str, value: object, enum_type: type[StrEnum]) -> None:
+    """Validate a stored enum-like string field with forward compatibility.
+
+    ``SpanRecord`` is a durable read model: rows are decoded by readers that may
+    be older than the writer that produced them. ``kind``/``status`` are persisted
+    as free-form ClickHouse ``String`` columns, so a reader must tolerate values
+    it does not recognize — a newer writer introducing a new ``SpanKind``/
+    ``SpanStatus`` member must not make older readers crash while decoding rows.
+
+    Non-string input is still rejected (a genuine type bug), and an empty string
+    is rejected because every persisted record carries a concrete value. Known
+    values are accepted as-is; unknown non-empty strings pass through unchanged
+    and still compare correctly against the ``StrEnum`` constants. The canonical
+    set lives on ``enum_type`` for writers, comparisons, and error messages.
+    """
     if not isinstance(value, str):
         msg = f"{field_name} must be a string. Pass one of {[item.value for item in enum_type]}."
         raise TypeError(msg)
-    try:
-        enum_type(value)
-    except ValueError as exc:
-        msg = f"{field_name} must be one of {[item.value for item in enum_type]}. Got {value!r}."
-        raise ValueError(msg) from exc
+    if not value:
+        msg = f"{field_name} must be a non-empty string. Pass one of {[item.value for item in enum_type]}."
+        raise ValueError(msg)
 
 
 # Enum

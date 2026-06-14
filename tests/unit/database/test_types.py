@@ -84,6 +84,64 @@ def test_span_record_defaults_and_immutability() -> None:
         span.name = "changed"  # type: ignore[misc]  # frozen model mutation negative test
 
 
+def test_span_record_accepts_unknown_future_kind_and_status() -> None:
+    """Durable read model must tolerate kind/status values newer than this reader.
+
+    A newer writer that introduces a new SpanKind/SpanStatus must not make an
+    older reader crash while materializing rows.
+    """
+    deployment_id = uuid4()
+    span = SpanRecord(
+        span_id=uuid4(),
+        parent_span_id=None,
+        deployment_id=deployment_id,
+        root_deployment_id=deployment_id,
+        run_id="run-123",
+        kind="future_kind",
+        name="TaskName",
+        status="future_status",
+        sequence_no=0,
+    )
+
+    # Unknown values are preserved verbatim as plain strings...
+    assert span.kind == "future_kind"
+    assert span.status == "future_status"
+    # ...and compare correctly against the known StrEnum constants.
+    assert span.kind != SpanKind.TASK
+    assert span.status != SpanStatus.RUNNING
+    assert span.kind not in {SpanKind.DEPLOYMENT, SpanKind.ATTEMPT}
+
+
+def test_span_record_rejects_non_string_kind() -> None:
+    deployment_id = uuid4()
+    with pytest.raises(TypeError, match="kind must be a string"):
+        SpanRecord(
+            span_id=uuid4(),
+            parent_span_id=None,
+            deployment_id=deployment_id,
+            root_deployment_id=deployment_id,
+            run_id="run-123",
+            kind=123,  # type: ignore[arg-type]  # non-string kind negative test
+            name="TaskName",
+            sequence_no=0,
+        )
+
+
+def test_span_record_rejects_empty_kind() -> None:
+    deployment_id = uuid4()
+    with pytest.raises(ValueError, match="kind must be a non-empty string"):
+        SpanRecord(
+            span_id=uuid4(),
+            parent_span_id=None,
+            deployment_id=deployment_id,
+            root_deployment_id=deployment_id,
+            run_id="run-123",
+            kind="",
+            name="TaskName",
+            sequence_no=0,
+        )
+
+
 def test_document_record_defaults_and_attachment_fields() -> None:
     record = DocumentRecord(
         document_sha256="doc-sha",
