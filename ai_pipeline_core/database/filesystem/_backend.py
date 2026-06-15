@@ -358,6 +358,10 @@ class FilesystemDatabase:
         self._spans[span.span_id] = span
         self._span_paths[span.span_id] = path
 
+    def _save_span_batch_sync(self, spans: list[SpanRecord]) -> None:
+        for span in spans:
+            self._save_span_sync(span)
+
     def _save_document_sync(self, record: DocumentRecord) -> None:
         self._ensure_writable("save documents")
         if record.document_sha256 in self._documents:
@@ -911,6 +915,9 @@ class FilesystemDatabase:
 
     async def insert_span(self, span: SpanRecord) -> None:
         await self._run_write(self._save_span_sync, span)
+
+    async def insert_span_batch(self, spans: list[SpanRecord]) -> None:
+        await self._run_write(self._save_span_batch_sync, spans)
 
     async def save_document(self, record: DocumentRecord) -> None:
         await self._run_write(self._save_document_sync, record)

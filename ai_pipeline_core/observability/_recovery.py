@@ -24,6 +24,13 @@ _CRASH_ERROR_MESSAGE = "Deployment process crashed or stopped before recording t
 _RUNNING_ROOT_SCAN_LIMIT = 1000
 _SECONDS_PER_HOUR = 3600
 _DATABASE_READ_ERRORS = (ConnectionError, OSError, TimeoutError)
+# Terminal-root descendant reconciliation (the in-process buffer/drain backstop).
+_TERMINAL_ROOT_SCAN_LIMIT = 1000
+_TERMINAL_ROOT_WINDOW_HOURS = 48
+# Grace beyond the end-of-run drain budget so we never race a process that is
+# still flushing its buffer for a freshly-finished run.
+_TERMINAL_ROOT_GRACE_SECONDS = 300
+_TERMINAL_ROOT_STATUSES = frozenset({SpanStatus.COMPLETED, SpanStatus.FAILED, SpanStatus.CACHED, SpanStatus.SKIPPED})
 _TRANSIENT_PREFECT_ERRORS = (ConnectionError, OSError, TimeoutError, httpx.HTTPError)
 # Heartbeat and span activity are not reconciliation inputs. See 0.22.0 release notes.
 # Durable liveness is a 0.23.0 schema change.
@@ -326,4 +333,76 @@ async def recover_orphaned_spans(
                 logger.warning("%s", probe.message)
             continue
 
+    reconciled_roots.extend(await _reconcile_terminal_root_descendants(database, now=now))
     return reconciled_roots
+
+
+async def _reconcile_terminal_root_descendants(database: _RecoveryDatabase, *, now: datetime) -> list[UUID]:
+    """Mark stuck RUNNING descendants of already-terminal roots as ``lost``.
+
+    This is the cross-process backstop for the in-process terminal-row buffer:
+    when a transient database outage drops a span's terminal write and the
+    process exits (or the buffer overflows) before the drain recovers it, the
+    descendant is permanently ``running`` under a root the orchestrator already
+    finished. We only act on roots whose own status is terminal (the run is
+    provably over) and older than a grace window (so we never race a process
+    still flushing its buffer), and we never touch a descendant that already
+    carries an error or a non-running latest row. The synthetic row uses
+    ``running.version + 1`` so a late exact terminal row still wins.
+    """
+    try:
+        roots = await database.list_deployments(limit=_TERMINAL_ROOT_SCAN_LIMIT, root_only=True)
+    except _DATABASE_READ_ERRORS as exc:
+        logger.warning("Terminal-root reconciliation: cannot list deployments: %s. Skipping this cycle.", exc)
+        return []
+
+    reconciled: list[UUID] = []
+    for root in roots:
+        if root.status not in _TERMINAL_ROOT_STATUSES or root.ended_at is None:
+            continue
+        age_seconds = (now - root.ended_at).total_seconds()
+        if age_seconds < _TERMINAL_ROOT_GRACE_SECONDS or age_seconds > _TERMINAL_ROOT_WINDOW_HOURS * _SECONDS_PER_HOUR:
+            continue
+        if await _mark_running_descendants_lost(database, root, now=now):
+            reconciled.append(root.span_id)
+    return reconciled
+
+
+async def _mark_running_descendants_lost(database: _RecoveryDatabase, root: SpanRecord, *, now: datetime) -> bool:
+    try:
+        tree = await database.get_deployment_tree_topology(root.root_deployment_id)
+    except _DATABASE_READ_ERRORS as exc:
+        logger.warning("Terminal-root reconciliation: cannot read tree for %s: %s.", root.span_id, exc)
+        return False
+
+    reconciled_any = False
+    for span in tree:
+        if span.span_id == root.span_id or span.status != SpanStatus.RUNNING or span.error_type:
+            continue
+        await database.insert_span(
+            replace(
+                span,
+                status=SpanStatus.LOST,
+                version=span.version + 1,
+                ended_at=span.ended_at or root.ended_at,
+                error_type="",
+                error_message="",
+                meta_json=json_dumps({
+                    "reconcile_reason": "missing_terminal_span_write",
+                    "terminal_write_lost": True,
+                    "original_status": str(SpanStatus.RUNNING),
+                    "root_status": str(root.status),
+                    "reconciled_at": now.isoformat(),
+                }),
+            )
+        )
+        reconciled_any = True
+
+    if reconciled_any:
+        logger.warning(
+            "Terminal-root reconciliation: marked stuck RUNNING descendants of terminal root `%s` (run_id=%s) as lost. "
+            "Their terminal span writes were lost; the true outcome is unknown.",
+            root.span_id,
+            root.run_id,
+        )
+    return reconciled_any

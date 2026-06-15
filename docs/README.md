@@ -43,6 +43,12 @@ in-process programmatic seam (`advanced-api/`), and the out-of-process runtime s
 evidence, not current authority. Until the principles and implementation layers land here, the root
 `CLAUDE.md` remains the operative standard for code work.
 
+The contract is written in present tense as the 0.3.0 target, so some of it describes behavior the implementation
+is still being built to satisfy. The append-only / never-delete database invariant, the halt-on-recording-failure
+rule, and the recording substrate's throughput floor are recorded as planned 0.3.0 behavior in
+`3-contract/_decisions.md § The database is append-only and authoritative, with three profiles`, not as
+already-shipped behavior.
+
 ## Where to start
 
 If you are deciding whether proposed work serves the project, read `2-problem/` — its four files are one

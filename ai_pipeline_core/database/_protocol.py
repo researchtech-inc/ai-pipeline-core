@@ -36,6 +36,10 @@ class DatabaseWriter(Protocol):
         """Append one span version."""
         ...
 
+    async def insert_span_batch(self, spans: list[SpanRecord]) -> None:
+        """Append many span versions in one operation."""
+        ...
+
     async def save_document(self, record: DocumentRecord) -> None:
         """Store one document record."""
         ...

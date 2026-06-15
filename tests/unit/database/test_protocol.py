@@ -61,6 +61,7 @@ def _make_writer_stub() -> object:
     namespace = {
         "supports_remote": property(lambda self: False),
         "insert_span": _async_method,
+        "insert_span_batch": _async_method,
         "save_document": _async_method,
         "save_document_batch": _async_method,
         "save_blob": _async_method,
@@ -208,6 +209,9 @@ def test_database_reader_method_signatures() -> None:
 
 def test_database_writer_method_signatures() -> None:
     _assert_signature(DatabaseWriter, "insert_span", parameter_types={"span": SpanRecord}, return_type=type(None))
+    _assert_signature(
+        DatabaseWriter, "insert_span_batch", parameter_types={"spans": list[SpanRecord]}, return_type=type(None)
+    )
     _assert_signature(
         DatabaseWriter, "save_document", parameter_types={"record": DocumentRecord}, return_type=type(None)
     )

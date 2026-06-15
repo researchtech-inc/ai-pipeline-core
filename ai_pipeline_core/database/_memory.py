@@ -46,6 +46,10 @@ class _MemoryDatabase:
         if existing is None or span.version > existing.version:
             self._spans[span.span_id] = span
 
+    async def insert_span_batch(self, spans: list[SpanRecord]) -> None:
+        for span in spans:
+            await self.insert_span(span)
+
     async def save_document(self, record: DocumentRecord) -> None:
         if record.document_sha256 in self._documents:
             return

@@ -210,6 +210,13 @@ framework-adjacent producers that stand up or record a run — not for applicati
 (`api/9-integrations.md`). The runner owns recording for an ordinary run; a producer reaches the write seam only
 when it is recording on the framework's behalf.
 
+The store is append-only as a whole, not only for spans: every write adds durable history, and nothing a producer
+writes replaces or deletes what was already recorded. `update_document_summary` and any other `update`-named call
+records a new version or projection beside the prior record rather than mutating stored bytes in place. Old history
+may be archived or compressed, but the recorded facts are never discarded (`3-guarantees.md § Durable record`).
+This invariant holds identically across the configured backends; which backend is in use is a configuration
+concern below this boundary (`5-configuration.md`).
+
 ### Reference
 
 ```text
@@ -235,8 +242,9 @@ class DatabaseWriter:
   is the content hash the framework derives from the bytes — the producer passes content, not an identity, consistent
   with never minting identity by hand.
 - `save_logs_batch` persists execution log lines attached to the unit that produced them.
-- `update_document_summary` records a human-readable summary against an already-persisted document; it does not
-  change content or identity.
+- `update_document_summary` records a human-readable summary against an already-persisted document as a new version
+  beside it; it adds the summary additively and does not mutate, replace, or delete the document's content or
+  identity.
 - `flush` drains buffered writes to the durable store; `shutdown` closes the backend.
 - `supports_remote` reports whether the configured backend can back cross-process and distributed execution — the
   capability the framework reads to decide whether a child pipeline runs in-process or as a separately-deployed run

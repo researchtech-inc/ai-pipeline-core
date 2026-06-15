@@ -294,6 +294,99 @@ async def test_recovery_propagates_typeerror_not_swallow() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_terminal_root_running_descendant_marked_lost() -> None:
+    """Backstop: a stuck RUNNING descendant of an already-terminal root becomes ``lost``."""
+    database = _MemoryDatabase()
+    now = datetime.now(UTC)
+    root_id = uuid4()
+    root = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="Deploy",
+        status=SpanStatus.COMPLETED,
+        started_at=now - timedelta(hours=1),
+        ended_at=now - timedelta(minutes=30),  # past the grace window, within the 48h window
+    )
+    await database.insert_span(root)
+    stuck = _make_span(
+        parent_span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.PROMPT_EXECUTION,
+        name="NeutralAnalysis",
+        status=SpanStatus.RUNNING,
+        version=7,
+        ended_at=None,
+    )
+    await database.insert_span(stuck)
+    completed_child = await _add_task_child(
+        database, root=root, status=SpanStatus.COMPLETED, ended_at=now - timedelta(minutes=40)
+    )
+
+    recovered = await recover_orphaned_spans(
+        database,
+        prefect_client=_FakePrefectClient(_prefect_flow_run(state_type="COMPLETED", updated=now)),
+    )
+
+    updated_stuck = await database.get_span(stuck.span_id)
+    assert updated_stuck is not None
+    assert updated_stuck.status == SpanStatus.LOST
+    assert updated_stuck.version == stuck.version + 1
+    assert updated_stuck.ended_at == root.ended_at
+    meta = json.loads(updated_stuck.meta_json)
+    assert meta["terminal_write_lost"] is True
+    assert meta["reconcile_reason"] == "missing_terminal_span_write"
+    assert meta["original_status"] == "running"
+    assert meta["root_status"] == "completed"
+    assert root_id in recovered
+
+    # An already-terminal sibling is never relabeled.
+    updated_completed = await database.get_span(completed_child.span_id)
+    assert updated_completed is not None
+    assert updated_completed.status == SpanStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_terminal_root_recent_descendant_left_running_within_grace() -> None:
+    """A just-finished root is left alone so we never race a still-draining process."""
+    database = _MemoryDatabase()
+    now = datetime.now(UTC)
+    root_id = uuid4()
+    root = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        name="Deploy",
+        status=SpanStatus.COMPLETED,
+        started_at=now - timedelta(minutes=5),
+        ended_at=now - timedelta(seconds=10),  # inside the grace window
+    )
+    await database.insert_span(root)
+    stuck = _make_span(
+        parent_span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.LLM_ROUND,
+        status=SpanStatus.RUNNING,
+        ended_at=None,
+    )
+    await database.insert_span(stuck)
+
+    recovered = await recover_orphaned_spans(
+        database,
+        prefect_client=_FakePrefectClient(_prefect_flow_run(state_type="COMPLETED", updated=now)),
+    )
+
+    updated_stuck = await database.get_span(stuck.span_id)
+    assert updated_stuck is not None
+    assert updated_stuck.status == SpanStatus.RUNNING
+    assert root_id not in recovered
+
+
 def test_deleted_settings_are_actually_gone() -> None:
     assert "orphan_reap_heartbeat_stale_seconds" not in Settings.model_fields
     assert "orphan_reap_fallback_max_hours" not in Settings.model_fields

@@ -5,13 +5,15 @@
 import asyncio
 import json
 import logging
+import time
 from types import MappingProxyType
 from uuid import UUID, uuid7
 
 import pytest
+from clickhouse_connect.driver.exceptions import DataError as ClickHouseDataError
 from clickhouse_connect.driver.exceptions import DatabaseError as ClickHouseDatabaseError
 
-from ai_pipeline_core.database import SpanKind, SpanStatus
+from ai_pipeline_core.database import SpanKind, SpanRecord, SpanStatus
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.deployment._types import _NoopPublisher
 from ai_pipeline_core.documents import Document
@@ -19,7 +21,7 @@ from ai_pipeline_core.logger._buffer import ExecutionLogBuffer
 from ai_pipeline_core.logger._handler import ExecutionLogHandler
 from ai_pipeline_core.pipeline._execution_context import ExecutionContext, get_sinks, set_execution_context
 from ai_pipeline_core.pipeline._runtime_sinks import build_runtime_sinks
-from ai_pipeline_core.pipeline._span_sink import DatabaseSpanSink
+from ai_pipeline_core.pipeline._span_sink import DatabaseSpanSink, flush_pending_terminal_spans
 from ai_pipeline_core.pipeline._track_span import track_span
 from ai_pipeline_core.pipeline.limits import _SharedStatus
 from ai_pipeline_core.settings import settings
@@ -77,6 +79,101 @@ class _ClickHouseFailingSpanInsertDatabase(_RecordingMemoryDatabase):
     async def insert_span(self, span: object) -> None:
         _ = span
         raise ClickHouseDatabaseError("span-insert-failed")
+
+
+class _FlakyTerminalDatabase(_MemoryDatabase):
+    """Single terminal-row inserts fail transiently; batch inserts always store.
+
+    Models a database outage during span finalization that the end-of-run drain
+    or traffic pump rides out once connectivity returns.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_terminal_singles = True
+        self.batch_calls = 0
+
+    async def insert_span(self, span: SpanRecord) -> None:
+        if self.fail_terminal_singles and span.status != SpanStatus.RUNNING:
+            raise OSError("terminal-insert-failed")
+        await super().insert_span(span)
+
+    async def insert_span_batch(self, spans: list[SpanRecord]) -> None:
+        self.batch_calls += 1
+        for span in spans:
+            await super().insert_span(span)
+
+
+class _PoisonBatchDatabase(_MemoryDatabase):
+    """Batches and single inserts containing the poison row are rejected with a
+    ClickHouse ``DataError`` — a real ClickHouseDatabaseError subclass. This
+    models a genuine bad-data rejection from ClickHouse (e.g., encoding error,
+    type mismatch). Every other row stores fine."""
+
+    def __init__(self, poison_span_id: UUID) -> None:
+        super().__init__()
+        self.poison_span_id = poison_span_id
+
+    async def insert_span(self, span: SpanRecord) -> None:
+        if hasattr(span, "span_id") and span.span_id == self.poison_span_id:
+            raise ClickHouseDataError("poison row rejected (single)")
+        await super().insert_span(span)
+
+    async def insert_span_batch(self, spans: list[SpanRecord]) -> None:
+        if any(span.span_id == self.poison_span_id for span in spans):
+            raise ClickHouseDataError("poison row rejected (batch)")
+        for span in spans:
+            await super().insert_span(span)
+
+
+class _HangingTerminalDatabase(_FlakyTerminalDatabase):
+    """Terminal inserts hang forever; batch inserts succeed.
+
+    Models a slow ClickHouse that accepts the TCP connection but never responds,
+    triggering the ``move_on_after(5s)`` cancellation in ``track_span``'s finally.
+    """
+
+    async def insert_span(self, span: SpanRecord) -> None:
+        if span.status != SpanStatus.RUNNING:
+            await asyncio.Event().wait()  # hang forever
+        await _MemoryDatabase.insert_span(self, span)
+
+
+class _OutputBlobFailingDatabase(_RecordingMemoryDatabase):
+    """Blob batch saves fail only when writing output blobs (not input blobs).
+
+    Input blobs succeed so the start row writes normally; output blobs fail so
+    the output-artifact path in ``_prepare_finish_payload`` raises.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._started_span_ids: set[UUID] = set()
+
+    async def insert_span(self, span: object) -> None:
+        if hasattr(span, "span_id"):
+            self._started_span_ids.add(span.span_id)  # type: ignore[union-attr]  # negative test: span is typed object but we guard with hasattr
+        await super().insert_span(span)
+
+    async def save_blob_batch(self, blobs: list[object]) -> None:
+        if self._started_span_ids:
+            raise OSError("output-blob-write-failed")
+        await super().save_blob_batch(blobs)
+
+
+def _terminal_span(*, span_id: UUID | None = None) -> SpanRecord:
+    return SpanRecord(
+        span_id=span_id or uuid7(),
+        parent_span_id=uuid7(),
+        deployment_id=uuid7(),
+        root_deployment_id=uuid7(),
+        run_id="poison-run",
+        kind=SpanKind.LLM_ROUND,
+        name="llm",
+        sequence_no=0,
+        status=SpanStatus.COMPLETED,
+        version=time.time_ns(),
+    )
 
 
 class _FakeSink:
@@ -409,7 +506,7 @@ def test_span_context_set_metrics_rejects_unknown_fields() -> None:
 
 
 @pytest.mark.asyncio
-async def test_track_span_skips_database_sink_when_artifact_persistence_fails() -> None:
+async def test_track_span_still_writes_terminal_row_when_artifact_persistence_fails() -> None:
     database = _FailingBlobDatabase()
     other_sink = _FakeSink()
     ctx = _make_context(database)
@@ -426,13 +523,23 @@ async def test_track_span_skips_database_sink_when_artifact_persistence_fails() 
         ) as span_ctx:
             span_ctx._set_output_value(None)
 
-    assert database.inserted_spans == []
+    # Artifact-persistence failure must NOT suppress the span rows: both the
+    # running and terminal rows are written, with dangling refs blanked and a
+    # degraded marker, so the span never gets stuck "running".
+    assert len(database.inserted_spans) == 2
+    started_span, finished_span = database.inserted_spans
+    assert started_span.status == SpanStatus.RUNNING
+    assert finished_span.status == SpanStatus.COMPLETED
+    assert started_span.input_blob_shas == ()
+    assert started_span.input_json == ""
+    assert json.loads(finished_span.meta_json).get("artifacts_degraded") is True
+    assert ctx.recording_degraded is True
     assert len(other_sink.started) == 1
     assert len(other_sink.finished) == 1
 
 
 @pytest.mark.asyncio
-async def test_track_span_skips_database_sink_when_clickhouse_artifact_persistence_fails() -> None:
+async def test_track_span_still_writes_terminal_row_when_clickhouse_artifact_persistence_fails() -> None:
     database = _ClickHouseFailingBlobDatabase()
     other_sink = _FakeSink()
     ctx = _make_context(database)
@@ -449,7 +556,10 @@ async def test_track_span_skips_database_sink_when_clickhouse_artifact_persisten
         ) as span_ctx:
             span_ctx._set_output_value(None)
 
-    assert database.inserted_spans == []
+    assert len(database.inserted_spans) == 2
+    finished_span = database.inserted_spans[-1]
+    assert finished_span.status == SpanStatus.COMPLETED
+    assert json.loads(finished_span.meta_json).get("artifacts_degraded") is True
     assert ctx.recording_degraded is True
     assert len(other_sink.started) == 1
     assert len(other_sink.finished) == 1
@@ -519,3 +629,230 @@ async def test_database_span_sink_strips_internal_meta_keys_before_serializing()
 
     span = next(iter(database._spans.values()))
     assert json.loads(span.meta_json) == {"public": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_dropped_terminal_insert_is_recovered_by_end_of_run_drain() -> None:
+    database = _FlakyTerminalDatabase()
+    sink = DatabaseSpanSink(database)
+    ctx = _make_context(database)
+    span_id = uuid7()
+
+    with set_execution_context(ctx):
+        async with track_span(
+            SpanKind.TASK,
+            "flaky-task",
+            "classmethod:test:Task.run",
+            sinks=(sink,),
+            span_id=span_id,
+            db=database,
+            input_preview=None,
+        ) as span_ctx:
+            span_ctx._set_output_value(None)
+
+    # The terminal insert failed during the run: the span is parked and the
+    # database still shows the running row (the bug we are fixing).
+    stuck = await database.get_span(span_id)
+    assert stuck is not None
+    assert stuck.status == SpanStatus.RUNNING
+    assert span_id in sink._buffer
+
+    # End-of-run drain rides out the (now-passed) outage via the batch path.
+    await flush_pending_terminal_spans((sink,), budget_s=5.0)
+
+    recovered = await database.get_span(span_id)
+    assert recovered is not None
+    assert recovered.status == SpanStatus.COMPLETED
+    assert recovered.version > stuck.version
+    assert not sink._buffer
+    assert database.batch_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_dropped_terminal_insert_is_recovered_by_traffic_pump() -> None:
+    database = _FlakyTerminalDatabase()
+    sink = DatabaseSpanSink(database)
+    ctx = _make_context(database)
+    first_id = uuid7()
+    second_id = uuid7()
+
+    with set_execution_context(ctx):
+        async with track_span(
+            SpanKind.TASK, "a", "t", sinks=(sink,), span_id=first_id, db=database, input_preview=None
+        ) as span_ctx:
+            span_ctx._set_output_value(None)
+        assert first_id in sink._buffer  # parked: terminal insert failed
+
+        # Outage clears; the next finished span's successful insert pumps the backlog.
+        database.fail_terminal_singles = False
+        async with track_span(
+            SpanKind.TASK, "b", "t", sinks=(sink,), span_id=second_id, db=database, input_preview=None
+        ) as span_ctx:
+            span_ctx._set_output_value(None)
+
+    assert not sink._buffer
+    for span_id in (first_id, second_id):
+        recovered = await database.get_span(span_id)
+        assert recovered is not None
+        assert recovered.status == SpanStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_poison_row_is_isolated_without_blocking_other_terminal_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("ai_pipeline_core.pipeline._span_sink._MAX_ROW_ATTEMPTS", 1)
+    poison = _terminal_span()
+    database = _PoisonBatchDatabase(poison.span_id)
+    sink = DatabaseSpanSink(database)
+    good_before = _terminal_span()
+    good_after = _terminal_span()
+
+    # Park three terminal rows as the hot path would on a transient failure.
+    sink._park(good_before)
+    sink._park(poison)
+    sink._park(good_after)
+
+    await flush_pending_terminal_spans((sink,), budget_s=5.0)
+
+    # The poison row is quarantined; the good rows around it are still persisted.
+    assert await database.get_span(good_before.span_id) is not None
+    assert await database.get_span(good_after.span_id) is not None
+    assert await database.get_span(poison.span_id) is None
+    assert sink._poisoned_terminal == 1
+    assert not sink._buffer
+
+
+def test_terminal_buffer_drops_oldest_under_count_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ai_pipeline_core.pipeline._span_sink._MAX_BUFFER_ROWS", 3)
+    database = _MemoryDatabase()
+    sink = DatabaseSpanSink(database)
+
+    spans = [_terminal_span() for _ in range(5)]
+    for span in spans:
+        sink._park(span)
+
+    # Bounded memory: only the newest 3 survive; the 2 oldest are dropped and counted.
+    assert len(sink._buffer) == 3
+    assert sink._dropped_terminal == 2
+    assert list(sink._buffer) == [span.span_id for span in spans[2:]]
+
+
+@pytest.mark.asyncio
+async def test_move_on_after_cancellation_leaves_terminal_row_parked_and_drainable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Proves the 5s finish-timeout durability path: if the DB hangs past the
+    ``move_on_after`` wall, the terminal row survives in the buffer because
+    ``_park`` ran synchronously before the await.  The end-of-run drain then
+    recovers it via the batch path.
+    """
+    monkeypatch.setattr("ai_pipeline_core.pipeline._track_span._SHUTDOWN_TIMEOUT_SECONDS", 0.05)
+    database = _HangingTerminalDatabase()
+    database.fail_terminal_singles = False  # let _park handle it, insert will hang
+    sink = DatabaseSpanSink(database)
+    ctx = _make_context(database)
+    span_id = uuid7()
+
+    with set_execution_context(ctx):
+        async with track_span(
+            SpanKind.TASK,
+            "hanging-task",
+            "classmethod:test:Task.run",
+            sinks=(sink,),
+            span_id=span_id,
+            db=database,
+            input_preview=None,
+        ) as span_ctx:
+            span_ctx._set_output_value(None)
+
+    # The terminal insert was cancelled by move_on_after; the row must be parked.
+    assert span_id in sink._buffer
+    stuck = await database.get_span(span_id)
+    assert stuck is not None
+    assert stuck.status == SpanStatus.RUNNING
+
+    # End-of-run drain via the batch path recovers it.
+    await flush_pending_terminal_spans((sink,), budget_s=5.0)
+
+    recovered = await database.get_span(span_id)
+    assert recovered is not None
+    assert recovered.status == SpanStatus.COMPLETED
+    assert not sink._buffer
+
+
+@pytest.mark.asyncio
+async def test_output_artifact_failure_still_writes_terminal_row_with_degraded_marker() -> None:
+    """Proves the output-artifact decoupling: when output blob persistence fails
+    during ``_prepare_finish_payload``, the terminal span row is still written
+    with ``artifacts_degraded=true`` and blanked output references.
+    """
+    database = _OutputBlobFailingDatabase()
+    sink = DatabaseSpanSink(database)
+    ctx = _make_context(database)
+    input_doc = _make_input_doc()
+
+    with set_execution_context(ctx):
+        async with track_span(
+            SpanKind.TASK,
+            "output-artifact-failure",
+            "classmethod:test:Task.run",
+            sinks=(sink,),
+            encode_input=(input_doc,),
+            db=database,
+            input_preview=None,
+        ) as span_ctx:
+            output_doc = _SpanOutputDoc.derive(derived_from=(input_doc,), name="out.txt", content="output")
+            span_ctx._set_output_value((output_doc, b"output-blob"))
+
+    # Both start and terminal rows must be written despite output blob failure.
+    assert len(database.inserted_spans) == 2
+    started_span, finished_span = database.inserted_spans
+    assert started_span.status == SpanStatus.RUNNING
+    assert finished_span.status == SpanStatus.COMPLETED
+    # Output refs are blanked (no dangling references to unpersisted blobs).
+    assert finished_span.output_document_shas == ()
+    assert finished_span.output_blob_shas == ()
+    assert finished_span.output_json == ""
+    # The degraded marker is set so downstream consumers know.
+    meta = json.loads(finished_span.meta_json)
+    assert meta.get("artifacts_degraded") is True
+    assert ctx.recording_degraded is True
+
+
+def test_terminal_buffer_drops_oldest_under_byte_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proves the byte-cap eviction path: large meta_json rows trigger FIFO
+    eviction when the byte cap is exceeded, even if the count cap is not hit.
+    """
+    monkeypatch.setattr("ai_pipeline_core.pipeline._span_sink._MAX_BUFFER_ROWS", 100)
+    monkeypatch.setattr("ai_pipeline_core.pipeline._span_sink._MAX_BUFFER_BYTES", 2000)
+    database = _MemoryDatabase()
+    sink = DatabaseSpanSink(database)
+
+    # Create spans with large meta_json (~1KB each after stripping).
+    big_meta = "x" * 900
+    spans = []
+    for _ in range(5):
+        span = SpanRecord(
+            span_id=uuid7(),
+            parent_span_id=uuid7(),
+            deployment_id=uuid7(),
+            root_deployment_id=uuid7(),
+            run_id="byte-cap-run",
+            kind=SpanKind.LLM_ROUND,
+            name="llm",
+            sequence_no=0,
+            status=SpanStatus.COMPLETED,
+            version=time.time_ns(),
+            meta_json=big_meta,
+        )
+        spans.append(span)
+        sink._park(span)
+
+    # Count cap (100) is not reached, but byte cap (2000) should evict older rows.
+    assert len(sink._buffer) < 5
+    assert sink._dropped_terminal > 0
+    assert sink._buffer_bytes <= 2000
+    # The newest rows survive, oldest are dropped.
+    surviving_ids = list(sink._buffer.keys())
+    assert surviving_ids[-1] == spans[-1].span_id

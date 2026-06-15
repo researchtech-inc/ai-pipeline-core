@@ -75,6 +75,28 @@ A solution in which recovery means starting over, in which a retry can observe s
 failed sibling, or in which a run's outcome is guessed from the last event instead of reconciled against the
 record, fails this constraint before its first production incident.
 
+## The record is the sole source of truth, and recording must keep pace
+
+What a run did is known to every later reader only through what was recorded; work that happened but was not
+recorded did not happen as far as anything downstream can tell. The record therefore cannot be a best-effort side
+effect of the work — it is the work's only evidence of itself. It must hold every operation a run performs,
+preserved additively rather than overwritten, so that what was true earlier stays recoverable after later work
+changes the picture. And a run that cannot record what it is doing cannot be trusted to continue: advancing on
+state held only in a process's memory manufactures exactly the silent gap — a conclusion with no recorded basis —
+that the rest of this frame exists to prevent.
+
+The substrate that holds the record must also keep pace with the work. Production runs issue work at machine speed,
+many thousands of steps per minute, and every one of them produces evidence that has to be recorded as it happens.
+A substrate that cannot absorb that rate becomes the bottleneck, and the pressure to keep the run moving becomes
+pressure to drop, defer, or skip recording — which is the unsaved-work failure above, arriving through the back
+door.
+
+A solution in which recording is lossy under load, in which a recording failure is swallowed so the run can limp
+forward on unsaved state, or in which earlier recorded facts are replaced rather than preserved fails this
+constraint. How the record is stored, how durability and throughput are achieved, and what halts a run whose
+recording fails are not decided here; that the record is authoritative and additive, that it keeps pace, and that
+a run cannot continue past a recording failure, is.
+
 ## Correctness must not depend on where work runs
 
 Production work spreads across processes and machines, and inspection happens elsewhere and later than

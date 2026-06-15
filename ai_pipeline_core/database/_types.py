@@ -135,6 +135,11 @@ class SpanStatus(StrEnum):
     FAILED = "failed"
     CACHED = "cached"
     SKIPPED = "skipped"
+    # Reconciliation-only: a terminal span row whose write was lost (e.g. a
+    # transient database outage during span finalization) and recovered by
+    # ``recover_orphaned_spans`` under an already-terminal root. The true
+    # outcome is unknown, so it must not be counted as completed or failed.
+    LOST = "lost"
 
 
 @dataclass(frozen=True, slots=True)

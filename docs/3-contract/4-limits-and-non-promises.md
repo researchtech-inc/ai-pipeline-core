@@ -73,7 +73,11 @@ the guarantee it was protecting.
   of avoidable overhead — non-blocking launch, prepared deployment, content-addressed reuse — but it does not
   promise a specific time-to-start, run duration, or throughput. Cold starts, scheduling, the work itself, the
   models, and where the runtime is deployed bound real-world speed. "Fast" is a structural promise about removing
-  avoidable overhead, not a service-level commitment to a wall-clock number.
+  avoidable overhead, not a service-level commitment to a wall-clock number. This non-promise is about the
+  consumer-facing speed of a run; it does not contradict the framework's own internal requirement that the
+  recording substrate keep pace with production task rates (`3-guarantees.md § Durable record`,
+  `../2-problem/2-constraints.md`). That keep-pace requirement is a floor the framework's design must meet, not a
+  throughput figure the framework promises to an application author.
 - **Capacity parity between local and remote.** Operation is identical across placements (`3-guarantees.md §
   Operational parity across placements`), but a single local process does not match a distributed runtime's
   throughput, concurrency, or scale. The promise is the same *operation and behavior*, not the same capacity.

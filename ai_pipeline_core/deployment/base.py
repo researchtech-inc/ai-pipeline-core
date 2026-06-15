@@ -43,6 +43,7 @@ from ai_pipeline_core.pipeline._execution_context import (
 from ai_pipeline_core.pipeline._flow import PipelineFlow
 from ai_pipeline_core.pipeline._parallel import TaskHandle
 from ai_pipeline_core.pipeline._runtime_sinks import build_runtime_sinks
+from ai_pipeline_core.pipeline._span_sink import flush_pending_terminal_spans
 from ai_pipeline_core.pipeline._track_span import track_span
 from ai_pipeline_core.pipeline.limits import (
     PipelineLimit,
@@ -674,6 +675,14 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                 log_flush_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await log_flush_task
+            # Drain any terminal span rows that a transient database outage left
+            # buffered, so finished spans are not stranded "running". Runs
+            # regardless of database ownership (the buffer lives on this run's
+            # sinks) and is bounded so shutdown cannot hang.
+            try:
+                await flush_pending_terminal_spans(runtime_sinks.span_sinks)
+            except Exception as flush_exc:
+                logger.warning("Terminal span flush failed during shutdown: %s", flush_exc)
             if owns_database:
                 await self._shutdown_db(database)
             run_scope.close()

@@ -17,6 +17,28 @@ returns from a task can be silently lost between steps, across a failure, or aft
 outlives the process that produced it and is available for inspection, replay, and audit. You do not write
 persistence code, and you do not decide what to keep — the durable record is complete by default.
 
+The record is append-only and additive: it preserves every operation as durable history and never replaces or
+deletes what it already recorded. A later revision, summary, or correction is recorded as a new entry beside the
+prior one, not written over it, so the account of what was true earlier stays recoverable after later work changes
+the picture — this is the store-wide form of _Identity and immutability_ below. Old history may be archived or
+compressed to reclaim space, but the recorded facts are never discarded; compression preserves them, it does not
+summarize them away. Because the record is the authoritative account of what a run did, what is not recorded did
+not happen for any later reader: there is no supported path by which work proceeds on state held only in process
+memory and never written down.
+
+## Recording halts the run when it cannot proceed
+
+Because the durable record is the authoritative account of a run, the framework never advances a run while it
+cannot record what that run is doing. A transient problem reaching the store is the framework's to absorb through
+its own retry and recovery mechanics; an unrecoverable one halts the run rather than letting it continue on
+authoritative state that exists only in process memory. This is stronger than an ordinary task failure, which
+stops one unit of work: a recording failure the framework cannot recover from stops the whole run, because no part
+of it can be trusted once the account of what happened is no longer being written. A run halted this way resolves
+against what was actually recorded, the same way a crashed run does (_Reconcile to recorded truth_ below); the
+framework does not invent a terminal state it could not record. This is a framework-and-runtime condition, not an
+application concern — application code does not detect store failures, retry around them, or decide to continue
+without the record.
+
 ## Automatic provenance
 
 Every non-root document records its immediate upstream documents — the content that contributed to it, the work

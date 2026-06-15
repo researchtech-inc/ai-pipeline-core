@@ -223,6 +223,9 @@ class ClickHouseDatabase:
     async def insert_span(self, span: SpanRecord) -> None:
         await self._insert(SPANS_TABLE, [span_to_row(span)], column_names=SPAN_COLUMNS)
 
+    async def insert_span_batch(self, spans: list[SpanRecord]) -> None:
+        await self._insert(SPANS_TABLE, [span_to_row(span) for span in spans], column_names=SPAN_COLUMNS)
+
     async def save_document(self, record: DocumentRecord) -> None:
         await self._insert(DOCUMENTS_TABLE, [document_to_row(record)], column_names=DOCUMENT_COLUMNS)
 

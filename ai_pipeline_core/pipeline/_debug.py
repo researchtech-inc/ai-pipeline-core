@@ -44,6 +44,8 @@ from ai_pipeline_core.pipeline._execution_context import (
 )
 from ai_pipeline_core.pipeline._flow import PipelineFlow
 from ai_pipeline_core.pipeline._runtime_sinks import build_runtime_sinks
+from ai_pipeline_core.pipeline._span_sink import flush_pending_terminal_spans
+from ai_pipeline_core.pipeline._span_types import SpanSink
 from ai_pipeline_core.pipeline._task import PipelineTask
 from ai_pipeline_core.pipeline._track_span import track_span
 from ai_pipeline_core.pipeline.limits import _LimitsState, _set_limits_state, _SharedStatus
@@ -265,6 +267,7 @@ async def _run_debug(
                 return tuple(result)
     finally:
         await _cancel_dispatched_handles(ctx.active_task_handles, baseline_handles=baseline_handles)
+        await flush_pending_terminal_spans(runtime_sinks.span_sinks)
         log_flush_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await log_flush_task
@@ -303,6 +306,7 @@ class DebugSession:
         self._doc_counter = 0
         self._database: FilesystemDatabase | None = None
         self._context_stack: contextlib.AsyncExitStack | None = None
+        self._span_sinks: tuple[SpanSink, ...] = ()
 
     @property
     def output_dir(self) -> Path:
@@ -330,6 +334,7 @@ class DebugSession:
         setup_logging()
         self._database = create_debug_sink(self._output_dir)
         runtime_sinks = build_runtime_sinks(database=self._database, settings_obj=settings)
+        self._span_sinks = runtime_sinks.span_sinks
         _ensure_execution_log_handler_installed()
 
         flush_event = asyncio.Event()
@@ -386,6 +391,7 @@ class DebugSession:
                 await self._context_stack.__aexit__(exc_type, exc_val, exc_tb)
                 self._context_stack = None
 
+            await flush_pending_terminal_spans(self._span_sinks)
             self._log_flush_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._log_flush_task

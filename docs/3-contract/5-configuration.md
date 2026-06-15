@@ -50,10 +50,17 @@ reads them. The contract is the set of categories below; the keys and backends n
 - **Model gateway.** The endpoint and credentials for the model provider the framework calls — illustrated by
   `OPENAI_BASE_URL` and `OPENAI_API_KEY` for an OpenAI-compatible gateway. The application names models by
   `AIModelRef`; the gateway is configured here.
-- **Persistence backend.** Which durable store backs runs and documents. Local filesystem storage is the default
-  and needs no external service; a shared store is selected by configuring its backend. The behavior the
-  application relies on — durable, traceable, replayable records — is identical across backends; only this
-  configuration selects which one.
+- **Persistence backend.** Which durable store backs runs and documents. There are three supported profiles of
+  this one concern: an in-memory store for tests, which keeps the same append-only behavior for the lifetime of the
+  test process and is not durable after it exits; local filesystem storage, the default for development, which
+  needs no external service; and a shared backend store for distributed execution (currently ClickHouse, though the
+  backend identity is illustrative and not guaranteed). The recording semantics the application relies on —
+  append-only, traceable, replayable records — are identical across all three; only this configuration selects
+  which one. Durability is the one property that differs by profile: the filesystem and shared-backend stores
+  provide the post-process durable record the _Durable record_ guarantee describes (`3-guarantees.md`), while the
+  test-only in-memory store preserves the same append-only semantics for the lifetime of the test process but is
+  not durable after it exits. These are profiles behind one persistence concern, not a menu of interchangeable
+  mechanisms the adopter assembles (`4-limits-and-non-promises.md § One supported way per concern`).
 - **Observability sink.** Where execution records and error reports are emitted, when an external sink is
   configured (illustrated by a `SENTRY_DSN`). With no sink configured, the run still records to the durable store.
 - **Run-log / diagnostics store.** Where the run's unified diagnostic account — the logs of every cooperating part,

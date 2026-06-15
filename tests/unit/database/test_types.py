@@ -39,6 +39,7 @@ def test_span_status_members() -> None:
         "failed",
         "cached",
         "skipped",
+        "lost",
     )
 
 

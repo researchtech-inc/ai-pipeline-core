@@ -30,7 +30,6 @@ from ai_pipeline_core.pipeline._execution_context import (
 )
 from ai_pipeline_core.pipeline._span_sink import (
     EMPTY_LOG_SUMMARY,
-    DatabaseSpanSink,
     SpanContext,
     SpanSink,
     _must_reraise_sink_error,
@@ -70,7 +69,7 @@ class _EncodedSpanStart:
     input_json: str
     document_shas: frozenset[str]
     blob_shas: frozenset[str]
-    active_sinks: tuple[SpanSink, ...]
+    artifacts_ok: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +78,7 @@ class _EncodedSpanFinish:
     error_json: str
     output_document_shas: frozenset[str]
     output_blob_shas: frozenset[str]
-    active_sinks: tuple[SpanSink, ...]
+    artifacts_ok: bool
 
 
 @asynccontextmanager
@@ -125,7 +124,6 @@ async def track_span(
         execution_ctx=execution_ctx,
         kind=kind,
         name=name,
-        sinks=tuple(sinks),
     )
 
     span_execution_ctx = (
@@ -147,7 +145,7 @@ async def track_span(
             stack.enter_context(set_execution_context(span_execution_ctx))
 
         await _notify_sinks(
-            start_payload.active_sinks,
+            tuple(sinks),
             "on_span_started",
             span_id=span_id,
             parent_span_id=effective_parent_span_id,
@@ -192,7 +190,6 @@ async def track_span(
                 execution_ctx=execution_ctx,
                 kind=kind,
                 name=name,
-                sinks=start_payload.active_sinks,
             )
 
             meta = dict(context._meta)
@@ -201,6 +198,10 @@ async def track_span(
                 meta["retry_errors"] = context._retry_errors
             if context._status is not None:
                 meta["_span_status"] = context._status
+            # Artifact (blob/document) persistence failure must not suppress the
+            # terminal status row — only blank the dangling references and flag it.
+            if not (start_payload.artifacts_ok and finish_payload.artifacts_ok):
+                meta["artifacts_degraded"] = True
             _log_terminal_event(
                 kind=kind,
                 name=name,
@@ -218,7 +219,7 @@ async def track_span(
             is_shutdown = error is not None and not isinstance(error, Exception)
             with anyio.move_on_after(_SHUTDOWN_TIMEOUT_SECONDS, shield=True):
                 await _notify_sinks(
-                    finish_payload.active_sinks,
+                    tuple(sinks),
                     "on_span_finished",
                     suppress_shutdown_errors=is_shutdown,
                     span_id=span_id,
@@ -454,10 +455,6 @@ def _receiver_value(receiver_payload: dict[str, Any] | None) -> Any:
     return receiver_payload.get("value", _UNSET)
 
 
-def _without_database_sinks(sinks: tuple[SpanSink, ...]) -> tuple[SpanSink, ...]:
-    return tuple(sink for sink in sinks if not isinstance(sink, DatabaseSpanSink))
-
-
 async def _prepare_start_payload(
     *,
     codec: UniversalCodec,
@@ -467,25 +464,33 @@ async def _prepare_start_payload(
     execution_ctx: Any,
     kind: SpanKind,
     name: str,
-    sinks: tuple[SpanSink, ...],
 ) -> _EncodedSpanStart:
     receiver_json, receiver_document_shas, receiver_blob_shas = _encode_receiver(codec, encode_receiver)
     input_json, input_document_shas, input_blob_shas = _encode_value(codec, encode_input)
-    active_sinks = await _persist_for_span_boundary(
+    artifacts_ok = await _persist_for_span_boundary(
         db=db,
         execution_ctx=execution_ctx,
         kind=kind,
         name=name,
-        sinks=sinks,
         artifacts=_collect_artifacts(_receiver_value(encode_receiver), encode_input),
         stage="input",
     )
+    if not artifacts_ok:
+        # Input artifacts could not be persisted — blank the now-dangling refs but
+        # still record the span (the running row keeps the span visible).
+        return _EncodedSpanStart(
+            receiver_json="",
+            input_json="",
+            document_shas=frozenset(),
+            blob_shas=frozenset(),
+            artifacts_ok=False,
+        )
     return _EncodedSpanStart(
         receiver_json=receiver_json,
         input_json=input_json,
         document_shas=frozenset((*receiver_document_shas, *input_document_shas)),
         blob_shas=frozenset((*receiver_blob_shas, *input_blob_shas)),
-        active_sinks=active_sinks,
+        artifacts_ok=True,
     )
 
 
@@ -499,7 +504,6 @@ async def _prepare_finish_payload(
     execution_ctx: Any,
     kind: SpanKind,
     name: str,
-    sinks: tuple[SpanSink, ...],
 ) -> _EncodedSpanFinish:
     if error is not None or not has_output_value:
         return _EncodedSpanFinish(
@@ -507,29 +511,34 @@ async def _prepare_finish_payload(
             error_json=_build_error_json(error),
             output_document_shas=frozenset(),
             output_blob_shas=frozenset(),
-            active_sinks=sinks,
+            artifacts_ok=True,
         )
 
     output_json, output_document_shas, output_blob_shas = _encode_value(codec, output_value)
-    active_sinks = await _persist_for_span_boundary(
+    artifacts_ok = await _persist_for_span_boundary(
         db=db,
         execution_ctx=execution_ctx,
         kind=kind,
         name=name,
-        sinks=sinks,
         artifacts=_collect_artifacts(output_value),
         stage="output",
     )
-    if active_sinks != sinks:
-        output_json = ""
-        output_document_shas = frozenset()
-        output_blob_shas = frozenset()
+    if not artifacts_ok:
+        # Output artifacts could not be persisted — blank the dangling refs but
+        # still write the terminal row so the span leaves ``running``.
+        return _EncodedSpanFinish(
+            output_json="",
+            error_json="",
+            output_document_shas=frozenset(),
+            output_blob_shas=frozenset(),
+            artifacts_ok=False,
+        )
     return _EncodedSpanFinish(
         output_json=output_json,
         error_json="",
         output_document_shas=output_document_shas,
         output_blob_shas=output_blob_shas,
-        active_sinks=active_sinks,
+        artifacts_ok=True,
     )
 
 
@@ -539,10 +548,10 @@ async def _persist_for_span_boundary(
     execution_ctx: Any,
     kind: SpanKind,
     name: str,
-    sinks: tuple[SpanSink, ...],
     artifacts: _CollectedArtifacts,
     stage: str,
-) -> tuple[SpanSink, ...]:
+) -> bool:
+    """Persist span artifacts; return False (degraded) on failure without dropping the span row."""
     try:
         await _persist_artifacts(db, artifacts, execution_ctx)
     except SpanArtifactPersistenceError as exc:
@@ -550,14 +559,14 @@ async def _persist_for_span_boundary(
             execution_ctx.recording_degraded = True
         logger.warning(
             "Span %s artifact persistence failed for %s '%s': %s. "
-            "Database-backed span recording is skipped for this span.",
+            "Output references are blanked; the terminal span row is still recorded.",
             stage,
             kind,
             name,
             exc,
         )
-        return _without_database_sinks(sinks)
-    return sinks
+        return False
+    return True
 
 
 def _build_error_json(error: BaseException | None) -> str:

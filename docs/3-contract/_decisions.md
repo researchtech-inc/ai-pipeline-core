@@ -577,3 +577,46 @@ are settled there against the root-level decisions above:
   and read from the record (`runtime-api/4-run-record-read-model.md § Recorded cost and metrics`); a per-requester
   or per-tenant key is out of scope as the multi-tenant trust boundary
   (`4-limits-and-non-promises.md § Out of scope entirely`).
+
+## The database is append-only and authoritative, with three profiles
+
+**Decision.** The durable store is append-only and additive: every operation is preserved as durable history, and
+nothing is ever replaced or deleted — a revision, summary, or correction is a new entry beside the prior one, and
+old history may be archived or compressed but its recorded facts are never discarded. The store is the
+authoritative account of a run: work that was not recorded is not treated as having happened, and the framework
+never continues a run on authoritative state held only in process memory — an unrecoverable recording failure
+halts the whole run. Persistence has three supported profiles of one concern: an in-memory store for tests
+(non-durable after the test process exits), a local filesystem store (the development default), and a shared
+backend store for distributed execution (currently ClickHouse). The recording substrate is designed to sustain
+more than 1,000 logical writes per second, because a production run can issue up to roughly 10,000 tasks per
+minute.
+
+**Status — planned 0.3.0 behavior.** As with the rest of this contract, this is written in present tense as the
+version that is (see _The contract is written as version 0.3.0_ above); conformance is the implementation and
+testing layers' responsibility, not a claim asserted in the prose. The in-memory, filesystem, and ClickHouse
+backends exist in the current implementation, while the append-only / never-delete invariant, the
+halt-on-recording-failure rule, and the throughput floor are the behavior the 0.3.0 implementation is built to
+satisfy rather than already-shipped behavior. This planned status is tracked here and in `README.md § Current
+state`, not as inline hedges in the contract files.
+
+**Why.** Append-only / never-delete makes the record a full audit log: a challenged conclusion can always be traced
+to the evidence and judgments that produced it, and earlier facts stay recoverable after later work changes the
+picture (`../2-problem/2-constraints.md § The record is the sole source of truth, and recording must keep pace`,
+`3-guarantees.md § Durable record`). Making the store authoritative and fail-closed discharges the Layer-2 force
+that work not recorded did not happen for any later reader: halting rather than proceeding on unsaved state turns a
+silent gap into a loud stop, and is read against the record the same way a crash is, rather than mapped onto an
+application `TerminalError`. The three profiles are deliberately framed as profiles of one persistence concern, not
+a plugin menu, preserving _One supported way per concern_ (`4-limits-and-non-promises.md`); ClickHouse is the
+current backend, not contract identity, consistent with _Configuration names categories, not keys_ above.
+
+**The write-rate floor is a design requirement, not a consumer guarantee.** The >1,000-writes-per-second figure is
+a floor the framework's own recording design must meet, counted as logical record writes accepted by the write
+path (batching is allowed as long as every logical operation stays individually recoverable). It is deliberately
+kept out of `3-guarantees.md` so it is never read as a throughput promise to an application author, leaving the
+latency/throughput non-promise (`4-limits-and-non-promises.md § A latency or throughput guarantee`) intact. The
+concrete write-path mechanics — batching, the durability boundary, archival, and compression — are design (a
+future `4-design/` database file), not contract. "Nothing goes unsaved" is delivered by halting on recording
+failure rather than by promising the live tail of buffered writes survives a hard process kill, which remains the
+honest edge named in `4-limits-and-non-promises.md § Zero-loss logging`. Append-only applies to logical records,
+not physical bytes — compaction and archival may change physical representation as long as the complete audit
+facts stay recoverable and compression stays lossless.
