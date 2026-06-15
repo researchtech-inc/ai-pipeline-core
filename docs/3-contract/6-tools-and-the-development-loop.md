@@ -2,14 +2,21 @@
 
 The framework ships one operator command — `ai-pipeline` — that an agent uses to operate an application, not only to
 author it. The development loop — scaffold, verify, preview, run, test, inspect, replay, correct, deploy, observe,
-recover — is operable end to end by an agent through this one tool, with no human required in the middle. This file
+recover — is operated by an agent with no human required in the middle: the runtime-facing work through this one
+tool, and linting, type checking, and the test suite through the companion `dev` quality surface (described below).
+This file
 is the entry point to that surface; the per-subcommand contracts live one file per subcommand in `tools/`, each
 documenting what the subcommand is for, its synopsis and options, its output (human-readable and the structured
 form), worked examples, and what it does and does not guarantee. It documents behavior, not implementation.
 
-Two boundaries scope this surface. First, it covers only the subcommands a framework consumer or operator relies on;
-the workflow for developing ai-pipeline-core itself — linting, test lanes, release — is outside this contract, and
-the `dev` CLI that drives that workflow is a separate external contributor tool, not part of ai-pipeline-core.
+Two boundaries scope this surface. First, `ai-pipeline` is the *operation* surface, not the code-quality surface.
+During development the test suite, linters, type checker, and static analysis run through `dev` — a standalone
+external contributor tool (the `ai-dev-cli` package) that is the project's single canonical quality surface, with raw
+quality tools hook-blocked in the agent environment. The two are complementary: `ai-pipeline` operates a run — plan,
+run, inspect, replay, cancel, recover, deploy, and the pipeline-specific unit exercise of `ai-pipeline test` — while
+`dev check` runs the quality gate and `dev test` runs the suite. `dev`'s commands, configuration, hook rules, and
+lane mechanics are contributor procedure, not part of this operator contract; what is contract is the set of
+test-authoring constraints the quality pipeline enforces (`testing/2-writing-tests.md`).
 Second, the programmatic contract for running and reading a pipeline in-process is owned by
 `advanced-api/1-runners-and-clients.md` and the database API in `advanced-api/2-database.md`; `ai-pipeline run`,
 `ai-pipeline test`, `ai-pipeline inspect`, `ai-pipeline replay`, and `ai-pipeline sync` are the operator-facing face
@@ -27,7 +34,7 @@ There is exactly one operator command. Its subcommands are a closed set:
 | `ai-pipeline verify` | Compile and validate a package without running it | `tools/2-verify.md` |
 | `ai-pipeline plan` | Preview the run shape, fan-out, and cost ceiling before spending | `tools/3-plan.md` |
 | `ai-pipeline run` | Execute whole, partial, or a single unit; resume an interrupted run | `tools/4-run.md` |
-| `ai-pipeline test` | Run the application's tests — units exercised under the runner with full recording | `tools/5-test.md` |
+| `ai-pipeline test` | Exercise one pipeline unit under the runner with full recording, or regress it against a recorded run | `tools/5-test.md` |
 | `ai-pipeline inspect` | Read a run's status, outputs, spans, logs, cost, and provenance; build a trace bundle | `tools/6-inspect.md` |
 | `ai-pipeline replay` | Re-execute recorded units with overrides to measure a change — the benchmarking surface | `tools/7-replay.md` |
 | `ai-pipeline cancel` | Halt a run in flight without corrupting its record | `tools/8-cancel.md` |
@@ -38,7 +45,8 @@ There is exactly one operator command. Its subcommands are a closed set:
 `init` and `test` are first-class subcommands; `inspect` includes the markdown trace-bundle workflow (there is no
 separate trace tool); single-unit execution is a mode of `run` and the substrate `test` stands on, not a separate
 command. There is deliberately no `serve` subcommand (see _Local execution has two profiles_ below). `ai-pipeline
-test` runs the tests; how those tests are *written* against the runner is the `testing/` subtree
+test` exercises a single pipeline unit or regresses it against a recorded run; running the test *suite* during
+development is `dev test`, and how tests are *written* against the runner is the `testing/` subtree
 (`testing/1-overview.md`).
 
 ## Two operating principles
@@ -78,7 +86,8 @@ A normal cycle, with the subcommand at each step:
 4. `ai-pipeline plan` — preview shape, fan-out, and the cost ceiling before spending.
 5. `ai-pipeline run` — execute locally; for a long run, re-enter from a single unit or a contiguous phase range
    against recorded upstream state rather than re-running the whole thing.
-6. `ai-pipeline test` — exercise units under the runner with full recording; the correctness gate.
+6. `dev test` / `dev check` — run the test suite and the quality gate during development; `ai-pipeline test`
+   exercises a single pipeline unit under the runner with full recording, or regresses it against a recorded run.
 7. `ai-pipeline inspect` — read status, outputs, spans, the unified logs, cost, and provenance; trace a conclusion
    to its evidence.
 8. `ai-pipeline replay` — re-execute recorded units with overrides to measure whether a change helped.

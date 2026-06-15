@@ -48,6 +48,9 @@ operates it without a human in the middle, through one tool — `ai-pipeline`. A
 `inspect` the record, `replay` units to measure changes, and `deploy` it; you then operate the deployed run with the
 same commands and observe it through the runtime surface. The loop runs locally with no external infrastructure and
 operates a deployed run the same way, differing only in placement: what you verify in development is what ships.
+Quality gating during development — linters, type checking, and the test suite — runs through `dev` (`dev check` and
+`dev test`), the project's canonical quality surface, while `ai-pipeline test` exercises a single pipeline unit or
+regresses it against a recorded run (`testing/1-overview.md`).
 Because production runs are long and expensive, the everyday actions are resume, partial-range re-execution, and
 replay against the cache — re-entering one part of a run, not re-running the whole — and the accumulated record is a
 benchmark substrate you re-measure to decide where a cheaper judgment suffices.

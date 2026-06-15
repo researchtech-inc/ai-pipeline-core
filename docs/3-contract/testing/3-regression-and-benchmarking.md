@@ -43,6 +43,10 @@ inputs and outputs. Replay the recorded units on cheaper models against the reco
 targeted at recorded production runs synced local. Compare the recorded behavior. An agent then decides, per
 judgment, where the cheaper model suffices and where it does not.
 
+During development this measurement runs under `dev benchmark`, the gated, budget-controlled contributor entry point
+to the benchmark workflow (`testing/1-overview.md § The development quality surface`); the operator-facing
+measurement cycle is `ai-pipeline replay` plus `ai-pipeline inspect --compare`.
+
 ## The bright line
 
 `test` gates correctness; `replay` measures a change; neither decides whether a result is *good*. The framework

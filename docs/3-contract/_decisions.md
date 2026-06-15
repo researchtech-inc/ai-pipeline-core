@@ -108,9 +108,11 @@ the record. Immediate-upstream-only keeps provenance faithful and the document m
 
 **Decision.** The framework ships exactly one operator command, `ai-pipeline`, with a closed set of subcommands:
 `init`, `verify`, `plan`, `run`, `test`, `inspect`, `replay`, `cancel`, `recover`, `sync`, and `deploy`. There are
-no separate `ai-verify`, `ai-run`, etc. binaries. `init` scaffolds a fresh project; `test` runs the application's
-tests (single units exercised under the runner with full recording) and is the correctness gate; `inspect` absorbs
-the markdown trace-bundle workflow that was a separate trace-inspector tool. Single-unit execution is a mode of
+no separate `ai-verify`, `ai-run`, etc. binaries. `init` scaffolds a fresh project; `test` exercises a single
+pipeline unit under the runner with full recording, or regresses it against a recorded run, and is the correctness
+gate for that unit — the test *suite* is run through `dev test` (see _`dev test` runs the suite; `ai-pipeline test`
+is the pipeline-specific exercise surface_ below); `inspect` absorbs the markdown trace-bundle workflow that was a
+separate trace-inspector tool. Single-unit execution is a mode of
 `run` (and the substrate `test` stands on), not a separate command. The per-subcommand contracts live one file per
 subcommand in the `tools/` subtree. `dev` is a separate external contributor tool — it lints, tests, and releases
 ai-pipeline-core's own source — and is not part of ai-pipeline-core.
@@ -473,12 +475,46 @@ guides and references (`testing/1-overview.md`, `testing/2-writing-tests.md`,
 `testing/3-regression-and-benchmarking.md`). Testing is **not** a public authoring role: there is no
 `api/10-testing.md` and no `*Test` role; `api/` stays the five authoring roles in files 1–9. A test is ordinary
 Python that exercises a unit through the runner (`advanced-api/1-runners-and-clients.md`) with full recording; the
-`ai-pipeline test` command (`tools/5-test.md`) runs the tests, and `tests/` is package layout, not a role.
+suite is run through `dev test` and the `ai-pipeline test` command (`tools/5-test.md`) exercises one unit or regresses
+it against a recorded run (see _`dev test` runs the suite; `ai-pipeline test` is the pipeline-specific exercise
+surface_ below), and `tests/` is package layout, not a role.
 
 **Why.** A first-class `ai-pipeline test` command without an authoring home led capable readers to invent a new
 authoring role (`api/10-testing.md`). Testing is a workflow over the runner, read seam, and operator surfaces, not a
 declaration the framework validates, so it belongs in a guidance subtree parallel to `authoring/`, not in `api/`.
 The maintainer ruled the subtree placement.
+
+## `dev` is the required quality surface; raw quality tools are hook-blocked
+
+**Decision.** During development of ai-pipeline-core and of applications built on it, all quality verification —
+formatting, linting, type checking, static analysis, and running the test suite — goes through `dev` (the
+`ai-dev-cli` package), a standalone external contributor tool that is the single canonical quality surface. Raw
+quality tools (`pytest`, `ruff`, the type checker, semgrep) are blocked by a `PreToolUse` hook in the agent
+environment; `dev check` runs the ordered quality pipeline and `dev test` runs the suite through the unit,
+integration, and qualification lanes. `dev` remains external and is not part of ai-pipeline-core.
+
+**Why.** The coding baselines in `1-principles/7-coding-baselines.md` must be enforced structurally, not by
+vigilance (`4-framework-surface.md § Make wrong shapes inexpressible`). `dev` is that enforcement mechanism: its
+bedrock static-analysis rules and hook blocks make the wrong coding and test-authoring shapes fail before review, and
+one canonical quality surface prevents the shape divergence that fragmenting across raw tools would create. The tool
+itself stays Layer-5 contributor procedure; what this contract carries is the set of test-authoring constraints the
+pipeline enforces (`testing/2-writing-tests.md`).
+
+## `dev test` runs the suite; `ai-pipeline test` is the pipeline-specific exercise surface
+
+**Decision.** Running the test *suite* is owned exclusively by `dev test`. `ai-pipeline test` is scoped to the
+pipeline-specific capabilities that stand on the runner and have no `dev` equivalent: exercising a single unit
+(`--select`) under the runner with full recording, and regression against a recorded run (`--against-run`). Its
+earlier full-suite run mode (`ai-pipeline test <package>` with no selection) is dropped. `ai-pipeline` is the
+run-operation surface; `dev` is the quality surface; the two are complementary, not alternatives.
+
+**Why.** "`dev` is the only way to run tests for ai-pipeline-core" applies to running the suite, while the
+single-unit exercise and regression-against-recorded-run capabilities are genuinely pipeline-aware — `dev`, a generic
+Python quality tool, knows nothing of the `Runner`, `RunResult`, span recording, or replay. Keeping both commands but
+dividing them by question — `dev test` asks "does the suite pass the quality gate?", `ai-pipeline test` asks "does
+this pipeline unit behave as expected against recorded inputs?" — preserves the one-correct-shape-per-intent rule
+without a capability gap. This refines _One `ai-pipeline` CLI with subcommands_ and _Testing is a workflow over the
+existing surfaces_ above: `test` stays a subcommand, narrowed in scope, not removed.
 
 ## `DEGRADE` records a framework-owned `ItemFailure` document
 

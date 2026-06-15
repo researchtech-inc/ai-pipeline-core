@@ -1,26 +1,28 @@
 # `ai-pipeline test`
 
-Runs the application's tests. A test exercises one task or one prompt contract under the runner with the same
-recording a full run produces, targetable to a specific unit or step, so an agent verifies behavior without
-re-running hours of work. `test` is the correctness gate of the loop: it *asserts* that a unit behaves as expected
-and passes or fails. It is distinct from `ai-pipeline replay`, which *measures* a change against recorded behavior
-and reports a comparison rather than a verdict — use `test` to gate, `replay` to benchmark.
-`6-tools-and-the-development-loop.md` lists the whole loop. This file documents the command; how the tests it runs
-are *written* and structured is the `testing/` subtree (`testing/2-writing-tests.md`,
+Exercises a single pipeline unit — one task or one prompt contract — under the runner with the same recording a full
+run produces, or regresses that unit against a recorded run, so an agent verifies behavior without re-running hours of
+work. It is the pipeline-specific exercise surface, not the general test-suite runner: running the suite during
+development goes through `dev test`, which adds lane policy, timeouts, parallelism, and the broader quality gate
+(`testing/1-overview.md § The development quality surface`). `test` is the correctness gate of the loop: it *asserts*
+that a unit behaves as expected and passes or fails. It is distinct from `ai-pipeline replay`, which *measures* a
+change against recorded behavior and reports a comparison rather than a verdict — use `test` to gate, `replay` to
+benchmark. `6-tools-and-the-development-loop.md` lists the whole loop. This file documents the command; how the tests
+it exercises are *written* and structured is the `testing/` subtree (`testing/2-writing-tests.md`,
 `testing/3-regression-and-benchmarking.md`).
 
 ## Synopsis
 
 ```text
-ai-pipeline test <package> [--select <unit-or-test>] [--against-run <run-id>]
+ai-pipeline test <package> --select <unit-or-test> [--against-run <run-id>]
                           [--cache reuse|refresh|bypass] [--json]
 ```
 
 ## Options
 
-- `<package>` — the application package whose tests to run.
-- `--select <unit-or-test>` — restrict the run to a named test, task, phase, or step, so an agent re-checks only the
-  unit it changed rather than the whole suite.
+- `<package>` — the application package the selected unit belongs to.
+- `--select <unit-or-test>` — names the single unit to exercise: a named test, task, phase, or step. This is the
+  command's selector — running the whole suite is `dev test` (`testing/1-overview.md`), not this command.
 - `--against-run <run-id>` — exercise the selected units against the recorded inputs of a prior run (a recorded
   baseline, including a production run synced local with `ai-pipeline sync`), asserting recorded behavior still
   holds; this is regression testing over the recorded corpus.
@@ -36,12 +38,6 @@ of each exercised unit so its record is inspectable and replayable afterward. Th
 verdicts and run identities for automated consumption.
 
 ## Examples
-
-Run the application's tests, reusing cached upstream work so only changed units re-execute:
-
-```text
-ai-pipeline test review_app
-```
 
 Re-check a single unit after a change, against its cached upstream, and read the result as structured output:
 

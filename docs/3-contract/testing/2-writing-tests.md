@@ -77,6 +77,31 @@ test is in-process driver code.
 - A test reads recorded spans, documents, provenance, and cost through the read seam
   (`advanced-api/2-database.md`), the same surface production diagnosis uses.
 
+## Authoring constraints the quality pipeline enforces
+
+The suite is run through `dev test` (`testing/1-overview.md § The development quality surface`), which places every
+test in a lane and enforces a fixed set of structural constraints. These are not procedures for using the tool; they
+are constraints on what a valid test *is*. A test that violates one is rejected by the automated quality pipeline
+before it reaches review.
+
+- A test completes within the timeout of the lane it lives in: **30 seconds** in `tests/unit/`, **180 seconds** in
+  `tests/integration/`, **900 seconds** in `tests/qualification/`. A test that exceeds its lane timeout is a
+  wrong-shape test, not a slow one — it moves to the lane its cost belongs in.
+- Unit tests (`tests/unit/`) do not make live model calls; they patch the provider boundary or use the local
+  in-process runner. Live model interaction belongs in the integration or qualification lane.
+- A test parameterizes on one axis per function. Stacked `@pytest.mark.parametrize` decorators build a multiplicative
+  matrix; the correct shapes are one `parametrize` per function, separate functions for separate axes, or the
+  qualification lane when a matrix is genuinely needed.
+- A test does not pass token-cap keyword arguments (`max_completion_tokens`, `max_output_tokens`, `max_tokens`):
+  truncation causes flakes, so it uses framework defaults.
+- A test does not call `asyncio.sleep` with a duration of one second or more outside `tests/qualification/`; long
+  waits belong in the qualification lane.
+- A test does not use `Path(".")` (it is xdist-unsafe); it uses `tmp_path` or an explicit project fixture.
+- A test does not define custom pytest runner hooks (`pytest_pyfunc_call`, `pytest_sessionfinish`); it relies on the
+  framework's pytest plugin and the lane policy.
+- A suppression annotation (`# noqa`, `# type: ignore`, `# nosemgrep`, `@pytest.mark.xfail`) carries a one-line
+  invariant justification on the same line.
+
 ## Anti-patterns
 
 Wrong: a test calls `AssessRiskTask(...).run(request, evidence)` directly to avoid the runner, so the execution

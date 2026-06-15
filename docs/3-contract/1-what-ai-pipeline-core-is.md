@@ -27,7 +27,9 @@ fits the work in front of you. There are four contract surfaces, and a reader us
 Two guidance subtrees support those surfaces without being contract themselves: **`authoring/`** guides the design
 steps that precede the `api/` code, and **`testing/`** guides how an application's tests are written against the
 runner and how the recorded corpus is used for regression and benchmarking. Testing is a workflow over the existing
-surfaces, not a new authoring role.
+surfaces, not a new authoring role. Running those tests, the linters, and the type checker during development goes
+through `dev`, a standalone external contributor tool that is the project's canonical quality surface — a companion to
+these surfaces during development, not a fifth contract surface.
 
 The remaining root files make the promise precise: the full guarantee list in `3-guarantees.md`, the boundaries in
 `4-limits-and-non-promises.md`, and the configuration surface in `5-configuration.md`.
