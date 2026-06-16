@@ -825,6 +825,8 @@ class TestAsPrefectFlowParentParams:
         sig = inspect.signature(prefect_flow.fn)
         assert "parent_execution_id" in sig.parameters
         assert sig.parameters["parent_execution_id"].default is None
+        assert "labels" in sig.parameters
+        assert sig.parameters["labels"].default is None
 
     @pytest.mark.asyncio
     async def test_run_branch_passes_prefect_database_into_run(self) -> None:
@@ -848,6 +850,28 @@ class TestAsPrefectFlowParentParams:
         assert mock_run.await_args.kwargs["database"] is database
 
     @pytest.mark.asyncio
+    async def test_run_branch_forwards_labels_into_run(self) -> None:
+        """Prefect-triggered root runs must forward labels into deployment.run()."""
+        from unittest.mock import AsyncMock, patch
+
+        deployment = ValidDeployment()
+        prefect_flow = deployment.as_prefect_flow()
+        database = AsyncMock()
+        publisher = AsyncMock()
+        publisher.close = AsyncMock()
+        labels = {"entity": "acme", "experiment": "alpha"}
+
+        with (
+            patch("ai_pipeline_core.deployment._prefect._create_span_database_from_settings", return_value=database),
+            patch("ai_pipeline_core.deployment._prefect._create_publisher", return_value=publisher),
+            patch("ai_pipeline_core.deployment._prefect.resolve_document_inputs", new=AsyncMock(return_value=[])),
+            patch.object(deployment, "run", new=AsyncMock(return_value=ValidResult(success=True))) as mock_run,
+        ):
+            await prefect_flow.fn("prefect-run", [], FlowOptions(), labels=labels)
+
+        assert mock_run.await_args.kwargs["labels"] == labels
+
+    @pytest.mark.asyncio
     async def test_deployment_flow_accepts_document_inputs_keyword(self) -> None:
         """The generated Prefect wrapper must expose the same document_inputs key used by RemoteDeployment."""
         from unittest.mock import AsyncMock, patch
@@ -869,6 +893,90 @@ class TestAsPrefectFlowParentParams:
             await prefect_flow.fn(run_id="prefect-run", document_inputs=[], options=FlowOptions())
 
         assert mock_resolve.await_args.args[0] == []
+
+    @pytest.mark.asyncio
+    async def test_child_branch_forwards_labels_into_run_with_context(self) -> None:
+        """Prefect-triggered child runs must forward labels into _run_with_context()."""
+        from unittest.mock import AsyncMock, patch
+
+        deployment = ValidDeployment()
+        prefect_flow = deployment.as_prefect_flow()
+        database = AsyncMock()
+        publisher = AsyncMock()
+        publisher.close = AsyncMock()
+        labels = {"entity": "acme"}
+
+        with (
+            patch("ai_pipeline_core.deployment._prefect._create_span_database_from_settings", return_value=database),
+            patch("ai_pipeline_core.deployment._prefect._create_publisher", return_value=publisher),
+            patch("ai_pipeline_core.deployment._prefect.resolve_document_inputs", new=AsyncMock(return_value=[])),
+            patch.object(
+                deployment, "_run_with_context", new=AsyncMock(return_value=ValidResult(success=True))
+            ) as mock_run_with_context,
+        ):
+            await prefect_flow.fn(
+                "prefect-run",
+                [],
+                FlowOptions(),
+                root_deployment_id=str(uuid4()),
+                parent_deployment_task_id=str(uuid4()),
+                labels=labels,
+            )
+
+        assert mock_run_with_context.await_args.kwargs["labels"] == labels
+
+    @pytest.mark.asyncio
+    async def test_prefect_flow_persists_deployment_labels_on_resulting_span(self) -> None:
+        """The Prefect wrapper must land provided labels on the deployment span."""
+        from unittest.mock import AsyncMock, patch
+
+        deployment = ValidDeployment()
+        prefect_flow = deployment.as_prefect_flow()
+        database = _MemoryDatabase()
+        publisher = AsyncMock()
+        publisher.close = AsyncMock()
+        input_doc = InputDoc.create_root(name="prefect.txt", content="x", reason="test")
+        labels = {"entity": "acme", "experiment": "alpha"}
+
+        with (
+            patch("ai_pipeline_core.deployment._prefect._create_span_database_from_settings", return_value=database),
+            patch("ai_pipeline_core.deployment._prefect._create_publisher", return_value=publisher),
+            patch(
+                "ai_pipeline_core.deployment._prefect.resolve_document_inputs", new=AsyncMock(return_value=[input_doc])
+            ),
+        ):
+            await prefect_flow.fn("prefect-run", [], FlowOptions(), labels=labels)
+
+        deployment_spans = [span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT]
+        assert len(deployment_spans) == 1
+        assert deployment_spans[0].label_keys == ("entity", "experiment")
+        assert deployment_spans[0].label_values == ("acme", "alpha")
+
+    @pytest.mark.asyncio
+    async def test_prefect_flow_defaults_labels_to_empty_when_omitted(self) -> None:
+        """Old or in-flight Prefect runs without a labels parameter remain valid."""
+        from unittest.mock import AsyncMock, patch
+
+        deployment = ValidDeployment()
+        prefect_flow = deployment.as_prefect_flow()
+        database = _MemoryDatabase()
+        publisher = AsyncMock()
+        publisher.close = AsyncMock()
+        input_doc = InputDoc.create_root(name="prefect.txt", content="x", reason="test")
+
+        with (
+            patch("ai_pipeline_core.deployment._prefect._create_span_database_from_settings", return_value=database),
+            patch("ai_pipeline_core.deployment._prefect._create_publisher", return_value=publisher),
+            patch(
+                "ai_pipeline_core.deployment._prefect.resolve_document_inputs", new=AsyncMock(return_value=[input_doc])
+            ),
+        ):
+            await prefect_flow.fn("prefect-run", [], FlowOptions())
+
+        deployment_spans = [span for span in database._spans.values() if span.kind == SpanKind.DEPLOYMENT]
+        assert len(deployment_spans) == 1
+        assert deployment_spans[0].label_keys == ()
+        assert deployment_spans[0].label_values == ()
 
 
 # --- Deployment run executes flow instances ---

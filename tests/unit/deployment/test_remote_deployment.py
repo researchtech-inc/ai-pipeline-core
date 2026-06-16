@@ -460,6 +460,71 @@ class TestInlineModeDetection:
         assert mock_inline.await_args.kwargs["publisher"] is publisher
         assert mock_inline.await_args.kwargs["parent_execution_id"] == execution_id
 
+    async def test_inline_mode_inherits_parent_labels(self):
+        """Inline child deployments inherit the parent's execution-context labels."""
+
+        class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
+            pass
+
+        publisher = MagicMock()
+        execution_id = uuid4()
+        mock_ctx = MagicMock()
+        mock_ctx.database = _MemoryDatabase()
+        mock_ctx.deployment_id = uuid4()
+        mock_ctx.root_deployment_id = uuid4()
+        mock_ctx.current_span_id = uuid4()
+        mock_ctx.deployment_name = "test"
+        mock_ctx.publisher = publisher
+        mock_ctx.execution_id = execution_id
+        mock_ctx.next_child_sequence.return_value = 0
+        mock_ctx.label_keys = ("entity", "experiment")
+        mock_ctx.label_values = ("acme", "alpha")
+
+        foo = Foo()
+        with (
+            patch(_EXEC_CTX_PATH, return_value=mock_ctx),
+            patch.object(Foo, "_run_inline", new_callable=AsyncMock) as mock_inline,
+        ):
+            mock_inline.return_value = SimpleResult(success=True)
+            with pipeline_test_context(run_id="project"):
+                await foo.run((), FlowOptions())
+
+        assert mock_inline.await_args.kwargs["labels"] == {"entity": "acme", "experiment": "alpha"}
+
+    async def test_remote_mode_inherits_parent_labels(self):
+        """Remote child deployments inherit the parent's execution-context labels."""
+
+        class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
+            pass
+
+        class RemoteCapableDatabase:
+            supports_remote = True
+
+        publisher = MagicMock()
+        execution_id = uuid4()
+        mock_ctx = MagicMock()
+        mock_ctx.database = RemoteCapableDatabase()
+        mock_ctx.deployment_id = uuid4()
+        mock_ctx.root_deployment_id = uuid4()
+        mock_ctx.current_span_id = uuid4()
+        mock_ctx.deployment_name = "test"
+        mock_ctx.publisher = publisher
+        mock_ctx.execution_id = execution_id
+        mock_ctx.next_child_sequence.return_value = 0
+        mock_ctx.label_keys = ("entity", "experiment")
+        mock_ctx.label_values = ("acme", "alpha")
+
+        foo = Foo()
+        with (
+            patch(_EXEC_CTX_PATH, return_value=mock_ctx),
+            patch.object(Foo, "_run_remote", new_callable=AsyncMock) as mock_run_remote,
+        ):
+            mock_run_remote.return_value = SimpleResult(success=True)
+            with pipeline_test_context(run_id="project"):
+                await foo.run((), FlowOptions())
+
+        assert mock_run_remote.await_args.kwargs["labels"] == {"entity": "acme", "experiment": "alpha"}
+
     async def test_inline_remote_persists_bidirectional_remote_linkage(self):
         class Foo(RemoteDeployment[FlowOptions, InlineRemoteChildResult]):
             deployment_class = f"{__name__}:InlineRemoteChildDeployment"
@@ -617,6 +682,48 @@ class TestRunResultDeserialization:
         parameters = mock_prefect.await_args.args[1]
         assert parameters["parent_execution_id"] == str(parent_execution_id)
         assert parameters["root_deployment_id"] == str(root_deployment_id)
+
+    async def test_run_remote_omits_labels_when_absent(self):
+        """Remote Prefect calls stay backward-compatible when no labels are passed."""
+
+        class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
+            pass
+
+        foo = Foo()
+        with patch(_RUN_REMOTE) as mock_prefect:
+            mock_prefect.return_value = {"success": True, "report": "from dict"}
+            await foo._run_remote(
+                "project",
+                [],
+                FlowOptions(),
+                root_deployment_id=uuid4(),
+                parent_deployment_task_id=uuid4(),
+            )
+
+        parameters = mock_prefect.await_args.args[1]
+        assert "labels" not in parameters
+
+    async def test_run_remote_includes_labels_when_present(self):
+        """Remote Prefect calls include labels only when explicitly provided."""
+
+        class Foo(RemoteDeployment[FlowOptions, SimpleResult]):
+            pass
+
+        labels = {"entity": "acme", "experiment": "alpha"}
+        foo = Foo()
+        with patch(_RUN_REMOTE) as mock_prefect:
+            mock_prefect.return_value = {"success": True, "report": "from dict"}
+            await foo._run_remote(
+                "project",
+                [],
+                FlowOptions(),
+                root_deployment_id=uuid4(),
+                parent_deployment_task_id=uuid4(),
+                labels=labels,
+            )
+
+        parameters = mock_prefect.await_args.args[1]
+        assert parameters["labels"] == labels
 
     async def test_dict_result_deserialized_in_run_remote(self):
         """_run_remote deserializes dict results via result_type.model_validate."""

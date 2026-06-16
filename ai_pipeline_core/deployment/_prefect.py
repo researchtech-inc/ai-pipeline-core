@@ -71,6 +71,7 @@ def build_prefect_flow(deployment: Any) -> Any:
         parent_execution_id: str | None = None,
         parent_deployment_task_id: str | None = None,
         root_deployment_id: str | None = None,
+        labels: dict[str, str] | None = None,
     ) -> Any:
         publisher = _create_publisher(settings, deployment.pubsub_service_type)
         database = _create_span_database_from_settings(settings)
@@ -96,6 +97,7 @@ def build_prefect_flow(deployment: Any) -> Any:
                     cast(Any, options),
                     root_deployment_id=root_dep_uuid,
                     parent_deployment_task_id=parent_task_uuid,
+                    labels=labels,
                     publisher=publisher,
                     parent_execution_id=parent_uuid,
                     database=database,
@@ -105,6 +107,7 @@ def build_prefect_flow(deployment: Any) -> Any:
                 run_id,
                 typed_docs,
                 cast(Any, options),
+                labels=labels,
                 publisher=publisher,
                 parent_execution_id=parent_uuid,
                 database=database,

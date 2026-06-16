@@ -482,6 +482,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                         database=database,
                         publisher=publisher,
                         parent_execution_id=exec_ctx.execution_id if exec_ctx else None,
+                        labels=dict(zip(label_keys, label_values, strict=True)) if label_keys else None,
                     )
                 else:
                     result = await self._run_remote(
@@ -491,6 +492,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                         root_deployment_id=resolved_root_id,
                         parent_deployment_task_id=subtask_span_id,
                         parent_execution_id=exec_ctx.execution_id if exec_ctx else None,
+                        labels=dict(zip(label_keys, label_values, strict=True)) if label_keys else None,
                     )
                 span_ctx.set_output_preview(result.model_dump(mode="json"))
                 span_ctx._set_output_value(result)
@@ -554,6 +556,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         database: Any,
         publisher: Any = None,
         parent_execution_id: UUID | None = None,
+        labels: dict[str, str] | None = None,
     ) -> TResult:
         """Run the deployment inline (same process) for test/local mode."""
         deployment_cls = self._resolve_deployment_class()
@@ -565,6 +568,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
             options,
             root_deployment_id=root_deployment_id,
             parent_deployment_task_id=parent_deployment_task_id,
+            labels=labels,
             publisher=publisher,
             parent_execution_id=parent_execution_id,
             database=database,
@@ -585,6 +589,7 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         root_deployment_id: UUID,
         parent_deployment_task_id: UUID,
         parent_execution_id: UUID | None = None,
+        labels: dict[str, str] | None = None,
     ) -> TResult:
         """Run the deployment remotely via Prefect."""
         parameters: dict[str, Any] = {
@@ -595,6 +600,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
             "parent_deployment_task_id": str(parent_deployment_task_id),
             "root_deployment_id": str(root_deployment_id),
         }
+        if labels:
+            parameters["labels"] = labels
 
         result = await _run_remote_deployment(
             self.deployment_path,
