@@ -60,6 +60,10 @@ BLOBS_DIRNAME = "blobs"
 LOGS_FILENAME = "logs.jsonl"
 
 _ROUNDS_EMBEDDING_KINDS: frozenset[SpanKind] = frozenset({SpanKind.CONVERSATION, SpanKind.PROMPT_EXECUTION})
+_SPAN_COLUMN_DEFAULTS: dict[str, Any] = {
+    "label_keys": [],
+    "label_values": [],
+}
 
 
 def _json_default(value: Any) -> Any:
@@ -115,16 +119,20 @@ def _read_json_dict(path: Path, *, context: str) -> dict[str, Any]:
 
 
 def _deserialize_span(data: dict[str, Any], *, path: Path) -> SpanRecord:
-    try:
-        row = tuple(data[column] for column in SPAN_COLUMNS)
-    except KeyError as exc:
-        missing_field = exc.args[0]
+    row_values: list[Any] = []
+    for column in SPAN_COLUMNS:
+        if column in data:
+            row_values.append(data[column])
+            continue
+        if column in _SPAN_COLUMN_DEFAULTS:
+            row_values.append(_SPAN_COLUMN_DEFAULTS[column])
+            continue
         msg = (
-            f"Span snapshot file {path} is missing required field {missing_field!r}. "
+            f"Span snapshot file {path} is missing required field {column!r}. "
             "Recreate the download bundle so every span JSON file contains the full SpanRecord payload."
         )
-        raise ValueError(msg) from exc
-    return row_to_span(row)
+        raise ValueError(msg)
+    return row_to_span(tuple(row_values))
 
 
 def _deserialize_document(data: dict[str, Any], *, path: Path) -> DocumentRecord:
@@ -167,6 +175,19 @@ def _deserialize_log(data: dict[str, Any], *, path: Path) -> LogRecord:
         )
         raise ValueError(msg) from exc
     return row_to_log(row)
+
+
+def _labels_match(span: SpanRecord, labels: dict[str, str] | None) -> bool:
+    if not labels:
+        return True
+    for key, value in labels.items():
+        try:
+            index = span.label_keys.index(key)
+        except ValueError:
+            return False
+        if span.label_values[index] != value:
+            return False
+    return True
 
 
 class FilesystemDatabase:
@@ -589,7 +610,36 @@ class FilesystemDatabase:
             return None
         return max(matches, key=deployment_sort_key)
 
-    def _list_deployments_sync(self, limit: int, status: str | None, root_only: bool, offset: int) -> list[SpanRecord]:
+    def _list_latest_completed_deployments_by_run_ids_sync(
+        self,
+        run_ids: list[str],
+        statuses: tuple[str, ...],
+    ) -> dict[str, SpanRecord]:
+        if not run_ids:
+            return {}
+        wanted = set(run_ids)
+        allowed_statuses = set(statuses)
+        latest: dict[str, SpanRecord] = {}
+        for span in self._spans.values():
+            if span.kind != SpanKind.DEPLOYMENT:
+                continue
+            if span.span_id != span.root_deployment_id:
+                continue
+            if span.run_id not in wanted or span.status not in allowed_statuses:
+                continue
+            current = latest.get(span.run_id)
+            if current is None or deployment_sort_key(span) > deployment_sort_key(current):
+                latest[span.run_id] = span
+        return latest
+
+    def _list_deployments_sync(
+        self,
+        limit: int,
+        status: str | None,
+        labels: dict[str, str] | None,
+        root_only: bool,
+        offset: int,
+    ) -> list[SpanRecord]:
         if limit <= 0:
             return []
         matches = [span for span in self._spans.values() if span.kind == SpanKind.DEPLOYMENT]
@@ -597,6 +647,8 @@ class FilesystemDatabase:
             matches = [span for span in matches if span.span_id == span.root_deployment_id]
         if status is not None:
             matches = [span for span in matches if span.status == status]
+        if labels:
+            matches = [span for span in matches if _labels_match(span, labels)]
         return sorted(matches, key=deployment_sort_key, reverse=True)[offset : offset + limit]
 
     def _list_deployments_by_run_id_sync(self, run_id: str) -> list[SpanRecord]:
@@ -768,7 +820,12 @@ class FilesystemDatabase:
         return sorted(matches, key=span_sort_key)
 
     def _list_deployment_summaries_sync(
-        self, limit: int, status: str | None, root_only: bool, offset: int
+        self,
+        limit: int,
+        status: str | None,
+        labels: dict[str, str] | None,
+        root_only: bool,
+        offset: int,
     ) -> list[DeploymentSummaryRecord]:
         if limit <= 0:
             return []
@@ -777,6 +834,8 @@ class FilesystemDatabase:
             matches = [s for s in matches if s.span_id == s.root_deployment_id]
         if status is not None:
             matches = [s for s in matches if s.status == status]
+        if labels:
+            matches = [s for s in matches if _labels_match(s, labels)]
         matches = sorted(matches, key=deployment_sort_key, reverse=True)[offset : offset + limit]
         results: list[DeploymentSummaryRecord] = []
         for span in matches:
@@ -793,6 +852,8 @@ class FilesystemDatabase:
                     ended_at=span.ended_at,
                     parent_span_id=span.parent_span_id,
                     cost_usd=cost,
+                    label_keys=span.label_keys,
+                    label_values=span.label_values,
                 )
             )
         return results
@@ -820,6 +881,8 @@ class FilesystemDatabase:
                     ended_at=s.ended_at,
                     parent_span_id=s.parent_span_id,
                     cost_usd=cost_by_dep.get(s.span_id, 0.0),
+                    label_keys=s.label_keys,
+                    label_values=s.label_values,
                 )
                 for s in dep_spans
             ],
@@ -961,15 +1024,24 @@ class FilesystemDatabase:
     async def get_deployment_by_run_id(self, run_id: str) -> SpanRecord | None:
         return await self._run(self._get_deployment_by_run_id_sync, run_id)
 
+    async def list_latest_completed_deployments_by_run_ids(
+        self,
+        run_ids: list[str],
+        *,
+        statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+    ) -> dict[str, SpanRecord]:
+        return await self._run(self._list_latest_completed_deployments_by_run_ids_sync, run_ids, statuses)
+
     async def list_deployments(
         self,
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[SpanRecord]:
-        return await self._run(self._list_deployments_sync, limit, status, root_only, offset)
+        return await self._run(self._list_deployments_sync, limit, status, labels, root_only, offset)
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
         return await self._run(self._list_deployments_by_run_id_sync, run_id)
@@ -1069,10 +1141,11 @@ class FilesystemDatabase:
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[DeploymentSummaryRecord]:
-        return await self._run(self._list_deployment_summaries_sync, limit, status, root_only, offset)
+        return await self._run(self._list_deployment_summaries_sync, limit, status, labels, root_only, offset)
 
     async def list_tree_deployments(self, root_deployment_id: UUID) -> list[DeploymentSummaryRecord]:
         return await self._run(self._list_tree_deployments_sync, root_deployment_id)

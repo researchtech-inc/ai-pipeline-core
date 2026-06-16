@@ -720,6 +720,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     task_class=task_class_name,
                     parent_span_id=str(execution_ctx.flow_span_id or ""),
                     input_document_sha256s=input_document_sha256s,
+                    label_keys=execution_ctx.label_keys,
+                    label_values=execution_ctx.label_values,
                 )
             )
         except EVENT_PUBLISH_EXCEPTIONS as exc:
@@ -763,6 +765,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     output_documents=output_documents,
                     parent_span_id=str(execution_ctx.flow_span_id or ""),
                     input_document_sha256s=input_document_sha256s,
+                    label_keys=execution_ctx.label_keys,
+                    label_values=execution_ctx.label_values,
                 )
             )
         except EVENT_PUBLISH_EXCEPTIONS as exc:
@@ -803,6 +807,8 @@ class PipelineTask(metaclass=_FrozenDocumentTypesMeta):
                     error_message=error_message,
                     parent_span_id=str(execution_ctx.flow_span_id or ""),
                     input_document_sha256s=input_document_sha256s,
+                    label_keys=execution_ctx.label_keys,
+                    label_values=execution_ctx.label_values,
                 )
             )
         except EVENT_PUBLISH_EXCEPTIONS as exc:

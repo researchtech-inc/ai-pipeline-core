@@ -91,6 +91,8 @@ def span_to_row(span: SpanRecord) -> list[Any]:
         span.metrics_json,
         list(span.input_blob_shas),
         list(span.output_blob_shas),
+        list(span.label_keys),
+        list(span.label_values),
     ]
 
 

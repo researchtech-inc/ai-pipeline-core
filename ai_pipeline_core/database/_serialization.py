@@ -53,6 +53,8 @@ SPAN_COLUMNS = (
     "metrics_json",
     "input_blob_shas",
     "output_blob_shas",
+    "label_keys",
+    "label_values",
 )
 
 LOG_COLUMNS = (
@@ -138,6 +140,8 @@ def row_to_span(row: tuple[Any, ...]) -> SpanRecord:
     fields["metrics_json"] = decode_text(fields["metrics_json"])
     fields["input_blob_shas"] = string_tuple(fields["input_blob_shas"])
     fields["output_blob_shas"] = string_tuple(fields["output_blob_shas"])
+    fields["label_keys"] = string_tuple(fields["label_keys"])
+    fields["label_values"] = string_tuple(fields["label_values"])
     return SpanRecord(**fields)
 
 

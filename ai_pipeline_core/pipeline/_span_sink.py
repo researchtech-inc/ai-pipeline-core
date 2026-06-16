@@ -100,6 +100,8 @@ class _StartedSpanState:
     input_json: str
     input_document_shas: tuple[str, ...]
     input_blob_shas: tuple[str, ...]
+    label_keys: tuple[str, ...]
+    label_values: tuple[str, ...]
     previous_conversation_id: UUID | None
 
 
@@ -145,6 +147,9 @@ class DatabaseSpanSink:
         sequence_no = execution_ctx.next_child_sequence(parent_span_id) if parent_span_id is not None else 0
         started_version = _next_span_version()
         previous_conversation_id = _extract_previous_conversation_id(kind, receiver_json)
+        is_deployment = kind == SpanKind.DEPLOYMENT
+        label_keys = execution_ctx.label_keys if is_deployment else ()
+        label_values = execution_ctx.label_values if is_deployment else ()
 
         self._started[span_id] = _StartedSpanState(
             parent_span_id=parent_span_id,
@@ -158,6 +163,8 @@ class DatabaseSpanSink:
             input_json=input_json,
             input_document_shas=tuple(sorted(input_document_shas)),
             input_blob_shas=tuple(sorted(input_blob_shas)),
+            label_keys=label_keys,
+            label_values=label_values,
             previous_conversation_id=previous_conversation_id,
         )
 
@@ -181,6 +188,8 @@ class DatabaseSpanSink:
                 input_json=input_json,
                 input_document_shas=tuple(sorted(input_document_shas)),
                 input_blob_shas=tuple(sorted(input_blob_shas)),
+                label_keys=label_keys,
+                label_values=label_values,
                 previous_conversation_id=previous_conversation_id,
             )
         )
@@ -218,6 +227,8 @@ class DatabaseSpanSink:
                 input_json="",
                 input_document_shas=(),
                 input_blob_shas=(),
+                label_keys=(),
+                label_values=(),
                 previous_conversation_id=None,
             )
 
@@ -266,6 +277,8 @@ class DatabaseSpanSink:
                 metrics_json=metrics_json,
                 input_blob_shas=started_state.input_blob_shas,
                 output_blob_shas=tuple(sorted(output_blob_shas)),
+                label_keys=started_state.label_keys,
+                label_values=started_state.label_values,
                 previous_conversation_id=started_state.previous_conversation_id,
             )
         )

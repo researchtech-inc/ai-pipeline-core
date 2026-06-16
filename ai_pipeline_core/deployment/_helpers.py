@@ -327,12 +327,26 @@ async def _log_flush_loop(
         raise
 
 
-async def _heartbeat_loop(publisher: ResultPublisher, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+async def _heartbeat_loop(
+    publisher: ResultPublisher,
+    run_id: str,
+    *,
+    root_deployment_id: str,
+    span_id: str,
+    label_keys: tuple[str, ...] = (),
+    label_values: tuple[str, ...] = (),
+) -> None:
     """Publish heartbeat signals at regular intervals until cancelled."""
     while True:
         await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
         try:
-            await publisher.publish_heartbeat(run_id, root_deployment_id=root_deployment_id, span_id=span_id)
+            await publisher.publish_heartbeat(
+                run_id,
+                root_deployment_id=root_deployment_id,
+                span_id=span_id,
+                label_keys=label_keys,
+                label_values=label_values,
+            )
         except Exception as e:
             logger.warning("Heartbeat publish failed: %s", e)
         logger.info(

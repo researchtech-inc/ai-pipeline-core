@@ -53,6 +53,8 @@ class TaskStartedEvent:
     task_class: str
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,8 @@ class TaskCompletedEvent:
     output_documents: tuple[DocumentRef, ...] = field(default_factory=tuple)
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,3 +96,5 @@ class TaskFailedEvent:
     error_message: str
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()

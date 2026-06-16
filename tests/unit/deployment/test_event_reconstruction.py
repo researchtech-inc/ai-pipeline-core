@@ -133,6 +133,60 @@ async def _seed_successful_run(db: _MemoryDatabase) -> tuple[UUID, UUID]:
     return root_id, deploy_span_id
 
 
+async def _seed_labeled_run(db: _MemoryDatabase) -> UUID:
+    root_id = uuid4()
+    deploy_id = root_id
+    deploy_span_id = deploy_id
+    flow_span_id = uuid4()
+    task_span_id = uuid4()
+    t0 = datetime(2026, 3, 14, 13, 0, tzinfo=UTC)
+
+    await db.insert_span(
+        _make_span(
+            span_id=deploy_span_id,
+            deployment_id=deploy_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.DEPLOYMENT,
+            name="LabeledDeploy",
+            status=SpanStatus.COMPLETED,
+            started_at=t0,
+            ended_at=t0 + timedelta(seconds=10),
+            label_keys=("entity", "experiment"),
+            label_values=("acme", "alpha"),
+            meta_json=json.dumps({"input_fingerprint": "fp", "flow_plan": [], "deployment_class": "LabeledDeployment"}),
+        )
+    )
+    await db.insert_span(
+        _make_span(
+            span_id=flow_span_id,
+            parent_span_id=deploy_span_id,
+            deployment_id=deploy_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.FLOW,
+            name="Flow1",
+            status=SpanStatus.COMPLETED,
+            started_at=t0 + timedelta(seconds=1),
+            ended_at=t0 + timedelta(seconds=5),
+            meta_json=json.dumps({"step": 1, "total_steps": 1, "flow_class": "Flow1"}),
+        )
+    )
+    await db.insert_span(
+        _make_span(
+            span_id=task_span_id,
+            parent_span_id=flow_span_id,
+            deployment_id=deploy_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.TASK,
+            name="Task1",
+            status=SpanStatus.COMPLETED,
+            started_at=t0 + timedelta(seconds=2),
+            ended_at=t0 + timedelta(seconds=3),
+            meta_json=json.dumps({"task_class": "Task1"}),
+        )
+    )
+    return root_id
+
+
 @pytest.mark.asyncio
 async def test_successful_run_reconstruction() -> None:
     db = _MemoryDatabase()
@@ -823,3 +877,15 @@ async def test_reconstruction_maps_process_crash_to_crashed_error_code() -> None
     run_failed = next(event for event in events if event.event_type == EventType.RUN_FAILED)
 
     assert run_failed.data["error_code"] == ErrorCode.CRASHED
+
+
+@pytest.mark.asyncio
+async def test_reconstructed_events_inherit_labels_from_enclosing_deployment() -> None:
+    db = _MemoryDatabase()
+    root_id = await _seed_labeled_run(db)
+
+    events = await _reconstruct_lifecycle_events(db, root_id)
+
+    for event in events:
+        assert event.data["label_keys"] == ("entity", "experiment")
+        assert event.data["label_values"] == ("acme", "alpha")

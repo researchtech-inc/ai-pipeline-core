@@ -260,7 +260,14 @@ class TestHeartbeatLoop:
         publisher = MagicMock()
         call_count = 0
 
-        async def _failing_heartbeat(run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+        async def _failing_heartbeat(
+            run_id: str,
+            *,
+            root_deployment_id: str,
+            span_id: str,
+            label_keys: tuple[str, ...] = (),
+            label_values: tuple[str, ...] = (),
+        ) -> None:
             nonlocal call_count
             call_count += 1
             raise RuntimeError("publish failed")
@@ -280,8 +287,15 @@ class TestHeartbeatLoop:
     async def test_heartbeat_logs_even_when_publish_fails(self, caplog: pytest.LogCaptureFixture):
         publisher = MagicMock()
 
-        async def _failing_heartbeat(run_id: str, *, root_deployment_id: str, span_id: str) -> None:
-            _ = (run_id, root_deployment_id, span_id)
+        async def _failing_heartbeat(
+            run_id: str,
+            *,
+            root_deployment_id: str,
+            span_id: str,
+            label_keys: tuple[str, ...] = (),
+            label_values: tuple[str, ...] = (),
+        ) -> None:
+            _ = (run_id, root_deployment_id, span_id, label_keys, label_values)
             raise RuntimeError("publish failed")
 
         publisher.publish_heartbeat = _failing_heartbeat

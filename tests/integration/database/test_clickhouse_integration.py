@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 from testcontainers.clickhouse import ClickHouseContainer
 
+from ai_pipeline_core.database._documents import get_latest_result_documents_by_run_ids
 from ai_pipeline_core.database._types import (
     _BlobRecord,
     CostTotals,
@@ -1170,6 +1171,129 @@ async def test_list_deployments_by_run_id_returns_all_attempts_newest_first(data
     results = await database.list_deployments_by_run_id(run_id)
 
     assert [span.span_id for span in results[:2]] == [newer, older]
+
+
+@pytest.mark.asyncio
+async def test_list_latest_completed_deployments_by_run_ids_is_root_only_and_status_filtered(
+    database: ClickHouseDatabase,
+) -> None:
+    run_id = f"latest-{uuid4().hex[:8]}"
+    completed_root = uuid4()
+    child_dep = uuid4()
+    failed_root = uuid4()
+    await database.insert_span(
+        _make_span(
+            span_id=completed_root,
+            deployment_id=completed_root,
+            root_deployment_id=completed_root,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            started_at=_BASE_TIME,
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            span_id=child_dep,
+            parent_span_id=completed_root,
+            deployment_id=child_dep,
+            root_deployment_id=completed_root,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            started_at=_BASE_TIME + timedelta(seconds=5),
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            span_id=failed_root,
+            deployment_id=failed_root,
+            root_deployment_id=failed_root,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            status=SpanStatus.FAILED,
+            started_at=_BASE_TIME + timedelta(seconds=10),
+        )
+    )
+
+    latest = await database.list_latest_completed_deployments_by_run_ids([run_id, "missing-run"])
+
+    assert set(latest) == {run_id}
+    assert latest[run_id].span_id == completed_root
+
+
+@pytest.mark.asyncio
+async def test_deployment_labels_round_trip_and_filter_deployment_listings(database: ClickHouseDatabase) -> None:
+    dep_a = uuid4()
+    dep_b = uuid4()
+    await database.insert_span(
+        _make_span(
+            span_id=dep_a,
+            deployment_id=dep_a,
+            root_deployment_id=dep_a,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=f"labels-{uuid4().hex[:8]}",
+            label_keys=("entity", "experiment"),
+            label_values=("acme", "alpha"),
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            span_id=dep_b,
+            deployment_id=dep_b,
+            root_deployment_id=dep_b,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=f"labels-{uuid4().hex[:8]}",
+            label_keys=("entity",),
+            label_values=("bravo",),
+            started_at=_BASE_TIME + timedelta(seconds=1),
+        )
+    )
+
+    loaded = await database.get_span(dep_a)
+    filtered = await database.list_deployments(10, labels={"entity": "acme", "experiment": "alpha"})
+    summaries = await database.list_deployment_summaries(10, labels={"entity": "acme", "experiment": "alpha"})
+
+    assert loaded is not None
+    assert loaded.label_keys == ("entity", "experiment")
+    assert loaded.label_values == ("acme", "alpha")
+    assert [span.span_id for span in filtered] == [dep_a]
+    assert len(summaries) == 1
+    assert summaries[0].label_keys == ("entity", "experiment")
+    assert summaries[0].label_values == ("acme", "alpha")
+
+
+@pytest.mark.asyncio
+async def test_latest_result_documents_by_run_ids_use_root_outputs_only(database: ClickHouseDatabase) -> None:
+    root_id = uuid4()
+    run_id = f"result-{uuid4().hex[:8]}"
+    await database.insert_span(
+        _make_span(
+            span_id=root_id,
+            deployment_id=root_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            output_document_shas=("doc-final",),
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            parent_span_id=root_id,
+            deployment_id=root_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.TASK,
+            run_id=run_id,
+            output_document_shas=("doc-intermediate",),
+            started_at=_BASE_TIME + timedelta(seconds=1),
+        )
+    )
+    await database.save_document(_make_document(document_sha256="doc-final", document_type="FinalDoc", name="final.md"))
+    await database.save_document(
+        _make_document(document_sha256="doc-intermediate", document_type="IntermediateDoc", name="mid.md")
+    )
+
+    records = await get_latest_result_documents_by_run_ids(database, [run_id], document_type="FinalDoc")
+
+    assert tuple(record.document_sha256 for record in records[run_id]) == ("doc-final",)
 
 
 @pytest.mark.asyncio

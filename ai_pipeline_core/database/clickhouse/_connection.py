@@ -10,7 +10,7 @@ from clickhouse_connect import get_async_client
 from clickhouse_connect.driver import AsyncClient
 from clickhouse_connect.driver.exceptions import OperationalError as ClickHouseOperationalError
 
-from ai_pipeline_core.database.clickhouse._ddl import DDL_STATEMENTS, SCHEMA_META_TABLE, SCHEMA_VERSION
+from ai_pipeline_core.database.clickhouse._ddl import _MIGRATIONS, DDL_STATEMENTS, SCHEMA_META_TABLE, SCHEMA_VERSION
 from ai_pipeline_core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ async def _ensure_schema(client: AsyncClient, database: str) -> None:
 
     - No schema_meta table → fresh database → create all tables and stamp version.
     - schema_meta exists, version matches → proceed.
-    - schema_meta exists, DB version < framework → raise error (DB needs upgrade).
+    - schema_meta exists, DB version < framework → apply additive forward migrations and stamp the new version.
     - schema_meta exists, DB version > framework → raise error (framework needs upgrade).
     """
     if _schema_state.verified:
@@ -80,6 +80,7 @@ async def _ensure_schema(client: AsyncClient, database: str) -> None:
             fw_version = _get_framework_version()
             for ddl in DDL_STATEMENTS:
                 await client.command(ddl)
+            await _apply_migrations(client, from_version=0)
             await client.command(
                 f"INSERT INTO {SCHEMA_META_TABLE} (version, applied_at, framework_version) "
                 "VALUES ({version:UInt32}, now64(3), {fw:String})",
@@ -89,10 +90,15 @@ async def _ensure_schema(client: AsyncClient, database: str) -> None:
             return
 
         if db_version < SCHEMA_VERSION:
-            raise SchemaVersionError(
-                f"Database schema version ({db_version}) is older than the framework expects ({SCHEMA_VERSION}). "
-                "Update the database schema to match the current framework version."
+            fw_version = _get_framework_version()
+            await _apply_migrations(client, from_version=db_version)
+            await client.command(
+                f"INSERT INTO {SCHEMA_META_TABLE} (version, applied_at, framework_version) "
+                "VALUES ({version:UInt32}, now64(3), {fw:String})",
+                parameters={"version": SCHEMA_VERSION, "fw": fw_version},
             )
+            _schema_state.verified = True
+            return
         if db_version > SCHEMA_VERSION:
             raise SchemaVersionError(
                 f"Database schema version ({db_version}) is newer than the framework supports ({SCHEMA_VERSION}). "
@@ -100,6 +106,14 @@ async def _ensure_schema(client: AsyncClient, database: str) -> None:
             )
 
         _schema_state.verified = True
+
+
+async def _apply_migrations(client: AsyncClient, *, from_version: int) -> None:
+    for migration in _MIGRATIONS:
+        if migration.version <= from_version:
+            continue
+        for statement in migration.statements:
+            await client.command(statement)
 
 
 def _get_framework_version() -> str:

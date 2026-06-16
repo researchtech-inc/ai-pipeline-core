@@ -4,7 +4,7 @@ import logging
 
 from ai_pipeline_core.database._hydrate import hydrate_document
 from ai_pipeline_core.database._protocol import DatabaseReader, DatabaseWriter
-from ai_pipeline_core.database._types import DocumentRecord, HydratedDocument, _BlobRecord
+from ai_pipeline_core.database._types import DocumentRecord, HydratedDocument, SpanRecord, SpanStatus, _BlobRecord
 from ai_pipeline_core.documents._context import DocumentSha256
 from ai_pipeline_core.documents._hashing import compute_content_sha256
 from ai_pipeline_core.documents.document import Document, _class_name_registry
@@ -12,7 +12,10 @@ from ai_pipeline_core.documents.document import Document, _class_name_registry
 __all__ = [
     "document_to_blobs",
     "document_to_record",
+    "get_latest_completed_deployment_by_run_id",
+    "get_latest_result_documents_by_run_ids",
     "load_documents_from_database",
+    "load_latest_documents_by_run_ids",
     "store_document",
 ]
 
@@ -194,3 +197,97 @@ async def load_documents_from_database(
 
     blobs = await reader.get_blobs_batch(sorted(required_blob_shas))
     return _reconstruct_documents(filtered_records, blobs)
+
+
+async def get_latest_completed_deployment_by_run_id(
+    reader: DatabaseReader,
+    run_id: str,
+    *,
+    statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+) -> SpanRecord | None:
+    """Return the latest root deployment for one run_id, filtered by status."""
+    return (await reader.list_latest_completed_deployments_by_run_ids([run_id], statuses=statuses)).get(run_id)
+
+
+async def get_latest_result_documents_by_run_ids(
+    reader: DatabaseReader,
+    run_ids: list[str],
+    *,
+    document_type: str | None = None,
+    statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+) -> dict[str, tuple[DocumentRecord, ...]]:
+    """Return result document records from each winning root deployment span.
+
+    Reads each latest completed root deployment's ``output_document_shas`` in the
+    stored SHA order, which reflects the durable record for that run's deliverable
+    documents. If ``document_type`` is provided, only records of that type are
+    returned. Resolved runs with no matching result documents map to an empty tuple.
+    """
+    deployments = await reader.list_latest_completed_deployments_by_run_ids(run_ids, statuses=statuses)
+    output_shas = sorted({sha for deployment in deployments.values() for sha in deployment.output_document_shas})
+    records = await reader.get_documents_batch(output_shas) if output_shas else {}
+
+    result: dict[str, tuple[DocumentRecord, ...]] = {}
+    for run_id, deployment in deployments.items():
+        ordered = tuple(
+            records[sha]
+            for sha in deployment.output_document_shas
+            if sha in records and (document_type is None or records[sha].document_type == document_type)
+        )
+        result[run_id] = ordered
+    return result
+
+
+async def load_latest_documents_by_run_ids(
+    reader: DatabaseReader,
+    run_ids: list[str],
+    *,
+    filter_types: list[type[Document]] | None = None,
+    statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+) -> dict[str, tuple[Document, ...]]:
+    """Hydrate latest result documents per run_id and require complete recovery.
+
+    A resolved run's expected output documents must all rehydrate successfully.
+    Silent omission would hide corrupted or incomplete persistence for the
+    canonical latest outputs a caller explicitly requested.
+    """
+    deployments = await reader.list_latest_completed_deployments_by_run_ids(run_ids, statuses=statuses)
+    output_shas = sorted({sha for deployment in deployments.values() for sha in deployment.output_document_shas})
+    records = await reader.get_documents_batch(output_shas) if output_shas else {}
+
+    allowed_type_names = (
+        {document_type.__name__ for document_type in filter_types} if filter_types is not None else None
+    )
+    expected_by_run: dict[str, tuple[str, ...]] = {}
+    expected_shas: set[str] = set()
+    for run_id, deployment in deployments.items():
+        missing_records = [sha for sha in deployment.output_document_shas if sha not in records]
+        if missing_records:
+            missing_list = ", ".join(missing_records)
+            raise ValueError(
+                f"Could not fully resolve latest output documents for run_id {run_id!r}: {missing_list}. "
+                "Persist every referenced document record before loading latest outputs."
+            )
+        filtered_shas = tuple(
+            sha
+            for sha in deployment.output_document_shas
+            if allowed_type_names is None or records[sha].document_type in allowed_type_names
+        )
+        expected_by_run[run_id] = filtered_shas
+        expected_shas.update(filtered_shas)
+
+    loaded = await load_documents_from_database(reader, expected_shas, filter_types=filter_types)
+    loaded_by_sha = {str(document.sha256): document for document in loaded}
+
+    result: dict[str, tuple[Document, ...]] = {}
+    for run_id, expected_shas_for_run in expected_by_run.items():
+        missing = [sha for sha in expected_shas_for_run if sha not in loaded_by_sha]
+        if missing:
+            missing_list = ", ".join(missing)
+            raise ValueError(
+                f"Could not fully hydrate latest output documents for run_id {run_id!r}: {missing_list}. "
+                "Persist every referenced document record and blob, and import the corresponding Document classes "
+                "before loading latest outputs."
+            )
+        result[run_id] = tuple(loaded_by_sha[sha] for sha in expected_shas_for_run)
+    return result

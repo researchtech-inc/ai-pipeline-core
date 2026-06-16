@@ -186,6 +186,19 @@ class TestMemoryPublisher:
         assert pub.heartbeats[0]["root_deployment_id"] == "rd1"
         assert pub.heartbeats[1]["root_deployment_id"] == "rd2"
 
+    async def test_records_heartbeat_labels(self):
+        pub = _MemoryPublisher()
+        await pub.publish_heartbeat(
+            "run-1",
+            root_deployment_id="rd1",
+            span_id="s1",
+            label_keys=("entity",),
+            label_values=("acme",),
+        )
+
+        assert pub.heartbeats[0]["label_keys"] == ("entity",)
+        assert pub.heartbeats[0]["label_values"] == ("acme",)
+
     async def test_records_flow_events(self):
         pub = _MemoryPublisher()
         started = FlowStartedEvent(

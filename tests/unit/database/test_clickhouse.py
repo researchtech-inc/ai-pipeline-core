@@ -64,10 +64,10 @@ def test_ddl_statement_list_includes_all_tables() -> None:
 
 
 def test_spans_ddl_matches_expected_shape() -> None:
-    assert len(_extract_column_lines(SPANS_DDL)) == 30
+    assert len(_extract_column_lines(SPANS_DDL)) == 32
     assert "ENGINE = ReplacingMergeTree(version)" in SPANS_DDL
     assert "ORDER BY (root_deployment_id, deployment_id, span_id)" in SPANS_DDL
-    assert len(_extract_index_lines(SPANS_DDL)) == 11
+    assert len(_extract_index_lines(SPANS_DDL)) == 12
     assert "detail_json" not in SPANS_DDL
 
 
@@ -168,11 +168,14 @@ async def test_ensure_schema_passes_on_matching_version() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ensure_schema_raises_on_outdated_db() -> None:
+async def test_ensure_schema_migrates_outdated_db() -> None:
     client = _mock_client(table_exists=True, db_version=SCHEMA_VERSION - 1)
 
-    with pytest.raises(SchemaVersionError, match="older than the framework expects"):
-        await _ensure_schema(client, "default")
+    await _ensure_schema(client, "default")
+
+    last_call_sql = client.command.call_args_list[-1].args[0]
+    assert "INSERT" in last_call_sql
+    assert SCHEMA_META_TABLE in last_call_sql
 
 
 @pytest.mark.asyncio
@@ -202,8 +205,8 @@ async def test_ensure_schema_recovers_incomplete_bootstrap() -> None:
 
     await _ensure_schema(client, "default")
 
-    # Should have run CREATE IF NOT EXISTS DDLs + INSERT version stamp
-    assert client.command.call_count == len(DDL_STATEMENTS) + 1
+    # Should have run CREATE IF NOT EXISTS DDLs + migrations + INSERT version stamp
+    assert client.command.call_count == len(DDL_STATEMENTS) + 4
     last_call_sql = client.command.call_args_list[-1].args[0]
     assert "INSERT" in last_call_sql
     assert SCHEMA_META_TABLE in last_call_sql

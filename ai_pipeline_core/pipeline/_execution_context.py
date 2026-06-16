@@ -251,6 +251,8 @@ class ExecutionContext:
     root_deployment_id: UUID | None = None
     parent_deployment_task_id: UUID | None = None
     deployment_name: str = ""
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
     service_name: str = ""
     span_id: UUID | None = None
     parent_span_id: UUID | None = None

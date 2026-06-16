@@ -184,6 +184,8 @@ class RunStartedEvent:
     flow_plan: list[dict[str, Any]] = field(default_factory=list)
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +210,8 @@ class RunCompletedEvent:
     duration_ms: int = 0
     output_document_sha256s: tuple[str, ...] = ()
     parent_span_id: str = ""
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +229,8 @@ class RunFailedEvent:
     deployment_class: str = ""
     duration_ms: int = 0
     parent_span_id: str = ""
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +250,8 @@ class FlowStartedEvent:
     flow_params: dict[str, Any] = field(default_factory=dict)
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +271,8 @@ class FlowCompletedEvent:
     output_documents: tuple[DocumentRef, ...] = field(default_factory=tuple)
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +291,8 @@ class FlowFailedEvent:
     error_message: str
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +311,8 @@ class FlowSkippedEvent:
     reason: str
     parent_span_id: str = ""
     input_document_sha256s: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 # Protocol
@@ -318,7 +332,15 @@ class ResultPublisher(Protocol):
         """Publish a pipeline failure event."""
         ...
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+    async def publish_heartbeat(
+        self,
+        run_id: str,
+        *,
+        root_deployment_id: str,
+        span_id: str,
+        label_keys: tuple[str, ...] = (),
+        label_values: tuple[str, ...] = (),
+    ) -> None:
         """Publish a heartbeat signal."""
         ...
 
@@ -367,7 +389,15 @@ class _NoopPublisher:
     async def publish_run_failed(self, event: RunFailedEvent) -> None:
         """Accept and discard a run failed event."""
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+    async def publish_heartbeat(
+        self,
+        run_id: str,
+        *,
+        root_deployment_id: str,
+        span_id: str,
+        label_keys: tuple[str, ...] = (),
+        label_values: tuple[str, ...] = (),
+    ) -> None:
         """Accept and discard a heartbeat."""
 
     async def publish_flow_started(self, event: FlowStartedEvent) -> None:
@@ -411,7 +441,7 @@ class _MemoryPublisher:
             | TaskCompletedEvent
             | TaskFailedEvent
         ] = []
-        self.heartbeats: list[dict[str, str]] = []
+        self.heartbeats: list[dict[str, str | tuple[str, ...]]] = []
 
     async def publish_run_started(self, event: RunStartedEvent) -> None:
         """Record a run started event."""
@@ -425,9 +455,23 @@ class _MemoryPublisher:
         """Record a run failed event."""
         self.events.append(event)
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+    async def publish_heartbeat(
+        self,
+        run_id: str,
+        *,
+        root_deployment_id: str,
+        span_id: str,
+        label_keys: tuple[str, ...] = (),
+        label_values: tuple[str, ...] = (),
+    ) -> None:
         """Record a heartbeat."""
-        self.heartbeats.append({"run_id": run_id, "root_deployment_id": root_deployment_id, "span_id": span_id})
+        self.heartbeats.append({
+            "run_id": run_id,
+            "root_deployment_id": root_deployment_id,
+            "span_id": span_id,
+            "label_keys": label_keys,
+            "label_values": label_values,
+        })
 
     async def publish_flow_started(self, event: FlowStartedEvent) -> None:
         """Record a flow started event."""

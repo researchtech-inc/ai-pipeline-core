@@ -1,5 +1,7 @@
 """ClickHouse DDL statements for the span-based database schema."""
 
+from dataclasses import dataclass
+
 __all__ = [
     "BLOBS_DDL",
     "BLOBS_TABLE",
@@ -16,7 +18,7 @@ __all__ = [
     "SPANS_TABLE",
 ]
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SPANS_TABLE = "spans"
 DOCUMENTS_TABLE = "documents"
@@ -61,6 +63,8 @@ CREATE TABLE IF NOT EXISTS {SPANS_TABLE} (
     metrics_json String DEFAULT '' CODEC(ZSTD(3)),
     input_blob_shas Array(String),
     output_blob_shas Array(String),
+    label_keys Array(String) DEFAULT [],
+    label_values Array(String) DEFAULT [],
     INDEX idx_span_id span_id TYPE bloom_filter GRANULARITY 1,
     INDEX idx_parent parent_span_id TYPE bloom_filter GRANULARITY 1,
     INDEX idx_deployment_id deployment_id TYPE bloom_filter GRANULARITY 1,
@@ -71,7 +75,8 @@ CREATE TABLE IF NOT EXISTS {SPANS_TABLE} (
     INDEX idx_input_docs input_document_shas TYPE bloom_filter GRANULARITY 1,
     INDEX idx_output_docs output_document_shas TYPE bloom_filter GRANULARITY 1,
     INDEX idx_input_blobs input_blob_shas TYPE bloom_filter GRANULARITY 1,
-    INDEX idx_output_blobs output_blob_shas TYPE bloom_filter GRANULARITY 1
+    INDEX idx_output_blobs output_blob_shas TYPE bloom_filter GRANULARITY 1,
+    INDEX idx_label_keys label_keys TYPE bloom_filter GRANULARITY 1
 )
 ENGINE = ReplacingMergeTree(version)
 ORDER BY (root_deployment_id, deployment_id, span_id)
@@ -151,3 +156,24 @@ DDL_STATEMENTS = [
     BLOBS_DDL,
     LOGS_DDL,
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class _Migration:
+    version: int
+    statements: tuple[str, ...]
+
+
+_MIGRATIONS: tuple[_Migration, ...] = (
+    _Migration(
+        version=4,
+        statements=(
+            f"ALTER TABLE {SPANS_TABLE} ADD COLUMN IF NOT EXISTS label_keys Array(String) DEFAULT []",
+            f"ALTER TABLE {SPANS_TABLE} ADD COLUMN IF NOT EXISTS label_values Array(String) DEFAULT []",
+            (
+                f"ALTER TABLE {SPANS_TABLE} ADD INDEX IF NOT EXISTS idx_label_keys "
+                "label_keys TYPE bloom_filter GRANULARITY 1"
+            ),
+        ),
+    ),
+)

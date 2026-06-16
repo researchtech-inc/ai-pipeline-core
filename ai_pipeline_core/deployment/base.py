@@ -153,6 +153,9 @@ async def _record_nonexecuted_flow(
     output_documents: tuple[Document, ...] = (),
 ) -> None:
     input_documents = _documents_from_flow_arguments(resolved_kwargs)
+    execution_ctx = get_execution_context()
+    label_keys = execution_ctx.label_keys if execution_ctx is not None else ()
+    label_values = execution_ctx.label_values if execution_ctx is not None else ()
     flow_target = f"instance_method:{flow_class.__module__}:{flow_class.__qualname__}.run"
     flow_span_id: str | None = None
     async with track_span(
@@ -201,6 +204,8 @@ async def _record_nonexecuted_flow(
             reason=publish_reason,
             parent_span_id=str(deployment_span_id),
             input_document_sha256s=tuple(doc.sha256 for doc in input_documents),
+            label_keys=label_keys,
+            label_values=label_values,
         )
     )
 
@@ -399,6 +404,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         root_deployment_id: UUID | None = None,
         parent_deployment_task_id: UUID | None = None,
         remote_child_run_id: str | None = None,
+        labels: dict[str, str] | None = None,
         publisher: ResultPublisher | None = None,
         start_step: int = 1,
         end_step: int | None = None,
@@ -423,6 +429,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             root_deployment_id=resolved_root_deployment_id,
             parent_deployment_task_id=parent_deployment_task_id,
             remote_child_run_id=remote_child_run_id,
+            labels=labels,
             database=database,
         )
 
@@ -432,6 +439,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         run_id: str,
         documents: Sequence[Document],
         options: TOptions,
+        labels: dict[str, str] | None = None,
         publisher: ResultPublisher | None = None,
         start_step: int = 1,
         end_step: int | None = None,
@@ -448,6 +456,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             documents,
             options,
             parent_deployment_task_id=None,
+            labels=labels,
             publisher=publisher,
             start_step=start_step,
             end_step=end_step,
@@ -465,6 +474,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         root_deployment_id: UUID,
         parent_deployment_task_id: UUID | None = None,
         remote_child_run_id: str | None = None,
+        labels: dict[str, str] | None = None,
         publisher: ResultPublisher | None = None,
         start_step: int = 1,
         end_step: int | None = None,
@@ -510,6 +520,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
 
         input_docs = list(documents)
         input_fingerprint = _compute_input_fingerprint(input_docs, options)
+        label_items = tuple(labels.items()) if labels else ()
+        label_keys = tuple(key for key, _value in label_items)
+        label_values = tuple(value for _key, value in label_items)
         flow_plan = [
             {
                 "name": flow_step.flow.name,
@@ -573,6 +586,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     root_deployment_id=root_deployment_id,
                     parent_deployment_task_id=parent_deployment_task_id,
                     deployment_name=self.name,
+                    label_keys=label_keys,
+                    label_values=label_values,
                     service_name=observability_service_name,
                     span_id=deployment_span_id,
                     current_span_id=deployment_span_id,
@@ -631,6 +646,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     parent_task_id_str=parent_task_id_str,
                     deployment_span_ctx=deployment_span_ctx,
                     flow_run_id=flow_run_id,
+                    label_keys=label_keys,
+                    label_values=label_values,
                 )
             await publisher.publish_run_completed(
                 RunCompletedEvent(
@@ -645,6 +662,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
                     output_document_sha256s=last_flow_output_sha256s,
                     parent_span_id=parent_task_id_str or "",
+                    label_keys=label_keys,
+                    label_values=label_values,
                 )
             )
             return result
@@ -665,6 +684,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                         deployment_class=type(self).__name__,
                         duration_ms=int((_time_mod.monotonic() - deployment_start_mono) * 1000),
                         parent_span_id=parent_task_id_str or "",
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 )
             except Exception as pub_err:
@@ -708,6 +729,8 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         parent_task_id_str: str | None,
         deployment_span_ctx: Any,
         flow_run_id: str,
+        label_keys: tuple[str, ...],
+        label_values: tuple[str, ...],
     ) -> tuple[TResult | None, tuple[str, ...]]:
         heartbeat_task: asyncio.Task[None] | None = None
         try:
@@ -724,11 +747,20 @@ class PipelineDeployment(Generic[TOptions, TResult]):
                     flow_plan=flow_plan,
                     parent_span_id=parent_task_id_str or "",
                     input_document_sha256s=tuple(doc.sha256 for doc in input_docs),
+                    label_keys=label_keys,
+                    label_values=label_values,
                 )
             )
 
             heartbeat_task = asyncio.create_task(
-                _heartbeat_loop(publisher, run_id, root_deployment_id=root_id_str, span_id=deployment_span_id_str)
+                _heartbeat_loop(
+                    publisher,
+                    run_id,
+                    root_deployment_id=root_id_str,
+                    span_id=deployment_span_id_str,
+                    label_keys=label_keys,
+                    label_values=label_values,
+                )
             )
             await _ensure_concurrency_limits(self.concurrency_limits)
 
@@ -963,6 +995,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
         run_id: str | None,
         documents: Sequence[Document],
         options: TOptions,
+        labels: dict[str, str] | None = None,
         publisher: ResultPublisher | None = None,
         output_dir: Path | None = None,
     ) -> TResult | None:
@@ -986,7 +1019,9 @@ class PipelineDeployment(Generic[TOptions, TResult]):
             output_dir.mkdir(parents=True, exist_ok=True)
 
         with prefect_test_harness(), disable_run_logger():
-            result = asyncio.run(self.run(run_id, documents, options, publisher=publisher, database=_MemoryDatabase()))
+            result = asyncio.run(
+                self.run(run_id, documents, options, labels=labels, publisher=publisher, database=_MemoryDatabase())
+            )
 
         if output_dir and result is not None:
             (output_dir / "result.json").write_text(result.model_dump_json(indent=2))

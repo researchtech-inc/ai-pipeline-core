@@ -176,6 +176,8 @@ class SpanRecord:
     metrics_json: str = ""
     input_blob_shas: tuple[str, ...] = ()
     output_blob_shas: tuple[str, ...] = ()
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_enum_string("kind", self.kind, SpanKind)
@@ -184,6 +186,11 @@ class SpanRecord:
         _validate_string_tuple("output_document_shas", self.output_document_shas)
         _validate_string_tuple("input_blob_shas", self.input_blob_shas)
         _validate_string_tuple("output_blob_shas", self.output_blob_shas)
+        _validate_string_tuple("label_keys", self.label_keys)
+        _validate_string_tuple("label_values", self.label_values)
+        if len(self.label_keys) != len(self.label_values):
+            msg = "label_keys and label_values must have matching lengths."
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +285,8 @@ class DeploymentSummaryRecord:
     ended_at: datetime | None
     parent_span_id: UUID | None
     cost_usd: float
+    label_keys: tuple[str, ...] = ()
+    label_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

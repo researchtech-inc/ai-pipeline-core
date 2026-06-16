@@ -7,10 +7,16 @@ from uuid import UUID, uuid4
 import pytest
 
 from ai_pipeline_core.database import DocumentRecord, LogRecord, SpanKind, SpanRecord, SpanStatus
-from ai_pipeline_core.database._documents import load_documents_from_database
+from ai_pipeline_core.database._documents import (
+    get_latest_result_documents_by_run_ids,
+    load_documents_from_database,
+    load_latest_documents_by_run_ids,
+)
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.database._types import _BlobRecord
 from ai_pipeline_core.documents import Attachment, Document
+
+_BASE_TIME = datetime(2026, 3, 11, 12, 0, tzinfo=UTC)
 
 
 class MemoryLoadDoc(Document):
@@ -447,6 +453,175 @@ async def test_find_documents_by_name_no_matches_returns_empty() -> None:
     found = await database.find_documents_by_name(["nonexistent.md"])
 
     assert found == {}
+
+
+@pytest.mark.asyncio
+async def test_list_latest_completed_deployments_by_run_ids_is_root_only_and_status_filtered() -> None:
+    database = _MemoryDatabase()
+    root_id = uuid4()
+    child_id = uuid4()
+    failed_root_id = uuid4()
+    run_id = "entity-acme"
+    older_completed = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        started_at=_BASE_TIME,
+    )
+    child_deployment = _make_span(
+        span_id=child_id,
+        parent_span_id=root_id,
+        deployment_id=child_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        started_at=_BASE_TIME + timedelta(seconds=5),
+    )
+    newer_failed = _make_span(
+        span_id=failed_root_id,
+        deployment_id=failed_root_id,
+        root_deployment_id=failed_root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        status=SpanStatus.FAILED,
+        started_at=_BASE_TIME + timedelta(seconds=10),
+    )
+    for span in (older_completed, child_deployment, newer_failed):
+        await database.insert_span(span)
+
+    latest = await database.list_latest_completed_deployments_by_run_ids([run_id, "missing-run"])
+
+    assert latest == {run_id: older_completed}
+
+
+@pytest.mark.asyncio
+async def test_latest_result_document_helpers_use_root_outputs_only() -> None:
+    database = _MemoryDatabase()
+    root_id = uuid4()
+    run_id = "entity-bravo"
+    root = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        output_document_shas=("doc-final",),
+    )
+    task = _make_span(
+        parent_span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.TASK,
+        run_id=run_id,
+        output_document_shas=("doc-intermediate",),
+        started_at=_BASE_TIME + timedelta(seconds=1),
+    )
+    await database.insert_span(root)
+    await database.insert_span(task)
+    await database.save_document(_make_document(document_sha256="doc-final", document_type="FinalDoc", name="final.md"))
+    await database.save_document(
+        _make_document(document_sha256="doc-intermediate", document_type="IntermediateDoc", name="mid.md")
+    )
+
+    records = await get_latest_result_documents_by_run_ids(database, [run_id])
+
+    assert tuple(record.document_sha256 for record in records[run_id]) == ("doc-final",)
+
+
+@pytest.mark.asyncio
+async def test_load_latest_documents_by_run_ids_raises_on_incomplete_hydration() -> None:
+    database = _MemoryDatabase()
+    root_id = uuid4()
+    run_id = "entity-charlie"
+    root = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        output_document_shas=("doc-missing",),
+    )
+    await database.insert_span(root)
+    await database.save_document(
+        _make_document(document_sha256="doc-missing", content_sha256="blob-missing", document_type="MissingDoc")
+    )
+
+    with pytest.raises(ValueError, match="Could not fully hydrate latest output documents"):
+        await load_latest_documents_by_run_ids(database, [run_id])
+
+
+@pytest.mark.asyncio
+async def test_load_latest_documents_by_run_ids_raises_on_missing_document_record() -> None:
+    database = _MemoryDatabase()
+    root_id = uuid4()
+    run_id = "entity-record-gap"
+    root = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        output_document_shas=("doc-never-saved",),
+    )
+    await database.insert_span(root)
+
+    with pytest.raises(ValueError, match="Could not fully resolve latest output documents"):
+        await load_latest_documents_by_run_ids(database, [run_id])
+
+
+@pytest.mark.asyncio
+async def test_deployment_listings_filter_and_surface_labels() -> None:
+    database = _MemoryDatabase()
+    dep_a = _make_span(
+        span_id=uuid4(),
+        deployment_id=uuid4(),
+        root_deployment_id=uuid4(),
+        kind=SpanKind.DEPLOYMENT,
+        run_id="run-a",
+        label_keys=("entity", "experiment"),
+        label_values=("acme", "alpha"),
+    )
+    dep_a = _make_span(
+        span_id=dep_a.span_id,
+        deployment_id=dep_a.span_id,
+        root_deployment_id=dep_a.span_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id="run-a",
+        label_keys=("entity", "experiment"),
+        label_values=("acme", "alpha"),
+    )
+    dep_b = _make_span(
+        span_id=uuid4(),
+        deployment_id=uuid4(),
+        root_deployment_id=uuid4(),
+        kind=SpanKind.DEPLOYMENT,
+        run_id="run-b",
+        label_keys=("entity",),
+        label_values=("bravo",),
+        started_at=_BASE_TIME + timedelta(seconds=1),
+    )
+    dep_b = _make_span(
+        span_id=dep_b.span_id,
+        deployment_id=dep_b.span_id,
+        root_deployment_id=dep_b.span_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id="run-b",
+        label_keys=("entity",),
+        label_values=("bravo",),
+        started_at=_BASE_TIME + timedelta(seconds=1),
+    )
+    for span in (dep_a, dep_b):
+        await database.insert_span(span)
+
+    filtered = await database.list_deployments(10, labels={"entity": "acme", "experiment": "alpha"})
+    summaries = await database.list_deployment_summaries(10, labels={"entity": "acme", "experiment": "alpha"})
+
+    assert [span.span_id for span in filtered] == [dep_a.span_id]
+    assert len(summaries) == 1
+    assert summaries[0].label_keys == ("entity", "experiment")
+    assert summaries[0].label_values == ("acme", "alpha")
 
 
 @pytest.mark.asyncio

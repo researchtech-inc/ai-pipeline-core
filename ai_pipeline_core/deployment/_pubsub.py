@@ -102,6 +102,16 @@ class PubSubPublisher:
             "run_id": run_id,
         }
 
+    @staticmethod
+    def _add_label_attributes(
+        attributes: dict[str, str],
+        *,
+        label_keys: tuple[str, ...],
+        label_values: tuple[str, ...],
+    ) -> None:
+        for key, value in zip(label_keys, label_values, strict=True):
+            attributes[f"label.{key}"] = value
+
     async def _publish_event(self, event_type: EventType, run_id: str, payload: dict[str, Any]) -> None:
         """Build and publish one CloudEvents payload for a lifecycle event."""
         data = self._build_envelope(event_type, run_id, payload)
@@ -125,13 +135,26 @@ class PubSubPublisher:
                 f"Event payload keys: {list(payload.keys())}"
             )
         attrs["root_deployment_id"] = str(root_id)
+        self._add_label_attributes(
+            attrs,
+            label_keys=tuple(payload.get("label_keys", ())),
+            label_values=tuple(payload.get("label_values", ())),
+        )
         await self._publish(data, attrs)
 
     async def publish_run_started(self, event: RunStartedEvent) -> None:
         """Publish run.started event."""
         await self._publish_event(EventType.RUN_STARTED, event.run_id, event_to_payload(event))
 
-    async def publish_heartbeat(self, run_id: str, *, root_deployment_id: str, span_id: str) -> None:
+    async def publish_heartbeat(
+        self,
+        run_id: str,
+        *,
+        root_deployment_id: str,
+        span_id: str,
+        label_keys: tuple[str, ...] = (),
+        label_values: tuple[str, ...] = (),
+    ) -> None:
         """Publish run.heartbeat event."""
         await self._publish_event(
             EventType.RUN_HEARTBEAT,
@@ -140,6 +163,8 @@ class PubSubPublisher:
                 "root_deployment_id": root_deployment_id,
                 "span_id": span_id,
                 "timestamp": datetime.now(UTC).isoformat(),
+                "label_keys": label_keys,
+                "label_values": label_values,
             },
         )
 

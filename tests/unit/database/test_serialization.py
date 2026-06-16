@@ -41,6 +41,8 @@ def _span_row(*, kind: str, status: str) -> tuple[object, ...]:
         "metrics_json": "",
         "input_blob_shas": [],
         "output_blob_shas": [],
+        "label_keys": [],
+        "label_values": [],
     }
     assert tuple(values) == SPAN_COLUMNS  # guard against column drift
     return tuple(values[column] for column in SPAN_COLUMNS)

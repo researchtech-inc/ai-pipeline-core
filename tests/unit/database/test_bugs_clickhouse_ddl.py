@@ -19,9 +19,9 @@ def test_documents_ddl_uses_replacing_merge_tree_without_version() -> None:
     assert "ReplacingMergeTree()" in DOCUMENTS_DDL
 
 
-def test_schema_version_is_3() -> None:
-    """Schema version bumped to 3 for created_at removal and engine changes."""
-    assert SCHEMA_VERSION == 3
+def test_schema_version_is_4() -> None:
+    """Schema version bumped to 4 for deployment-run labels on spans."""
+    assert SCHEMA_VERSION == 4
 
 
 def test_blobs_ddl_has_no_created_at() -> None:

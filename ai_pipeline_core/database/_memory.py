@@ -30,6 +30,19 @@ from ai_pipeline_core.database._types import (
 __all__ = ["_MemoryDatabase"]
 
 
+def _labels_match(span: SpanRecord, labels: dict[str, str] | None) -> bool:
+    if not labels:
+        return True
+    for key, value in labels.items():
+        try:
+            index = span.label_keys.index(key)
+        except ValueError:
+            return False
+        if span.label_values[index] != value:
+            return False
+    return True
+
+
 class _MemoryDatabase:
     """Dict-based backend for tests covering the span schema."""
 
@@ -106,11 +119,35 @@ class _MemoryDatabase:
             return None
         return max(matches, key=deployment_sort_key)
 
+    async def list_latest_completed_deployments_by_run_ids(
+        self,
+        run_ids: list[str],
+        *,
+        statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+    ) -> dict[str, SpanRecord]:
+        if not run_ids:
+            return {}
+        wanted = set(run_ids)
+        allowed_statuses = set(statuses)
+        latest: dict[str, SpanRecord] = {}
+        for span in self._spans.values():
+            if span.kind != SpanKind.DEPLOYMENT:
+                continue
+            if span.span_id != span.root_deployment_id:
+                continue
+            if span.run_id not in wanted or span.status not in allowed_statuses:
+                continue
+            current = latest.get(span.run_id)
+            if current is None or deployment_sort_key(span) > deployment_sort_key(current):
+                latest[span.run_id] = span
+        return latest
+
     async def list_deployments(
         self,
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[SpanRecord]:
@@ -119,6 +156,8 @@ class _MemoryDatabase:
             matches = [span for span in matches if span.span_id == span.root_deployment_id]
         if status is not None:
             matches = [span for span in matches if span.status == status]
+        if labels:
+            matches = [span for span in matches if _labels_match(span, labels)]
         return sorted(matches, key=deployment_sort_key, reverse=True)[offset : offset + limit]
 
     async def list_deployments_by_run_id(self, run_id: str) -> list[SpanRecord]:
@@ -308,6 +347,7 @@ class _MemoryDatabase:
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[DeploymentSummaryRecord]:
@@ -316,6 +356,8 @@ class _MemoryDatabase:
             matches = [s for s in matches if s.span_id == s.root_deployment_id]
         if status is not None:
             matches = [s for s in matches if s.status == status]
+        if labels:
+            matches = [s for s in matches if _labels_match(s, labels)]
         matches = sorted(matches, key=deployment_sort_key, reverse=True)[offset : offset + limit]
         results: list[DeploymentSummaryRecord] = []
         for span in matches:
@@ -332,6 +374,8 @@ class _MemoryDatabase:
                     ended_at=span.ended_at,
                     parent_span_id=span.parent_span_id,
                     cost_usd=cost,
+                    label_keys=span.label_keys,
+                    label_values=span.label_values,
                 )
             )
         return results
@@ -359,6 +403,8 @@ class _MemoryDatabase:
                     ended_at=s.ended_at,
                     parent_span_id=s.parent_span_id,
                     cost_usd=cost_by_dep.get(s.span_id, 0.0),
+                    label_keys=s.label_keys,
+                    label_values=s.label_values,
                 )
                 for s in dep_spans
             ],

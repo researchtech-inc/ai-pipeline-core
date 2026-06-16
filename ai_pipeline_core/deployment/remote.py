@@ -267,6 +267,8 @@ async def _publish_remote_task_started(
     task_class_name: str,
     parent_span_id: str,
     input_sha256s: tuple[str, ...],
+    label_keys: tuple[str, ...] = (),
+    label_values: tuple[str, ...] = (),
 ) -> None:
     if publisher is None or flow_frame is None:
         return
@@ -285,6 +287,8 @@ async def _publish_remote_task_started(
                 task_class=task_class_name,
                 parent_span_id=parent_span_id,
                 input_document_sha256s=input_sha256s,
+                label_keys=label_keys,
+                label_values=label_values,
             )
         )
     except (OSError, RuntimeError, ValueError, TypeError) as exc:  # fmt: skip
@@ -424,6 +428,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
         task_name = f"remote:{self.name}"
         task_start = time.monotonic()
         resolved_root_id = root_deployment_id or deployment_id or subtask_span_id
+        label_keys = exec_ctx.label_keys if exec_ctx is not None else ()
+        label_values = exec_ctx.label_values if exec_ctx is not None else ()
 
         result: Any | None = None
         try:
@@ -457,6 +463,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                     task_class_name=type(self).__name__,
                     parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
                     input_sha256s=input_sha256s,
+                    label_keys=label_keys,
+                    label_values=label_values,
                 )
                 if use_inline:
                     logger.warning(
@@ -504,6 +512,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                     error_message=str(task_failure),
                     parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
                     input_document_sha256s=input_sha256s,
+                    label_keys=label_keys,
+                    label_values=label_values,
                 ),
                 terminal_kind="failed",
             )
@@ -526,6 +536,8 @@ class RemoteDeployment(Generic[TOptions, TResult]):
                 duration_ms=int((time.monotonic() - task_start) * 1000),
                 parent_span_id=str(exec_ctx.flow_span_id) if exec_ctx is not None and exec_ctx.flow_span_id else "",
                 input_document_sha256s=input_sha256s,
+                label_keys=label_keys,
+                label_values=label_values,
             ),
             terminal_kind="completed",
         )

@@ -8,10 +8,18 @@ from uuid import UUID
 from ai_pipeline_core.database import (
     CostTotals,
     DatabaseReader,
+    DatabaseWriter as ExportedDatabaseWriter,
+    DeploymentSummaryRecord,
     DocumentRecord,
     HydratedDocument,
     LogRecord,
     SpanRecord,
+    create_database,
+    create_database_from_settings,
+    get_latest_completed_deployment_by_run_id,
+    get_latest_result_documents_by_run_ids,
+    load_documents_from_database,
+    load_latest_documents_by_run_ids,
 )
 from ai_pipeline_core.database._memory import _MemoryDatabase
 from ai_pipeline_core.database._protocol import DatabaseWriter
@@ -47,6 +55,7 @@ def _make_reader_stub() -> object:
         "get_span_logs",
         "get_spans_referencing_document",
         "latest_span_activity_for_deployment",
+        "list_latest_completed_deployments_by_run_ids",
         "list_deployment_summaries",
         "list_deployments",
         "list_deployments_by_run_id",
@@ -113,6 +122,16 @@ def test_database_writer_is_runtime_checkable() -> None:
     assert not isinstance(object(), DatabaseWriter)
 
 
+def test_database_package_exports_reader_writer_and_helpers() -> None:
+    assert ExportedDatabaseWriter is DatabaseWriter
+    assert callable(create_database)
+    assert callable(create_database_from_settings)
+    assert callable(load_documents_from_database)
+    assert callable(get_latest_completed_deployment_by_run_id)
+    assert callable(get_latest_result_documents_by_run_ids)
+    assert callable(load_latest_documents_by_run_ids)
+
+
 def test_database_reader_method_signatures() -> None:
     _assert_signature(DatabaseReader, "get_span", parameter_types={"span_id": UUID}, return_type=SpanRecord | None)
     _assert_signature(
@@ -153,6 +172,13 @@ def test_database_reader_method_signatures() -> None:
     )
     _assert_signature(
         DatabaseReader,
+        "list_latest_completed_deployments_by_run_ids",
+        parameter_types={"run_ids": list[str], "statuses": tuple[str, ...]},
+        return_type=dict[str, SpanRecord],
+        keyword_only={"statuses"},
+    )
+    _assert_signature(
+        DatabaseReader,
         "get_cached_completion",
         parameter_types={"cache_key": str, "max_age": timedelta | None},
         return_type=SpanRecord | None,
@@ -174,9 +200,15 @@ def test_database_reader_method_signatures() -> None:
     _assert_signature(
         DatabaseReader,
         "list_deployments",
-        parameter_types={"limit": int, "status": str | None, "root_only": bool, "offset": int},
+        parameter_types={
+            "limit": int,
+            "status": str | None,
+            "labels": dict[str, str] | None,
+            "root_only": bool,
+            "offset": int,
+        },
         return_type=list[SpanRecord],
-        keyword_only={"status", "root_only", "offset"},
+        keyword_only={"status", "labels", "root_only", "offset"},
     )
     _assert_signature(
         DatabaseReader,
@@ -204,6 +236,19 @@ def test_database_reader_method_signatures() -> None:
         parameter_types={"names": list[str], "document_type": str | None},
         return_type=dict[str, DocumentRecord],
         keyword_only={"document_type"},
+    )
+    _assert_signature(
+        DatabaseReader,
+        "list_deployment_summaries",
+        parameter_types={
+            "limit": int,
+            "status": str | None,
+            "labels": dict[str, str] | None,
+            "root_only": bool,
+            "offset": int,
+        },
+        return_type=list[DeploymentSummaryRecord],
+        keyword_only={"status", "labels", "root_only", "offset"},
     )
 
 

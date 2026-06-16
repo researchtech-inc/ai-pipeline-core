@@ -13,6 +13,7 @@ from ai_pipeline_core.database._types import (
     HydratedDocument,
     LogRecord,
     SpanRecord,
+    SpanStatus,
     _BlobRecord,
 )
 
@@ -102,11 +103,27 @@ class DatabaseReader(Protocol):
         """Find the newest deployment span for a run."""
         ...
 
+    async def list_latest_completed_deployments_by_run_ids(
+        self,
+        run_ids: list[str],
+        *,
+        statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+    ) -> dict[str, SpanRecord]:
+        """Return the latest root deployment span per run_id, filtered by status.
+
+        Only deployment spans where ``span_id == root_deployment_id`` are considered,
+        so nested child deployments never shadow the run root. For each run_id, the
+        newest matching deployment is selected by ``(started_at, span_id)``.
+        Unmatched run_ids are omitted from the returned mapping.
+        """
+        ...
+
     async def list_deployments(
         self,
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[SpanRecord]:
@@ -240,6 +257,7 @@ class DatabaseReader(Protocol):
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[DeploymentSummaryRecord]:
@@ -285,6 +303,9 @@ class DatabaseReader(Protocol):
     ) -> dict[str, DocumentRecord]:
         """Find documents by exact name.
 
-        Returns ``{name: record}``. Duplicate names keep the highest SHA.
+        Returns ``{name: record}``. Duplicate names keep the lexicographically
+        highest SHA, which is deterministic but unrelated to recency. This is
+        not a latest-version lookup; use the latest-completed deployment helpers
+        for cross-run freshness.
         """
         ...

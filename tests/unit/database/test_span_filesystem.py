@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from ai_pipeline_core.database import DocumentRecord, LogRecord, SpanKind, SpanRecord, SpanStatus
+from ai_pipeline_core.database._documents import get_latest_result_documents_by_run_ids
 from ai_pipeline_core.database._types import _BlobRecord
 from ai_pipeline_core.database.filesystem._backend import FilesystemDatabase
 
@@ -306,3 +307,145 @@ async def test_filesystem_get_all_document_shas_for_tree(tmp_path: Path) -> None
     shas = await database.get_all_document_shas_for_tree(deployment.root_deployment_id)
 
     assert shas == {"doc-1"}
+
+
+@pytest.mark.asyncio
+async def test_filesystem_latest_completed_deployments_are_root_only(tmp_path: Path) -> None:
+    database = FilesystemDatabase(tmp_path)
+    root_id = uuid4()
+    child_id = uuid4()
+    failed_root_id = uuid4()
+    run_id = "entity-delta"
+    older_completed = _make_span(
+        span_id=root_id,
+        deployment_id=root_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        started_at=datetime(2026, 3, 11, 12, 0, tzinfo=UTC),
+    )
+    child_deployment = _make_span(
+        span_id=child_id,
+        parent_span_id=root_id,
+        deployment_id=child_id,
+        root_deployment_id=root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        started_at=datetime(2026, 3, 11, 12, 0, 5, tzinfo=UTC),
+    )
+    newer_failed = _make_span(
+        span_id=failed_root_id,
+        deployment_id=failed_root_id,
+        root_deployment_id=failed_root_id,
+        kind=SpanKind.DEPLOYMENT,
+        run_id=run_id,
+        status=SpanStatus.FAILED,
+        started_at=datetime(2026, 3, 11, 12, 0, 10, tzinfo=UTC),
+    )
+    for span in (older_completed, child_deployment, newer_failed):
+        await database.insert_span(span)
+
+    latest = await database.list_latest_completed_deployments_by_run_ids([run_id])
+
+    assert latest == {run_id: older_completed}
+
+
+@pytest.mark.asyncio
+async def test_filesystem_result_document_helper_uses_root_outputs_only(tmp_path: Path) -> None:
+    database = FilesystemDatabase(tmp_path)
+    root_id = uuid4()
+    run_id = "entity-echo"
+    await database.insert_span(
+        _make_span(
+            span_id=root_id,
+            deployment_id=root_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.DEPLOYMENT,
+            run_id=run_id,
+            output_document_shas=("doc-final",),
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            parent_span_id=root_id,
+            deployment_id=root_id,
+            root_deployment_id=root_id,
+            kind=SpanKind.TASK,
+            run_id=run_id,
+            output_document_shas=("doc-intermediate",),
+            started_at=datetime(2026, 3, 11, 12, 0, 1, tzinfo=UTC),
+        )
+    )
+    await database.save_document(_make_document(document_sha256="doc-final", document_type="FinalDoc", name="final.md"))
+    await database.save_document(
+        _make_document(document_sha256="doc-intermediate", document_type="IntermediateDoc", name="mid.md")
+    )
+
+    records = await get_latest_result_documents_by_run_ids(database, [run_id])
+
+    assert tuple(record.document_sha256 for record in records[run_id]) == ("doc-final",)
+
+
+@pytest.mark.asyncio
+async def test_filesystem_deployment_listings_filter_and_surface_labels(tmp_path: Path) -> None:
+    database = FilesystemDatabase(tmp_path)
+    dep_a_id = uuid4()
+    dep_b_id = uuid4()
+    await database.insert_span(
+        _make_span(
+            span_id=dep_a_id,
+            deployment_id=dep_a_id,
+            root_deployment_id=dep_a_id,
+            kind=SpanKind.DEPLOYMENT,
+            run_id="run-a",
+            label_keys=("entity", "experiment"),
+            label_values=("acme", "alpha"),
+        )
+    )
+    await database.insert_span(
+        _make_span(
+            span_id=dep_b_id,
+            deployment_id=dep_b_id,
+            root_deployment_id=dep_b_id,
+            kind=SpanKind.DEPLOYMENT,
+            run_id="run-b",
+            label_keys=("entity",),
+            label_values=("bravo",),
+            started_at=datetime(2026, 3, 11, 12, 0, 1, tzinfo=UTC),
+        )
+    )
+
+    filtered = await database.list_deployments(10, labels={"entity": "acme", "experiment": "alpha"})
+    summaries = await database.list_deployment_summaries(10, labels={"entity": "acme", "experiment": "alpha"})
+
+    assert [span.span_id for span in filtered] == [dep_a_id]
+    assert len(summaries) == 1
+    assert summaries[0].label_keys == ("entity", "experiment")
+    assert summaries[0].label_values == ("acme", "alpha")
+
+
+@pytest.mark.asyncio
+async def test_filesystem_deserializes_old_span_snapshot_without_labels(tmp_path: Path) -> None:
+    database = FilesystemDatabase(tmp_path)
+    deployment_id = uuid4()
+    span = _make_span(
+        span_id=deployment_id,
+        deployment_id=deployment_id,
+        root_deployment_id=deployment_id,
+        kind=SpanKind.DEPLOYMENT,
+    )
+    await database.insert_span(span)
+    await database.flush()
+
+    span_path = next((tmp_path / "runs").rglob("deployment.json"))
+    payload = json.loads(span_path.read_text(encoding="utf-8"))
+    payload.pop("label_keys", None)
+    payload.pop("label_values", None)
+    span_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    reloaded = FilesystemDatabase(tmp_path, read_only=True)
+    loaded = await reloaded.get_span(deployment_id)
+
+    assert loaded is not None
+    assert loaded.label_keys == ()
+    assert loaded.label_values == ()

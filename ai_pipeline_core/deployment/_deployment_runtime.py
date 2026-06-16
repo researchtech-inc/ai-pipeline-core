@@ -386,6 +386,8 @@ async def _execute_flow_with_context(
 
         input_doc_sha256s = tuple(doc.sha256 for doc in input_documents)
         deployment_span_id_str = str(deployment_span_id)
+        label_keys = flow_exec_ctx.label_keys if flow_exec_ctx is not None else ()
+        label_values = flow_exec_ctx.label_values if flow_exec_ctx is not None else ()
 
         validated_docs: tuple[Document, ...] = ()
         try:
@@ -428,6 +430,8 @@ async def _execute_flow_with_context(
                         flow_params=flow_instance.get_params(),
                         parent_span_id=deployment_span_id_str,
                         input_document_sha256s=input_doc_sha256s,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 )
                 validated_docs = await _run_flow_with_retries(
@@ -466,6 +470,8 @@ async def _execute_flow_with_context(
                         error_message=flow_error_message,
                         parent_span_id=deployment_span_id_str,
                         input_document_sha256s=input_doc_sha256s,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 )
             except _PUBLISH_EXCEPTIONS as publish_error:
@@ -500,6 +506,8 @@ async def _execute_flow_with_context(
                 output_documents=output_refs,
                 parent_span_id=deployment_span_id_str,
                 input_document_sha256s=input_doc_sha256s,
+                label_keys=label_keys,
+                label_values=label_values,
             )
         )
         return validated_docs

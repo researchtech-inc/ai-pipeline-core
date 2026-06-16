@@ -158,6 +158,23 @@ class TestPubSubPublisher:
         assert "T" in envelope["data"]["timestamp"]
         assert envelope["data"]["root_deployment_id"] == "root-1"
 
+    async def test_publish_heartbeat_includes_label_attributes(self):
+        pub, mock_client = _make_pubsub_publisher()
+
+        mock_future = asyncio.Future()
+        mock_future.set_result("msg-id")
+        mock_client.publish.return_value = mock_future
+
+        await pub.publish_heartbeat(
+            "run-1",
+            root_deployment_id="root-1",
+            span_id="span-1",
+            label_keys=("entity",),
+            label_values=("acme",),
+        )
+        call_kwargs = mock_client.publish.call_args
+        assert call_kwargs[1]["label.entity"] == "acme"
+
     async def test_publish_completed_size_guard(self):
         """publish_run_completed raises ResultTooLargeError for oversized messages."""
         pub, mock_client = _make_pubsub_publisher()

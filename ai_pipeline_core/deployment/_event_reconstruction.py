@@ -114,6 +114,12 @@ def _build_doc_refs(shas: tuple[str, ...], doc_map: dict[str, DocumentRecord]) -
     return tuple(refs)
 
 
+def _span_labels(span: SpanRecord | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if span is None:
+        return (), ()
+    return span.label_keys, span.label_values
+
+
 def _sort_key(event: _ReconstructedEvent) -> tuple[datetime, int, int, str]:
     kind_priority = 1
     phase_priority = _PHASE_PRIORITY_STARTED
@@ -184,6 +190,7 @@ def _reconstruct_deployment_events(
     events: list[_ReconstructedEvent] = []
     span_id_str = str(span.span_id)
     root_id_str = str(span.root_deployment_id)
+    label_keys, label_values = _span_labels(span)
 
     started_event = RunStartedEvent(
         run_id=span.run_id,
@@ -197,6 +204,8 @@ def _reconstruct_deployment_events(
         flow_plan=meta.get("flow_plan", []),
         parent_span_id=str(span.parent_span_id) if span.parent_span_id else "",
         input_document_sha256s=span.input_document_shas,
+        label_keys=label_keys,
+        label_values=label_values,
     )
     events.append(
         _ReconstructedEvent(
@@ -231,6 +240,8 @@ def _reconstruct_deployment_events(
                         duration_ms=_duration_ms(span),
                         output_document_sha256s=span.output_document_shas,
                         parent_span_id=str(span.parent_span_id) if span.parent_span_id else "",
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -262,6 +273,8 @@ def _reconstruct_deployment_events(
                         deployment_class=meta.get("deployment_class", ""),
                         duration_ms=_duration_ms(span),
                         parent_span_id=str(span.parent_span_id) if span.parent_span_id else "",
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -275,12 +288,14 @@ def _reconstruct_flow_events(
     span: SpanRecord,
     meta: dict[str, Any],
     parent_task_id_str: str | None,
-    deployment_span_id: str,
+    deployment_span: SpanRecord | None,
     doc_map: dict[str, DocumentRecord],
 ) -> list[_ReconstructedEvent]:
     events: list[_ReconstructedEvent] = []
     span_id_str = str(span.span_id)
     root_id_str = str(span.root_deployment_id)
+    deployment_span_id = str(deployment_span.span_id) if deployment_span is not None else ""
+    label_keys, label_values = _span_labels(deployment_span)
     flow_class = meta.get("flow_class") or _class_name_from_target(span.target)
     step = meta.get("step", 0)
     total_steps = meta.get("total_steps", 0)
@@ -305,6 +320,8 @@ def _reconstruct_flow_events(
                         reason=meta.get("skip_reason", ""),
                         parent_span_id=deployment_span_id,
                         input_document_sha256s=span.input_document_shas,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -327,6 +344,8 @@ def _reconstruct_flow_events(
         flow_params=flow_params,
         parent_span_id=deployment_span_id,
         input_document_sha256s=span.input_document_shas,
+        label_keys=label_keys,
+        label_values=label_values,
     )
     events.append(
         _ReconstructedEvent(
@@ -359,6 +378,8 @@ def _reconstruct_flow_events(
                         output_documents=_build_doc_refs(span.output_document_shas, doc_map),
                         parent_span_id=deployment_span_id,
                         input_document_sha256s=span.input_document_shas,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -384,6 +405,8 @@ def _reconstruct_flow_events(
                         error_message=span.error_message,
                         parent_span_id=deployment_span_id,
                         input_document_sha256s=span.input_document_shas,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -398,6 +421,7 @@ def _reconstruct_task_events(
     meta: dict[str, Any],
     parent_task_id_str: str | None,
     *,
+    deployment_span: SpanRecord | None,
     flow_span: SpanRecord | None,
     flow_meta: dict[str, Any],
     doc_map: dict[str, DocumentRecord],
@@ -409,6 +433,7 @@ def _reconstruct_task_events(
     flow_name = flow_span.name if flow_span else ""
     step = flow_meta.get("step", 0) if flow_meta else 0
     total_steps = flow_meta.get("total_steps", 0) if flow_meta else 0
+    label_keys, label_values = _span_labels(deployment_span)
     # Point to the logical FLOW span, not an ATTEMPT span (R2: task events reference flow hierarchy)
     parent_span_id = str(flow_span.span_id) if flow_span else (str(span.parent_span_id) if span.parent_span_id else "")
 
@@ -434,6 +459,8 @@ def _reconstruct_task_events(
                         task_class=task_class,
                         parent_span_id=parent_span_id,
                         input_document_sha256s=span.input_document_shas,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -462,6 +489,8 @@ def _reconstruct_task_events(
                         output_documents=_build_doc_refs(span.output_document_shas, doc_map),
                         parent_span_id=parent_span_id,
                         input_document_sha256s=span.input_document_shas,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -488,6 +517,8 @@ def _reconstruct_task_events(
                         error_message=span.error_message,
                         parent_span_id=parent_span_id,
                         input_document_sha256s=span.input_document_shas,
+                        label_keys=label_keys,
+                        label_values=label_values,
                     )
                 ),
                 cursor="",
@@ -539,13 +570,12 @@ async def _reconstruct_lifecycle_events(
         parent_task_id_str = (
             str(deployment_span.parent_span_id) if deployment_span and deployment_span.parent_span_id else None
         )
-        deployment_span_id_str = str(deployment_span.span_id) if deployment_span is not None else ""
 
         if span.kind == SpanKind.DEPLOYMENT:
             events.extend(_reconstruct_deployment_events(span, meta, parent_task_id_str))
 
         elif span.kind == SpanKind.FLOW:
-            events.extend(_reconstruct_flow_events(span, meta, parent_task_id_str, deployment_span_id_str, doc_map))
+            events.extend(_reconstruct_flow_events(span, meta, parent_task_id_str, deployment_span, doc_map))
 
         elif span.kind == SpanKind.TASK:
             # Walk up through ATTEMPT spans to find the enclosing FLOW span
@@ -556,7 +586,13 @@ async def _reconstruct_lifecycle_events(
             flow_meta = meta_by_id.get(flow_span.span_id, {}) if flow_span else {}
             events.extend(
                 _reconstruct_task_events(
-                    span, meta, parent_task_id_str, flow_span=flow_span, flow_meta=flow_meta, doc_map=doc_map
+                    span,
+                    meta,
+                    parent_task_id_str,
+                    deployment_span=deployment_span,
+                    flow_span=flow_span,
+                    flow_meta=flow_meta,
+                    doc_map=doc_map,
                 )
             )
 

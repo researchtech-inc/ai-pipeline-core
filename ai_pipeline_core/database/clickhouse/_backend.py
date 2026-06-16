@@ -89,6 +89,8 @@ _TOPOLOGY_SPAN_COLUMNS = (
     "'' AS metrics_json",
     "input_blob_shas",
     "output_blob_shas",
+    "[] AS label_keys",
+    "[] AS label_values",
 )
 _MIDDLEWEIGHT_SPAN_COLUMNS = (
     "span_id",
@@ -121,6 +123,8 @@ _MIDDLEWEIGHT_SPAN_COLUMNS = (
     "metrics_json",
     "input_blob_shas",
     "output_blob_shas",
+    "label_keys",
+    "label_values",
 )
 
 
@@ -137,6 +141,24 @@ def _root_latest_spans_query(select_sql: str, *, extra_where: str = "") -> str:
         "WHERE s.root_deployment_id = {root_deployment_id:UUID}"
         f"{extra_where}"
     )
+
+
+def _add_label_filters(
+    filters: list[str],
+    parameters: dict[str, Any],
+    labels: dict[str, str] | None,
+) -> None:
+    if not labels:
+        return
+    for index, (key, value) in enumerate(labels.items()):
+        key_param = f"label_key_{index}"
+        value_param = f"label_value_{index}"
+        parameters[key_param] = key
+        parameters[value_param] = value
+        filters.append(
+            f"indexOf(label_keys, {{{key_param}:String}}) > 0 "
+            f"AND label_values[indexOf(label_keys, {{{key_param}:String}})] = {{{value_param}:String}}"
+        )
 
 
 class ClickHouseDatabase:
@@ -339,18 +361,50 @@ class ClickHouseDatabase:
             return None
         return row_to_span(tuple(result.result_rows[0]))
 
+    async def list_latest_completed_deployments_by_run_ids(
+        self,
+        run_ids: list[str],
+        *,
+        statuses: tuple[str, ...] = (SpanStatus.COMPLETED,),
+    ) -> dict[str, SpanRecord]:
+        unique_run_ids = list(dict.fromkeys(run_ids))
+        if not unique_run_ids:
+            return {}
+        result = await self._query(
+            "WITH dedup AS ("
+            f"SELECT {', '.join(SPAN_COLUMNS)} FROM {SPANS_TABLE} "
+            "WHERE kind = {kind:String} AND run_id IN {run_ids:Array(String)} "
+            "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
+            "), filtered AS ("
+            "SELECT * FROM dedup WHERE span_id = root_deployment_id AND status IN {statuses:Array(String)}"
+            "), winners AS ("
+            "SELECT run_id, argMax(span_id, tuple(started_at, span_id)) AS span_id FROM filtered GROUP BY run_id"
+            ") "
+            f"SELECT {', '.join(f'f.{column}' for column in SPAN_COLUMNS)} FROM filtered AS f "
+            "INNER JOIN winners AS w ON f.run_id = w.run_id AND f.span_id = w.span_id",
+            parameters={
+                "kind": SpanKind.DEPLOYMENT,
+                "run_ids": unique_run_ids,
+                "statuses": list(statuses),
+            },
+        )
+        deployments = [row_to_span(tuple(row)) for row in result.result_rows]
+        return {deployment.run_id: deployment for deployment in deployments}
+
     async def list_deployments(
         self,
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[SpanRecord]:
         if limit <= 0:
             return []
         parameters: dict[str, Any] = {"kind": SpanKind.DEPLOYMENT, "limit": limit, "offset": offset}
-        # kind is immutable → inner filter; status is mutable → outer filter
+        inner_filters: list[str] = ["kind = {kind:String}"]
+        _add_label_filters(inner_filters, parameters, labels)
         outer_filters: list[str] = []
         if root_only:
             outer_filters.append("span_id = root_deployment_id")
@@ -361,7 +415,7 @@ class ClickHouseDatabase:
         result = await self._query(
             f"SELECT {', '.join(SPAN_COLUMNS)} FROM ("
             f"SELECT * FROM {SPANS_TABLE} "
-            "WHERE kind = {kind:String} "
+            f"WHERE {' AND '.join(inner_filters)} "
             "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
             f") {outer_where}"
             "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64} OFFSET {offset:UInt64}",
@@ -494,12 +548,15 @@ class ClickHouseDatabase:
         limit: int,
         *,
         status: str | None = None,
+        labels: dict[str, str] | None = None,
         root_only: bool = False,
         offset: int = 0,
     ) -> list[DeploymentSummaryRecord]:
         if limit <= 0:
             return []
         parameters: dict[str, Any] = {"kind": SpanKind.DEPLOYMENT, "limit": limit, "offset": offset}
+        inner_filters: list[str] = ["kind = {kind:String}"]
+        _add_label_filters(inner_filters, parameters, labels)
         outer_filters: list[str] = []
         if root_only:
             outer_filters.append("span_id = root_deployment_id")
@@ -510,10 +567,10 @@ class ClickHouseDatabase:
         result = await self._query(
             "WITH deployment_rows AS ("
             "SELECT span_id, root_deployment_id, run_id, deployment_name, name, "
-            "status, started_at, ended_at, parent_span_id "
+            "status, started_at, ended_at, parent_span_id, label_keys, label_values "
             "FROM (SELECT span_id, root_deployment_id, run_id, deployment_name, name, "
-            f"status, started_at, ended_at, parent_span_id, version FROM {SPANS_TABLE} "
-            "WHERE kind = {kind:String} "
+            f"status, started_at, ended_at, parent_span_id, label_keys, label_values, version FROM {SPANS_TABLE} "
+            f"WHERE {' AND '.join(inner_filters)} "
             "ORDER BY span_id, version DESC LIMIT 1 BY span_id"
             f") {outer_where}"
             "ORDER BY started_at DESC, span_id DESC LIMIT {limit:UInt64} OFFSET {offset:UInt64}"
@@ -530,7 +587,7 @@ class ClickHouseDatabase:
             "GROUP BY s.root_deployment_id"
             ") "
             "SELECT d.span_id, d.root_deployment_id, d.run_id, d.deployment_name, d.name, "
-            "d.status, d.started_at, d.ended_at, d.parent_span_id, "
+            "d.status, d.started_at, d.ended_at, d.parent_span_id, d.label_keys, d.label_values, "
             "coalesce(c.cost_usd, 0.0) "
             "FROM deployment_rows AS d "
             "LEFT JOIN costs AS c ON d.root_deployment_id = c.root_deployment_id "
@@ -548,7 +605,9 @@ class ClickHouseDatabase:
                 started_at=row[6],
                 ended_at=row[7] if row[7] else None,
                 parent_span_id=row[8] if row[8] else None,
-                cost_usd=float(row[9]),
+                label_keys=string_tuple(row[9]),
+                label_values=string_tuple(row[10]),
+                cost_usd=float(row[11]),
             )
             for row in result.result_rows
         ]
@@ -573,7 +632,7 @@ class ClickHouseDatabase:
             ") "
             "SELECT s.span_id, s.root_deployment_id, s.run_id, s.deployment_name, s.name, "
             "s.status, s.started_at, s.ended_at, s.parent_span_id, "
-            "coalesce(dc.cost_usd, 0.0) "
+            "coalesce(dc.cost_usd, 0.0), s.label_keys, s.label_values "
             f"FROM {SPANS_TABLE} AS s "
             "INNER JOIN latest_deployments USING (span_id, version) "
             "LEFT JOIN costs AS dc ON s.span_id = dc.deployment_id "
@@ -593,6 +652,8 @@ class ClickHouseDatabase:
                 ended_at=row[7] if row[7] else None,
                 parent_span_id=row[8] if row[8] else None,
                 cost_usd=float(row[9]),
+                label_keys=string_tuple(row[10]),
+                label_values=string_tuple(row[11]),
             )
             for row in result.result_rows
         ]
