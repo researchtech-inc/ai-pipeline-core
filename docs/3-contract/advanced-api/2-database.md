@@ -50,7 +50,7 @@ once its current state is known, not for recovering that state.
 
 ```text
 class DatabaseReader:
-    async def list_runs(self) -> tuple[RunSummary, ...]
+    async def list_runs(self, *, labels: dict[str, str] | None = None) -> tuple[RunSummary, ...]
     async def get_run(self, run_id: str) -> RunSummary
     async def get_run_outputs(self, run_id: str) -> DocumentBundle | None
     async def get_run_cost(self, run_id: str) -> CostTotals
@@ -75,7 +75,9 @@ The records this surface returns expose the fields a client relies on:
   otherwise `None`), start and end timestamps, and total recorded cost. `state` is `RunState`, the one observed
   run-state vocabulary (`runtime-api/1-overview-and-state.md § The observed run-state is one shared type`); a raw
   summary read returns the recorded state, and `CRASHED` is established only by the reconcile read
-  (`runtime-api/2-run-control.md`), so an unreconciled crashed run reads `RUNNING`.
+  (`runtime-api/2-run-control.md`), so an unreconciled crashed run reads `RUNNING`. It also carries `labels`, the
+  run's immutable correlation labels (`runtime-api/2-run-control.md § Correlation labels are immutable run
+  metadata`) — an empty map when none were supplied at launch.
 - `SpanRecord` — `span_id`, `run_id`, `kind` (the unit of work: pipeline, phase, task, judgment — one prompt
   execution — and the finer units beneath it), `status` (the per-unit status, including `cached` for a task served
   from cache and `skipped` for a unit gated around; this is a unit-level status, not a run-level `RunState`), timing,
@@ -94,9 +96,17 @@ The full internal structure of a span is a framework internal; this surface comm
 
 ### Constraints
 
-- `list_runs` returns one summary per recorded run; an in-process client paginates or filters in its own
-  projection. Server-side pagination, filtering, and projection for an external reader are the out-of-process read
-  models (`runtime-api/4-run-record-read-model.md`), not this in-process seam.
+- `list_runs` returns one summary per recorded run, optionally filtered by `labels` (exact key/value equality — the
+  one filter this seam applies directly); a client paginates or projects the result in its own memory. Server-side
+  pagination and projection for an external reader are the out-of-process read models
+  (`runtime-api/4-run-record-read-model.md`), not this in-process seam.
+- `labels` are a run-level property: recorded on the run, returned on its `RunSummary`, filterable on `list_runs`
+  by exact key/value equality, and inherited by the run's lifecycle events. They are not set per span — an
+  individual unit's `SpanRecord` does not carry them — and label filtering never aggregates or groups
+  (`4-limits-and-non-promises.md § Out of scope entirely`).
+- A document carries no intrinsic labels. "Documents for a label" resolves through the producing run — the runs
+  matching the label, then their recorded output documents — not from a field on the document
+  (`runtime-api/5-documents-and-logs.md`).
 - `get_run` returns the current summary of one run by `run_id`, including its observed `state` and error;
   `get_run_outputs` returns the delivered output bundle of a completed run, or `None` when the run has not
   completed. A client reads these before descending into spans.

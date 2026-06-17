@@ -65,6 +65,7 @@ class Runner:
         inputs: DocumentBundle,
         run_config: RunConfig,
         run_id: str | None = None,
+        labels: dict[str, str] | None = None,
         cache: CachePolicy = CachePolicy.REUSE,
     ) -> RunResult[OutputsT]
 ```
@@ -120,6 +121,11 @@ async def run_review(runner: Runner, inputs: ReviewInputs, model_ref: AIModelRef
 - A client reads delivered documents from `result.outputs`, not from the persistence layer directly.
 - A client does not interpret `RunStatus` by string comparison on internal fields; it branches on the enum.
 - A successful run returns the declared output bundle; a client does not reconstruct outputs by querying spans.
+- `labels` attach an immutable map of string correlation metadata to the run for an external correlator. They are
+  recorded on the run and surfaced through the read seam and the runtime surfaces (`advanced-api/2-database.md`,
+  `runtime-api/2-run-control.md § Correlation labels are immutable run metadata`), and are launch metadata, not
+  `RunConfig`: application code — pipelines, phases, tasks — never reads them, and run-varying values the application
+  consumes enter through `run_config` (`5-configuration.md`).
 
 ### Constructing a runner
 
@@ -268,6 +274,9 @@ async def resume[OutputsT: DocumentBundle](
   configuration is a different run.
 - Completed tasks recorded for the run are reused; resume recomputes only work that did not complete.
 - Resuming a run that already completed returns its recorded `RunResult` without re-executing it.
+- `resume` continues the existing run under its recorded identity and labels; it does not re-set labels, and a
+  different label set is a different run, not a resume (`runtime-api/2-run-control.md § Correlation labels are
+  immutable run metadata`).
 
 ### Anti-patterns
 
@@ -321,6 +330,7 @@ async def run_task[OutputT: Document | tuple[Document, ...] | DocumentBundle](
     *,
     inputs: Mapping[str, Document | tuple[Document, ...]],
     run_id: str | None = None,
+    labels: dict[str, str] | None = None,
     cache: CachePolicy = CachePolicy.REUSE,
 ) -> RunResult[OutputT]
 
@@ -330,6 +340,7 @@ async def run_contract[OutputT: FrozenBaseModel](
     *,
     model: AIModelRef,
     run_id: str | None = None,
+    labels: dict[str, str] | None = None,
 ) -> ContractRunResult[OutputT]
 ```
 

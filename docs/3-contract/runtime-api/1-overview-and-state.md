@@ -83,6 +83,9 @@ A consumer never invents its own correlation scheme.
 - A child pipeline's run is correlated to its parent through the parent run's root identity carried on every record
   and event (`runtime-api/6-child-pipelines.md`); the consumer addresses child and root records without a bespoke
   scheme.
+- A consumer may also attach optional correlation labels at launch (`runtime-api/2-run-control.md § Correlation
+  labels are immutable run metadata`) to tag a run with its own external dimensions. Labels are record metadata that
+  refine correlation; they never replace the run identity, which remains the one handle that addresses the run.
 
 ## The observed run-state is one shared type
 

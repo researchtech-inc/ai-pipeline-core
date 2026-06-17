@@ -100,6 +100,7 @@ launch_request = {
     "run_id": str,                       # the run identity; see below
     "documents": [document_input, ...],  # the root input objects, or a single URL string
     "options": {...},                    # the run configuration, valid against options_schema
+    "labels": {str: str},                # optional immutable run correlation metadata; see below
 }
 ```
 
@@ -125,6 +126,27 @@ launch_response = {
 - Relaunching the same identity with different inputs or configuration is rejected as a conflict; the framework does
   not silently start a divergent run under an identity already in use. This is the out-of-process face of the
   identity reuse rule in `advanced-api/1-runners-and-clients.md § Run identity is framework-assigned and stable`.
+
+### Correlation labels are immutable run metadata
+
+A consumer may attach `labels` — a flat map of string keys to string values — to correlate the run back to its own
+external dimensions (an entity, an experiment, a batch) without encoding them into the run identity. The framework
+records and equality-filters them but never interprets them, and application code never reads them.
+
+- `labels` is optional: omitting the field, or supplying an empty map, records the run with no labels — identical to
+  a launch from before the field existed.
+- Labels are recorded once at creation and are immutable: a relaunch keeps the run's original labels, and
+  re-associating work under a different label is a different run.
+- Labels are **not** part of the idempotency/conflict key. Relaunching the same identity with the same normalized
+  inputs and configuration but different labels adopts the existing run and keeps its recorded labels; it is not a
+  conflict, since the conflict rule above turns only on inputs and configuration.
+- Run correlation labels are distinct from the per-document provenance labels `derived_from`/`triggered_by` carried
+  on a `document_input` below: those describe one root document's lineage, while correlation labels describe the run.
+- Labels are launch metadata, not run configuration: run-varying values the application reads enter through
+  `options` (`5-configuration.md`), never as labels.
+- Labels are surfaced on the run record and the live lifecycle stream and are filterable by exact key/value equality
+  only — never aggregation, grouping, or a query language (`runtime-api/4-run-record-read-model.md`,
+  `runtime-api/3-observation-and-notifications.md`, `4-limits-and-non-promises.md § Out of scope entirely`).
 
 ### Root inputs enter as raw external material
 

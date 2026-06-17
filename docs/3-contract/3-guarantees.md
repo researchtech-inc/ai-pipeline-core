@@ -201,6 +201,19 @@ read, and that stays disambiguable when the same identity is reused across attem
 correlates a run across every surface by that one identity and never invents its own naming scheme. This is run
 identity; document identity is the separate guarantee above (_Identity and immutability_).
 
+## Preserved consumer correlation metadata
+
+A consumer may attach immutable correlation labels to a run at launch, and the framework preserves them on the run
+record and across the observation surfaces — the run summary, the lifecycle events, and a nested child run — so an
+external system can correlate framework runs back to its own dimensions (an entity, an experiment, a batch) without
+overloading the run identity or maintaining a private side-table. Labels are recorded once and never reinterpreted:
+the framework stores, propagates, and equality-filters them, but reads no meaning from them. They are operational
+correlation metadata, distinct from provenance, from document and run identity, and from authored configuration. A
+run's labeled outputs are found by reading the runs that carry the label and the documents they produced — never
+from a label on the document itself — so a consumer's index over framework work stays a rebuildable projection of
+the record rather than a separate source of truth. Filtering is exact-equality listing only, not an analytics query
+surface (`4-limits-and-non-promises.md`).
+
 ## Durable, readable logs
 
 A run is understandable from one diagnostic account. The work of a single run is carried out across many cooperating

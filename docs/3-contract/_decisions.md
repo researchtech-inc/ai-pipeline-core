@@ -293,6 +293,30 @@ integrator builds its own correlation scheme and every recovery guesses which at
 extends the `run_id` addressing already used under _Read-seam record names and the first-class run read model_ to
 the operating surfaces and to reuse over time, and is distinct from document identity.
 
+## Correlation labels are immutable run-record metadata
+
+**Decision.** A consumer may attach an immutable map of string correlation labels to a run at launch — through
+`Runner.run(..., labels=...)` in-process (`advanced-api/1-runners-and-clients.md`) and `launch_request.labels`
+out-of-process (`runtime-api/2-run-control.md`). Labels are recorded on the run, surfaced on the run summary and on
+the lifecycle events (in the event payload and as `label.<key>` message attributes), inherited onto a nested child
+run, and filterable by exact key/value equality on the run reads (`advanced-api/2-database.md`,
+`runtime-api/4-run-record-read-model.md`). The framework stores, propagates, and equality-filters them but never
+interprets them, and application code never reads them. They are not part of the idempotency/conflict key: a
+relaunch with different labels keeps the original run's labels rather than conflicting. They are run-level only;
+independently-settable per-unit or per-occurrence labels are deferred until a dispatch model that places many
+externally meaningful cells in one run requires them.
+
+**Why.** An external orchestrator needs to correlate framework runs back to its own multi-axis dimensions (entity,
+experiment, batch, methodology) and to rebuild its index from the durable record rather than from a private
+side-table — which the opaque single `run_id` cannot express. Labels live on the execution record, never on
+documents: a content-addressed, deduplicated, reused document belongs to many runs at once, so a correlation label
+cannot live on its identity without breaking reuse, and a document rehydrated into a later run would otherwise have
+to accrue new context an immutable artifact cannot carry. Keeping labels equality-filter-only ties them to the run
+record and off the analytics-warehouse path the contract forbids (`4-limits-and-non-promises.md § Out of scope
+entirely`); this is the same line that keeps cost attribution from extending to a per-requester or per-tenant key.
+Labels are distinct from the provenance labels `derived_from`/`triggered_by`, which describe a document's lineage,
+and from `RunConfig`, which carries run-varying values the application reads.
+
 ## Logs are a first-class durable read surface
 
 **Decision.** Execution logs attach to their unit, are durably readable by run and by unit with level and category

@@ -39,6 +39,8 @@ lifecycle_event = {
         "root_deployment_id": str,          # the enclosing run-root identity, on every event
         "span_id": str,                     # the unit identity the transition is about
         "parent_span_id": str,              # the scheduling unit
+        "label_keys": [str, ...],           # the producing run's correlation labels (keys),
+        "label_values": [str, ...],         #   paired by position with label_keys (empty when unlabeled)
         # transition-specific fields below, e.g. status, flow_name, step, total_steps,
         # input_document_sha256s, output document refs, error_message, duration_ms;
         # the run.completed event carries the delivered result_payload (2-run-control.md);
@@ -48,7 +50,11 @@ lifecycle_event = {
 ```
 
 The published stream also sets message attributes a subscriber filters and routes on without decoding the body:
-`service_type`, `event_type`, `run_id`, and `root_deployment_id`.
+`service_type`, `event_type`, `run_id`, and `root_deployment_id`, plus one `label.<key>` attribute per correlation
+label on the producing run (value: the label's value). A subscriber routes on a correlation dimension — for example
+`label.entity` — at the bus level without parsing the event body. The labels are the producing run's immutable
+correlation labels (`runtime-api/2-run-control.md § Correlation labels are immutable run metadata`); like every
+event field they are denormalized for routing, and the durable record remains authoritative.
 
 The `type` token names the transition. In the framework's 0.3.0 vocabulary these are run, phase, and task
 transitions; on the wire the phase transitions carry the `flow.*` token:
@@ -162,4 +168,6 @@ same transitions and merge them against the record without duplication.
 Beyond execution transitions, a consumer can observe when each document in a run became durable and walk the run's
 recent document events, filtered and bounded. This is the live face of the recorded document events in the read
 models (`runtime-api/5-documents-and-logs.md`); the live document-event stream and the record-derived document
-events carry the same identities so a consumer merges them without duplication.
+events carry the same identities so a consumer merges them without duplication. A document event carries the
+producing run's identity; a consumer that wants the run's correlation labels resolves them through that run, not
+from the document event itself.

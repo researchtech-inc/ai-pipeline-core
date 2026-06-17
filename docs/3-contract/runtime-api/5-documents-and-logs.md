@@ -79,6 +79,11 @@ document's content. A consumer that needs an author-meant value reads the typed 
   not set them (`api/2-documents.md`).
 - Document identity, content, and provenance are unchanged across runs; a document read from outside is the same
   durable document the in-process read seam returns (`advanced-api/2-database.md`).
+- A document carries no intrinsic correlation labels. Correlation labels live on the run, not the document
+  (`runtime-api/2-run-control.md § Correlation labels are immutable run metadata`): "documents for a label" means the
+  documents produced or referenced under runs carrying that label, resolved through the producing run, not a field
+  on the document. A document is content-addressed and reused across many runs, so it belongs to many labeled
+  contexts at once and cannot carry one of them on its identity.
 - A document's content is read in its recorded serialized form — a `Document[str]` as text, a
   `Document[FrozenBaseModel]` as its JSON serialization, a `Document[bytes]` as bytes — carrying its `document_type`
   (the class name) and `media_type`. The framework publishes typed JSON Schemas for the run's root inputs

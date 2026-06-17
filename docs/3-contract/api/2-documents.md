@@ -48,6 +48,9 @@ namespace exists.
 - Revision-aware work reads `number`, `previous`, and `chain` through `document.revision`.
 - The document wrapper exposes `name` as its only human-readable label; it has no `description` or `summary` field.
   A summary or description that must travel with the artifact is a field on the content model.
+- Orchestration/correlation labels are not document data: a document has no label field, and such labels are not
+  document content, identity, or provenance. Correlation labels live on the run, and document factories do not accept
+  them (`runtime-api/2-run-control.md § Correlation labels are immutable run metadata`).
 
 ## Content shapes choose the storage boundary
 

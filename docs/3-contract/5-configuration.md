@@ -14,10 +14,12 @@ application relies on. Every other file states behavior, not backends.
 ## RunConfig is the only run-varying channel
 
 `RunConfig` is the configuration contract the runner supplies when a run starts. It is how a run is parameterized:
-model selection, bounded-work limits, and any other value that changes from one run to the next enters here and
-nowhere else. The pipeline reads `RunConfig` during plan construction and passes selected values into phases as
-fields; tasks receive those values through phase planning. The full authoring contract for `RunConfig` is in
-`api/8-pipelines.md § RunConfig defines runner-supplied configuration`.
+model selection, bounded-work limits, and any other run-varying value the application reads enters here and nowhere
+else. The pipeline reads `RunConfig` during plan construction and passes selected values into phases as fields;
+tasks receive those values through phase planning. The full authoring contract for `RunConfig` is in
+`api/8-pipelines.md § RunConfig defines runner-supplied configuration`. (Launch-time correlation labels also vary
+per run, but the application never reads them — they are record metadata for an external correlator, not `RunConfig`;
+see the constraint below.)
 
 ### Constraints
 
@@ -27,6 +29,10 @@ fields; tasks receive those values through phase planning. The full authoring co
   object to a phase to hide that phase's real configuration needs.
 - A run's bounds (loop rounds, fan-out limits) come from the business specification, a static constant, or a
   `RunConfig` field — never from runtime document content.
+- Correlation labels supplied at launch (`runtime-api/2-run-control.md`, `advanced-api/1-runners-and-clients.md`)
+  are not `RunConfig`: they are record metadata for an external correlator that application code never reads, so they
+  do not enter the run-varying application channel. Run-varying values the application reads still enter only through
+  `RunConfig`.
 
 ## AIModelRef is an opaque handle
 

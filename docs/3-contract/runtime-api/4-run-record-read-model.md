@@ -22,8 +22,9 @@ its execution tree, exactly as the in-process read seam does, but over the bound
 
 ### Capabilities
 
-- **List runs.** Enumerate recorded runs, with server-side pagination and a status filter. Only top-level runs are
-  listed; a child pipeline appears as a nested subtree within its parent run, not as a separate top-level run.
+- **List runs.** Enumerate recorded runs, with server-side pagination, a status filter, and a label-equality filter.
+  Only top-level runs are listed; a child pipeline appears as a nested subtree within its parent run, not as a
+  separate top-level run.
 - **Get one run summary.** By run identity: the run's observed state, the pipeline name, start and end times, the
   terminal failure reason when it failed, and its total recorded cost.
 - **Get the delivered outputs.** The delivered result of a completed run (`result_payload`,
@@ -50,6 +51,7 @@ run_summary = {
     "end_time": str | None,
     "total_cost_usd": float,      # wire field: total_cost
     "total_tokens": int,
+    "labels": {str: str},         # the run's correlation labels (empty when none supplied at launch)
 }
 
 run_unit = {                      # one span: a pipeline run, phase, task, judgment, or finer unit
@@ -106,12 +108,13 @@ child_pipeline_summary = {
     "start_time": str | None,
     "end_time": str | None,
     "cost_usd": float,            # wire field: cost_usd
+    "labels": {str: str},         # the child run's correlation labels, inherited from the parent
 }
 ```
 
 ### Endpoint and example
 
-The supported runtime exposes the run reads as `GET /runs` (list, paginated and status-filtered),
+The supported runtime exposes the run reads as `GET /runs` (list, paginated, status-filtered, and label-filtered),
 `GET /runs/{run_id}` (summary), `GET /runs/{run_id}/outputs` (delivered result), and `GET /runs/{run_id}/tree`
 (execution tree, optionally scoped to a child subtree). Reading one summary, with its wire field names on the
 boundary:
@@ -128,8 +131,16 @@ GET /runs/review-2026-06-14
     "start_time": "2026-06-14T12:30:00Z",
     "end_time": "2026-06-14T12:34:01Z",
     "total_cost": 2.41,                 # 0.3.0 name: total_cost_usd
-    "total_tokens": 51200
+    "total_tokens": 51200,
+    "labels": {}                        # the run's correlation labels; none were set at launch
 }
+```
+
+Listing runs filtered by correlation labels repeats the `label` query parameter, one `key:value` per required
+label; a run matches only when it carries every requested label (exact equality):
+
+```text
+GET /runs?label=entity:acme&label=experiment:alpha
 ```
 
 ### Constraints
@@ -145,6 +156,11 @@ GET /runs/review-2026-06-14
   `RunState`.
 - The **list-runs status filter** accepts `RunState` values. A consumer filtering the list filters by run state, not
   by a unit-level token; `cached` and `skipped` are unit facts and are not run-level filter values.
+- The **list-runs label filter** matches runs by exact label key/value equality, alongside the status filter. It is
+  an equality filter only — no aggregation, grouping, or query language over labels — keeping the run record a
+  record and not an analytics warehouse (`4-limits-and-non-promises.md § Out of scope entirely`). A run's `labels`
+  are immutable correlation metadata set at launch (`runtime-api/2-run-control.md § Correlation labels are immutable
+  run metadata`); the framework records and filters them but does not interpret them.
 - Listing and filtering happen server-side for an external reader; the consumer does not load every run to filter in
   its own memory (this is the projection `advanced-api/2-database.md § The read seam exposes recorded runs` defers to
   the runtime API).
@@ -172,6 +188,7 @@ run_aggregate = {
     "root_execution_id": str,             # wire field: root_deployment_id; the run-root execution identity
     "deployment_name": str,               # the pipeline name
     "service": str,                       # a coarse run-class label, not a tenancy key (see Constraints)
+    "labels": {str: str},                 # the run's correlation labels (see runtime-api/2)
     "status": str,
     "total_cost_usd": float,
     "total_duration_ms": int,

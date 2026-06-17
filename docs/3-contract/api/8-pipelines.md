@@ -406,6 +406,9 @@ class ReviewRunConfig(RunConfig):
 - Pipeline code does not pass the whole configuration object into a phase to hide the phase's public configuration
   needs.
 - `AIModelRef` values are supplied through `RunConfig`.
+- `RunConfig` carries run-varying values the application reads; it does not carry launch-time correlation labels,
+  which are record metadata an external correlator sets and reads, never the pipeline (`5-configuration.md`,
+  `runtime-api/2-run-control.md`).
 - Pipeline code passes model capability to phases as configuration.
 - Pipeline code treats model capability as an opaque value and passes it to phases as configuration.
 - The task contract owns the forbidden operations on `AIModelRef`; pipeline code does not inspect model capability.

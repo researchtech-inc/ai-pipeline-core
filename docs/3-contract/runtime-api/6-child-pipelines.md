@@ -53,6 +53,11 @@ reading from outside sees one connected execution.
   separate top-level run, and is loadable as its own scoped subtree (`runtime-api/4-run-record-read-model.md`).
 - An external reader addresses both the child record and the parent record through these correlated identities and
   never invents its own correlation scheme (`runtime-api/1-overview-and-state.md § One run identity`).
+- A child run inherits the parent run's correlation labels, recorded on the child's own run record identically
+  whether the child runs local or remote, and surfaced on the child summary and the child's lifecycle events.
+  Top-level run listing returns only parent runs (`runtime-api/4-run-record-read-model.md`); the inherited labels
+  are read on the child where the child is read — in the parent's tree or as the child's own scoped subtree
+  (`runtime-api/2-run-control.md § Correlation labels are immutable run metadata`).
 
 ### Reference
 
@@ -70,6 +75,7 @@ child_pipeline_summary = {
     "start_time": str | None,
     "end_time": str | None,
     "cost_usd": float,            # wire field: cost_usd
+    "labels": {str: str},         # the child run's correlation labels, inherited from the parent
 }
 ```
 
