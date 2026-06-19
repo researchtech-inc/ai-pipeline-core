@@ -9,8 +9,10 @@ import ipaddress
 import logging
 import re
 import socket
+from email.message import Message
+from email.utils import collapse_rfc2231_value
 from typing import Any, ClassVar, Self, cast
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 from google.cloud import storage
@@ -163,15 +165,35 @@ async def _validate_url(url: str) -> None:
         raise ValueError(f"URL points to a private/reserved IP address (blocked for security): {hostname}")
 
 
+def _filename_from_content_disposition(content_disposition: str) -> str | None:
+    message = Message()
+    message["content-disposition"] = content_disposition
+    params = message.get_params(header="content-disposition", unquote=True)
+    if not params:
+        return None
+
+    plain_filename: str | None = None
+    for key, value in params:
+        if key.lower() != "filename":
+            continue
+        if isinstance(value, tuple):
+            filename = collapse_rfc2231_value(value)
+            if filename:
+                return filename
+        elif isinstance(value, str) and plain_filename is None:
+            plain_filename = value
+    return plain_filename
+
+
 def _derive_name(url: str, content_disposition: str | None) -> str:
     """Derive a filename from Content-Disposition or URL path."""
     if content_disposition:
-        match = re.search(r'filename="?([^";\s]+)"?', content_disposition)
-        if match:
-            return match.group(1)
-    path_part = url.split("?", maxsplit=1)[0].rsplit("/", maxsplit=1)[-1]
+        filename = _filename_from_content_disposition(content_disposition)
+        if filename:
+            return filename
+    path_part = urlparse(url).path.rsplit("/", maxsplit=1)[-1]
     if path_part and path_part != "/":
-        return path_part
+        return unquote(path_part)
     return ""
 
 

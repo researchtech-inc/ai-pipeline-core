@@ -36,6 +36,7 @@ from ai_pipeline_core.deployment._contract import (
     PendingRun,
     ProgressRun,
 )
+from ai_pipeline_core.deployment._types import _MemoryPublisher
 from ai_pipeline_core.logger._logging_config import setup_logging
 from .conftest import InputDoc, MiddleDoc, OutputDoc, StageOne, StageTwo, _TestOptions, _TestResult
 
@@ -1176,3 +1177,20 @@ def test_run_local_forces_memory_database(monkeypatch: pytest.MonkeyPatch, input
 
     assert result.success is True
     assert called is False
+
+
+def test_run_local_rejects_invalid_labels_before_publishing(input_documents: list[Document]) -> None:
+    deployment = ExampleDeployment()
+    publisher = _MemoryPublisher()
+
+    with pytest.raises(ValueError, match="Label key 'bad key' is invalid"):
+        deployment.run_local(
+            "run-local-invalid-labels",
+            input_documents,
+            _TestOptions(),
+            labels={"bad key": "x"},
+            publisher=publisher,
+        )
+
+    assert publisher.events == []
+    assert publisher.heartbeats == []

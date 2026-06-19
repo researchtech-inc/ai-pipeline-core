@@ -106,6 +106,36 @@ def test_proxy_headers_include_correlation_and_sanitized_tenant() -> None:
     }
 
 
+def test_proxy_headers_are_ascii_safe_for_httpx() -> None:
+    request = _attribution_request(
+        tenant=TenantSpec(
+            project="café-project",
+            workload_stage="résumé\x85stage",
+            run_id="run-id",
+            workload_kind="summary",
+        )
+    )
+    attempt = _attribution_attempt(request)
+    correlation = replace(
+        attempt.correlation,
+        requested_model="模型-model",
+        prev_model="modèle-prev",
+        prev_deployment_id="déploiement-1\x85",
+    )
+    attempt = replace(attempt, correlation=correlation)
+
+    with override_config(LLMCoreConfig(openai_base_url="https://proxy.example/v1", openai_api_key="key")):
+        headers = _transport.build_request_headers(attempt)
+
+    httpx.Headers(headers)
+    assert all(value.isascii() for value in headers.values())
+    assert headers["x-aipl-requested-model"] == "-model"
+    assert headers["x-aipl-prev-model"] == "modle-prev"
+    assert headers["x-aipl-prev-deployment-id"] == "dploiement-1"
+    assert headers["x-aipl-project"] == "caf-project"
+    assert headers["x-aipl-workload-stage"] == "rsumstage"
+
+
 def test_direct_mode_omits_aipl_headers_metadata_and_cache_protocol() -> None:
     request = _attribution_request(
         tenant=TenantSpec(project="tenant", workload_stage="stage", run_id="run"),
@@ -139,6 +169,14 @@ def test_tenant_user_omits_empty_suffixes_but_preserves_run_position() -> None:
             _transport.tenant_user(_attribution_attempt(_attribution_request(tenant=TenantSpec(run_id="run"))))
             == "tenant//run"
         )
+
+
+def test_tenant_user_strips_controls_but_preserves_printable_unicode() -> None:
+    request = _attribution_request(
+        tenant=TenantSpec(project="café\nproject", workload_stage="étude\rstage\x85", run_id="run")
+    )
+
+    assert _transport.tenant_user(_attribution_attempt(request)) == "caféproject/étudestage/run"
 
 
 def test_call_context_links_retries_and_fallbacks_with_one_logical_request_id() -> None:
@@ -468,3 +506,31 @@ async def test_fetch_trace_logs_non_200(
     assert trace is None
     assert f"status={status_code}" in caplog.text
     assert "http://proxy/aipl/trace/call-123" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_trace_url_encodes_proxy_supplied_call_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_urls: list[str] = []
+
+    class TraceClient:
+        def __init__(self, *, timeout: float) -> None:
+            self.timeout = timeout
+
+        async def __aenter__(self) -> TraceClient:
+            return self
+
+        async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+            _ = (exc_type, exc, traceback)
+
+        async def get(self, url: str, *, headers: dict[str, str]) -> httpx.Response:
+            _ = headers
+            captured_urls.append(url)
+            return httpx.Response(200, json={}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(_aipl.httpx, "AsyncClient", TraceClient)
+    config = LLMCoreConfig(openai_api_key="key", openai_base_url="http://proxy/v1")
+    with override_config(config):
+        trace = await _aipl.fetch_trace("call/../x?debug=true#frag")
+
+    assert trace == {}
+    assert captured_urls == ["http://proxy/aipl/trace/call%2F..%2Fx%3Fdebug%3Dtrue%23frag"]

@@ -22,6 +22,12 @@ __all__ = [
 
 # Regex for detecting data URIs (RFC 2397): data:<mime>;base64,<payload>
 _DATA_URI_PATTERN = re.compile(r"^data:[a-zA-Z0-9.+/-]+;base64,")
+_MIME_TYPE_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.+-]*/[a-zA-Z0-9][a-zA-Z0-9.+-]*$")
+_FALLBACK_MIME_TYPE = "application/octet-stream"
+
+
+def _safe_mime_type(mime_type: str) -> str:
+    return mime_type if _MIME_TYPE_PATTERN.fullmatch(mime_type) else _FALLBACK_MIME_TYPE
 
 
 def _serialize_content_bytes(content: bytes, mime_type: str) -> str:  # pyright: ignore[reportUnusedFunction]  # used by document.py and attachment.py
@@ -30,7 +36,7 @@ def _serialize_content_bytes(content: bytes, mime_type: str) -> str:  # pyright:
         return content.decode("utf-8")
     except UnicodeDecodeError:
         encoded = base64.b64encode(content).decode("ascii")
-        return f"data:{mime_type};base64,{encoded}"
+        return f"data:{_safe_mime_type(mime_type)};base64,{encoded}"
 
 
 def sanitize_url(url: str) -> str:
@@ -41,8 +47,8 @@ def sanitize_url(url: str) -> str:
         # Use domain + path
         url = parsed.netloc + parsed.path
 
-    # Replace invalid filename characters
-    sanitized = re.sub(r'[<>:"/\\|?*]', "_", url)
+    # Replace non-filename-safe characters
+    sanitized = re.sub(r"[^a-zA-Z0-9_.-]", "_", url)
 
     # Replace multiple underscores with single one
     sanitized = re.sub(r"_+", "_", sanitized)

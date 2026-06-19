@@ -79,6 +79,7 @@ from ._helpers import (
     build_auto_run_id,
     class_name_to_deployment_name,
     extract_generic_params,
+    validate_labels,
     validate_run_id,
 )
 from ._plan_helpers import apply_group_stop_gates, evaluate_field_gate, gate_reason, warn_on_unused_flow_outputs
@@ -483,6 +484,7 @@ class PipelineDeployment(Generic[TOptions, TResult]):
     ) -> TResult | None:
         """Core deployment execution with append-only span tracking."""
         validate_run_id(run_id)
+        validate_labels(labels)
 
         if publisher is None:
             publisher = _NoopPublisher()

@@ -5,6 +5,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast, get_args
+from urllib.parse import quote
 
 import httpx
 
@@ -342,7 +343,7 @@ async def fetch_trace(call_id: str | None) -> dict[str, Any] | None:
     proxy_root = _proxy_root()
     if not proxy_root or not api_key:
         return None
-    url = f"{proxy_root}/aipl/trace/{call_id}"
+    url = f"{proxy_root}/aipl/trace/{quote(call_id, safe='')}"
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             response = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})

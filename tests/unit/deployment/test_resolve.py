@@ -111,9 +111,30 @@ class TestDeriveName:
         name = _derive_name("https://example.com/path", 'attachment; filename="report.pdf"')
         assert name == "report.pdf"
 
+    def test_from_quoted_content_disposition_with_spaces(self):
+        name = _derive_name(
+            "https://example.com/path",
+            'attachment; filename="Bethink - Więcej niż Matura.pdf"',
+        )
+        assert name == "Bethink - Więcej niż Matura.pdf"
+
+    def test_rfc5987_filename_takes_precedence_over_plain_filename(self):
+        name = _derive_name(
+            "https://example.com/download",
+            "attachment; filename=ignored.pdf; filename*=UTF-8''Bethink%20-%20Wi%C4%99cej%20ni%C5%BC%20Matura.pdf",
+        )
+        assert name == "Bethink - Więcej niż Matura.pdf"
+
     def test_from_url_path(self):
         name = _derive_name("https://example.com/docs/report.pdf?token=abc", None)
         assert name == "report.pdf"
+
+    def test_from_percent_encoded_url_path(self):
+        name = _derive_name(
+            "https://example.com/docs/Bethink%20-%20Wi%C4%99cej%20ni%C5%BC%20Matura.pdf?token=abc",
+            None,
+        )
+        assert name == "Bethink - Więcej niż Matura.pdf"
 
     def test_empty_path(self):
         name = _derive_name("https://example.com/", None)
@@ -280,6 +301,21 @@ class TestResolveUrlDocumentNameDerivation:
         result = await resolve_document_inputs(inputs, [ResolveDoc])
         assert len(result) == 1
         assert result[0].name == "derived.pdf"
+
+    @patch("ai_pipeline_core.deployment._resolve._validate_url", new_callable=AsyncMock)
+    @patch(
+        "ai_pipeline_core.deployment._resolve._fetch_url",
+        new_callable=AsyncMock,
+        return_value=(
+            b"data",
+            "attachment; filename*=UTF-8''Bethink%20-%20Wi%C4%99cej%20ni%C5%BC%20Matura.pdf",
+        ),
+    )
+    async def test_derives_decoded_rfc5987_name_from_disposition(self, mock_fetch, mock_validate):
+        inputs = [_DocumentInput(url="https://example.com/path", class_name="ResolveDoc")]
+        result = await resolve_document_inputs(inputs, [ResolveDoc])
+        assert len(result) == 1
+        assert result[0].name == "Bethink - Więcej niż Matura.pdf"
 
     @patch("ai_pipeline_core.deployment._resolve._validate_url", new_callable=AsyncMock)
     @patch("ai_pipeline_core.deployment._resolve._fetch_url", new_callable=AsyncMock, return_value=(b"data", None))

@@ -12,10 +12,14 @@ from typing import Any
 import pytest
 
 from ai_pipeline_core._llm_core.model_response import ModelResponse
+from ai_pipeline_core.llm import AIModel
 from ai_pipeline_core.pipeline._execution_context import _RunContext
 from ai_pipeline_core.pipeline._execution_context import set_run_context
 from prefect.logging import disable_run_logger
 from prefect.testing.utilities import prefect_test_harness
+
+AIModel.model_fields["skip_cost_optimized"].default = True
+AIModel.model_rebuild(force=True)
 
 pytest_plugins = ("tests.support.helpers", "tests.support.model_catalog")
 

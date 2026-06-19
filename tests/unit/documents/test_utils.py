@@ -3,7 +3,14 @@
 import pytest
 
 from ai_pipeline_core.documents import Document
-from ai_pipeline_core.documents.utils import ensure_extension, find_document, replace_extension, sanitize_url
+from ai_pipeline_core.documents.utils import (
+    _DATA_URI_PATTERN,
+    _serialize_content_bytes,
+    ensure_extension,
+    find_document,
+    replace_extension,
+    sanitize_url,
+)
 from ai_pipeline_core.exceptions import DocumentNameError, DocumentValidationError
 
 
@@ -50,14 +57,27 @@ class TestSanitizeUrl:
         """Test complex URL patterns."""
         # URLs with query strings - query part is ignored when parsing
         assert sanitize_url("https://api.example.com/v1/resource?id=123&type=pdf") == "api.example.com_v1_resource"
-        # FTP URLs aren't handled by the http/https check, @ is preserved
-        assert sanitize_url("ftp://user:pass@host.com/file.txt") == "ftp_user_pass@host.com_file.txt"
+        # FTP URLs aren't parsed as URLs, but the result is still filename-safe
+        assert sanitize_url("ftp://user:pass@host.com/file.txt") == "ftp_user_pass_host.com_file.txt"
 
     def test_query_strings(self):
         """Test handling of query strings without protocol."""
-        # Query strings without protocol preserve ? and &
-        assert sanitize_url("search?q=test&page=1") == "search_q=test&page=1"
-        assert sanitize_url("file.php?download=true") == "file.php_download=true"
+        assert sanitize_url("search?q=test&page=1") == "search_q_test_page_1"
+        assert sanitize_url("file.php?download=true") == "file.php_download_true"
+
+    def test_removes_control_and_shell_metacharacters(self):
+        result = sanitize_url("a\nb.txt?q=$(echo bad);rm -rf /")
+
+        assert result == "a_b.txt_q_echo_bad_rm_-rf"
+        assert all(ch.isalnum() or ch in "._-" for ch in result)
+
+
+class TestSerializeContentBytes:
+    def test_binary_data_uri_uses_safe_mime_type(self):
+        serialized = _serialize_content_bytes(b"\x80", "image/png\r\n;bad=true")
+
+        assert serialized == "data:application/octet-stream;base64,gA=="
+        assert _DATA_URI_PATTERN.match(serialized)
 
 
 class TestEnsureExtension:

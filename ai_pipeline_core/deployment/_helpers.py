@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,11 +49,16 @@ __all__ = [
     "_log_flush_loop",
     "class_name_to_deployment_name",
     "extract_generic_params",
+    "validate_labels",
     "validate_run_id",
 ]
 
 _RUN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 MAX_RUN_ID_LENGTH = 100
+_LABEL_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+MAX_LABEL_KEY_LENGTH = 64
+MAX_LABEL_VALUE_BYTES = 256
+MAX_LABELS = 50
 
 # Fields added by run_cli()'s _CliOptions that should not affect fingerprints (run scope or remote run_id)
 _CLI_FIELDS: frozenset[str] = frozenset({"working_directory", "run_id", "start", "end"})
@@ -88,11 +94,48 @@ def validate_run_id(run_id: str) -> None:
             f"run_id '{run_id[:20]}...' is {len(run_id)} chars, max is {MAX_RUN_ID_LENGTH}. "
             "Shorten the base run_id before passing to the deployment."
         )
-    if not _RUN_ID_PATTERN.match(run_id):
+    if not _RUN_ID_PATTERN.fullmatch(run_id):
         raise ValueError(
             f"run_id '{run_id}' contains invalid characters. "
             f"Only alphanumeric characters, underscores, and hyphens are allowed (pattern: {_RUN_ID_PATTERN.pattern})."
         )
+
+
+def validate_labels(labels: object | None) -> None:
+    """Validate deployment labels before they are persisted or published.
+
+    Labels are mirrored into Pub/Sub attributes, so keys must be strict ASCII
+    identifiers and values must exclude control characters. Value length is
+    bounded in UTF-8 bytes because the transport limit is byte-based.
+    """
+    if labels is None:
+        return
+    if not isinstance(labels, dict):
+        raise TypeError(f"labels must be dict[str, str], got {type(labels).__name__}.")
+    if len(labels) > MAX_LABELS:
+        raise ValueError(f"labels supports at most {MAX_LABELS} entries, got {len(labels)}.")
+
+    for key, value in labels.items():
+        if not isinstance(key, str):
+            raise TypeError(f"Label key must be str, got {type(key).__name__}.")
+        if not key:
+            raise ValueError("Label keys must not be empty.")
+        if len(key) > MAX_LABEL_KEY_LENGTH:
+            raise ValueError(
+                f"Label key {key!r} is {len(key)} chars, max is {MAX_LABEL_KEY_LENGTH}. Shorten the label key."
+            )
+        if not _LABEL_KEY_PATTERN.fullmatch(key):
+            raise ValueError(f"Label key {key!r} is invalid. Keys must match {_LABEL_KEY_PATTERN.pattern}.")
+        if not isinstance(value, str):
+            raise TypeError(f"Label value for key {key!r} must be str, got {type(value).__name__}.")
+        invalid_chars = [char for char in value if unicodedata.category(char) == "Cc"]
+        if invalid_chars:
+            raise ValueError(f"Label value for key {key!r} contains control characters, which are not allowed.")
+        value_bytes = len(value.encode("utf-8"))
+        if value_bytes > MAX_LABEL_VALUE_BYTES:
+            raise ValueError(
+                f"Label value for key {key!r} is {value_bytes} UTF-8 bytes, max is {MAX_LABEL_VALUE_BYTES}."
+            )
 
 
 def build_auto_run_id(*, output_dir_name: str, documents: Sequence[Document], options: FlowOptions) -> str:

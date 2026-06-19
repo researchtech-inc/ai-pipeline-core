@@ -11,9 +11,13 @@ from ai_pipeline_core import (
 )
 from ai_pipeline_core.deployment import DeploymentResult
 from ai_pipeline_core.deployment._helpers import (
+    MAX_LABEL_KEY_LENGTH,
+    MAX_LABEL_VALUE_BYTES,
+    MAX_LABELS,
     MAX_RUN_ID_LENGTH,
     class_name_to_deployment_name,
     extract_generic_params,
+    validate_labels,
     validate_run_id,
 )
 
@@ -109,6 +113,10 @@ class TestValidateRunId:
         with pytest.raises(ValueError, match="invalid characters"):
             validate_run_id("my run")
 
+    def test_rejects_trailing_newline(self):
+        with pytest.raises(ValueError, match="invalid characters"):
+            validate_run_id("run\n")
+
     def test_rejects_dots(self):
         with pytest.raises(ValueError, match="invalid characters"):
             validate_run_id("v1.0.0")
@@ -124,3 +132,71 @@ class TestValidateRunId:
     def test_rejects_at_sign(self):
         with pytest.raises(ValueError, match="invalid characters"):
             validate_run_id("user@host")
+
+
+class TestValidateLabels:
+    """Tests for deployment label validation."""
+
+    def test_accepts_simple_labels(self) -> None:
+        validate_labels({"env": "prod", "tenant.id": "acme", "region-1": "Warszawa"})
+
+    def test_accepts_printable_unicode_value(self) -> None:
+        validate_labels({"city": "São Paulo"})
+
+    def test_rejects_non_dict_container(self) -> None:
+        with pytest.raises(TypeError, match=r"labels must be dict\[str, str\]"):
+            validate_labels([("env", "prod")])  # type: ignore[arg-type]  # negative test
+
+    def test_rejects_too_many_labels(self) -> None:
+        labels = {f"k{i}": "v" for i in range(MAX_LABELS + 1)}
+        with pytest.raises(ValueError, match=f"at most {MAX_LABELS}"):
+            validate_labels(labels)
+
+    def test_rejects_non_string_key(self) -> None:
+        with pytest.raises(TypeError, match="Label key must be str"):
+            validate_labels({1: "prod"})  # type: ignore[arg-type]  # negative test
+
+    def test_rejects_empty_key(self) -> None:
+        with pytest.raises(ValueError, match="must not be empty"):
+            validate_labels({"": "prod"})
+
+    def test_rejects_key_with_space(self) -> None:
+        with pytest.raises(ValueError, match="invalid"):
+            validate_labels({"bad key": "prod"})
+
+    def test_rejects_key_with_control_character(self) -> None:
+        with pytest.raises(ValueError, match="invalid"):
+            validate_labels({"bad\nkey": "prod"})
+
+    def test_rejects_key_with_trailing_newline(self) -> None:
+        with pytest.raises(ValueError, match="invalid"):
+            validate_labels({"team\n": "prod"})
+
+    def test_rejects_key_with_non_ascii(self) -> None:
+        with pytest.raises(ValueError, match="invalid"):
+            validate_labels({"tęam": "prod"})
+
+    def test_rejects_overlong_key(self) -> None:
+        with pytest.raises(ValueError, match=f"max is {MAX_LABEL_KEY_LENGTH}"):
+            validate_labels({"a" * (MAX_LABEL_KEY_LENGTH + 1): "prod"})
+
+    def test_rejects_non_string_value(self) -> None:
+        with pytest.raises(TypeError, match="must be str"):
+            validate_labels({"env": 1})  # type: ignore[arg-type]  # negative test
+
+    def test_rejects_value_with_c0_control_character(self) -> None:
+        with pytest.raises(ValueError, match="control characters"):
+            validate_labels({"env": "pro\nd"})
+
+    def test_rejects_value_with_del_character(self) -> None:
+        with pytest.raises(ValueError, match="control characters"):
+            validate_labels({"env": "prod\x7f"})
+
+    def test_rejects_value_with_c1_control_character(self) -> None:
+        with pytest.raises(ValueError, match="control characters"):
+            validate_labels({"env": "prod\x85"})
+
+    def test_rejects_overlong_utf8_value(self) -> None:
+        too_long = "é" * (MAX_LABEL_VALUE_BYTES // 2 + 1)
+        with pytest.raises(ValueError, match=f"max is {MAX_LABEL_VALUE_BYTES}"):
+            validate_labels({"env": too_long})

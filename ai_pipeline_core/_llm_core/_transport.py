@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import logging
+import unicodedata
 from collections.abc import AsyncIterator, Iterable, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
@@ -235,8 +236,14 @@ def build_extra_body(req: AttemptRequest, *, prompt_cache_key: str | None) -> di
 
 
 def _safe_header_value(value: Any, *, max_len: int = _MAX_HEADER_VALUE_LEN) -> str:
-    """Strip control characters and truncate so httpx accepts the header value."""
-    text = "".join(ch for ch in str(value) if ch >= " " and ch != "\x7f")
+    """Keep printable ASCII and truncate so httpx accepts the header value."""
+    text = "".join(ch for ch in str(value) if " " <= ch <= "~")
+    return text.strip()[:max_len]
+
+
+def _safe_body_metadata_value(value: Any, *, max_len: int = _MAX_HEADER_VALUE_LEN) -> str:
+    """Strip control characters and truncate metadata sent in request bodies."""
+    text = "".join(ch for ch in str(value) if unicodedata.category(ch) != "Cc")
     return text.strip()[:max_len]
 
 
@@ -276,11 +283,11 @@ def build_request_headers(req: AttemptRequest) -> dict[str, str]:
 def tenant_user(req: AttemptRequest) -> str | None:
     """Build the OpenAI ``user`` value used for tenant attribution."""
     tenant = req.call.tenant
-    project = _safe_header_value(tenant.project or get_config().project)
+    project = _safe_body_metadata_value(tenant.project or get_config().project)
     if not project:
         return None
-    stage = _safe_header_value(tenant.workload_stage) if tenant.workload_stage else ""
-    run_id = _safe_header_value(tenant.run_id) if tenant.run_id else ""
+    stage = _safe_body_metadata_value(tenant.workload_stage) if tenant.workload_stage else ""
+    run_id = _safe_body_metadata_value(tenant.run_id) if tenant.run_id else ""
     if run_id:
         return "/".join([project, stage, run_id])
     if stage:
